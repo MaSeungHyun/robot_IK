@@ -112,7 +112,9 @@ export function createRobotIK(model: Group) {
     let minimumHeight = Infinity;
     // Sample the same speed-limited trajectory used by animate(), not a
     // straight line between end-effector positions or just the endpoint.
-    const samples = Math.max(1, Math.ceil(duration * 60));
+    const samples = Math.max(1, Math.ceil(duration * 60),
+      ...angles.map((a,i)=>Math.ceil(Math.abs(a-savedAngles[i])/0.01)),
+      Math.ceil(Math.abs(origin.z+destinationRail-savedPosition.z)/0.005));
     for (let sample = 0; sample <= samples && safe; sample++) {
       const progress = sample / samples;
       controls.forEach((control, i) => setJointAngle(control, MathUtils.lerp(savedAngles[i], angles[i], progress)));
@@ -210,7 +212,7 @@ export function createRobotIK(model: Group) {
     const currentRail = model.position.z - origin.z;
     let best: IKPose = { angles: controls.map(c => c.angle), rail: currentRail, error: Infinity, reachable: false };
     let bestCost = Infinity;
-    const alternatives: IKStep[] = [];
+    const alternatives: (IKStep & {error:number})[] = [];
     function attempt(seed: number[], freezeWrist: boolean) {
       rail.setDoFValue(DOF.Z, currentRail);
       hinges.forEach((joint, i) => {
@@ -230,7 +232,7 @@ export function createRobotIK(model: Group) {
       const angles = offsets.map((v, i) => v + controls[i].initialX);
       const railPosition = Number(rail.getDoFValue(DOF.Z));
       const trajectory = reachable ? checkPath(angles, railPosition, worldTarget, wristAbove) : { safe: false, minimumHeight: 0 };
-      if (reachable && !trajectory.safe && !alternatives.some(a => a.angles.every((v,i)=>Math.abs(v-angles[i])<0.1))) alternatives.push({angles,rail:railPosition});
+      if (reachable && !trajectory.safe && !alternatives.some(a => a.angles.every((v,i)=>Math.abs(v-angles[i])<0.1))) alternatives.push({angles,rail:railPosition,error});
       const travel = offsets.reduce((sum, v, i) => sum + (v - saved[i]) ** 2 * (i === 2 ? 4 : 1), 0);
       const cost = reachable && trajectory.safe ? travel : 100000 + error;
       if (cost < bestCost) {
@@ -256,7 +258,7 @@ export function createRobotIK(model: Group) {
     if (!best.reachable) {
       for (const candidate of alternatives.sort((a,b)=>a.angles.reduce((sum,v,i)=>sum+(v-controls[i].angle)**2,0)-b.angles.reduce((sum,v,i)=>sum+(v-controls[i].angle)**2,0)).slice(0,12)) {
         const route=findRoute(candidate,worldTarget,wristAbove);
-        if(route) {best={...candidate,error:0,reachable:true,route,step:0};break;}
+        if(route) {best={...candidate,reachable:true,route,step:0};break;}
       }
     }
     return best;
@@ -279,7 +281,16 @@ export function createRobotIK(model: Group) {
     });
     model.position.z = MathUtils.lerp(model.position.z, origin.z + target.rail, progress);
     model.updateWorldMatrix(true, true);
-    if (collisions.collision()) {
+    const nextAngles=controls.map(c=>c.angle), nextPosition=model.position.clone();
+    const samples=Math.max(1,...nextAngles.map((a,i)=>Math.ceil(Math.abs(a-savedAngles[i])/0.01)),Math.ceil(Math.abs(nextPosition.z-savedPosition.z)/0.005));
+    let blocked=false;
+    for(let sample=1;sample<=samples;sample++) {
+      controls.forEach((control,i)=>setJointAngle(control,MathUtils.lerp(savedAngles[i],nextAngles[i],sample/samples)));
+      model.position.lerpVectors(savedPosition,nextPosition,sample/samples);
+      model.updateWorldMatrix(true,true);
+      if(collisions.collision()){blocked=true;break;}
+    }
+    if (blocked) {
       controls.forEach((control, i) => setJointAngle(control, savedAngles[i]));
       model.position.copy(savedPosition);
       model.updateWorldMatrix(true, true);

@@ -3,8 +3,8 @@ import path from 'node:path';
 import ts from 'typescript';
 import * as T from 'three';
 
-// Exercise the actual GLB hierarchy with bounding-box geometry, avoiding a
-// browser/image-decoder dependency while preserving every model transform.
+// Read actual GLB triangle geometry without decoding textures, preserving
+// model transforms and exercising the same BVH collision tests as the app.
 function load(name) {
   const buffer = fs.readFileSync(`src/assets/models/${name}.glb`);
   const gltf = JSON.parse(buffer.subarray(20, 20 + buffer.readUInt32LE(12)).toString());
@@ -64,13 +64,13 @@ for (const fps of [30,60]) {
       minimumGripY=Math.min(ik.grip.getWorldPosition(new T.Vector3()).y,target.y)-0.025;
       const oldAngles=ik.controls.map(c=>c.angle), oldPosition=m.position.clone();
       lowering=Boolean(options[0]) && Boolean(demo.transfers[completed]) && target.distanceTo(demo.transfers[completed].destination)<1e-6;
-      const pose=plan(target,...options); if(pose.route) minimumGripY=0.25; if(!pose.reachable && target.length()<10) console.log("failed",target.toArray(),pose,ik.collisions.lastHit);
+      const pose=plan(target,...options); if(pose.route) minimumGripY=0.25;
 
       if (m.position.distanceTo(oldPosition)>1e-8 || ik.controls.some((c,i)=>Math.abs(c.angle-oldAngles[i])>1e-8)) throw Error('Planning changed displayed pose');
       return pose;
     };
     return ik;
-  },{current:demo.transfers},(count,status)=>{completed=count;if(status.includes("없음"))console.log(status,ik.collisions.collision());});
+  },{current:demo.transfers},count=>{completed=count;});
   const world = new T.Group(); world.add(demo.root,model);
   const rest3 = model.getObjectByName('hand03').quaternion.clone();
   const movingArmMeshes=[];
@@ -83,6 +83,7 @@ for (const fps of [30,60]) {
   for (let i=0;i<fps*600 && completed<10;i++) {
     const previouslyCompleted=completed;
     frame(null,1/fps);
+    if (ik.collisions.collision()) throw Error(`Collision during animation: ${ik.collisions.lastHit}`);
     if (lowering || completed>previouslyCompleted) {
       const wristBounds=new T.Box3();
       for(const mesh of movingArmMeshes) {
@@ -108,7 +109,27 @@ for (const fps of [30,60]) {
   if (placed!==10 || completed!==10) throw Error(`Only ${placed}/10 placed at ${fps} fps`);
   // A distant goal must fail rather than attach/move to a fabricated pose.
   if (ik.plan(new T.Vector3(100,100,100)).reachable) throw Error('Unreachable goal accepted');
-  console.log(`${fps} fps: 10/10 placed; limits, floor/approach clearance, wrist-above-cargo lowering, fixed hand03, GLB alignment and unreachable goal passed`);
+  ik.collisions.setContext({boxes:[],active:demo.transfers[9].box,carrying:false});
+  const safePose=ik.plan(ik.grip.getWorldPosition(new T.Vector3()).add(new T.Vector3(0,0.12,0)));
+  if(!safePose.reachable) throw Error('Runtime collision fixture has no initial plan');
+  const blocker=new T.Group(); blocker.add(new T.Mesh(new T.BoxGeometry(1,1.2,1)));
+  const base=model.getObjectByName('base.009');
+  blocker.position.copy(new T.Box3().setFromObject(base).getCenter(new T.Vector3()));
+  world.add(blocker);
+  ik.collisions.setContext({boxes:[blocker],active:demo.transfers[9].box,carrying:false});
+  if(!ik.collisions.collision()) throw Error('Robot/body collision was not detected');
+  const beforeAngles=ik.controls.map(c=>c.angle), beforePosition=model.position.clone();
+  if(ik.animate(safePose,1/fps)) throw Error('Runtime obstacle did not stop animation');
+  if(model.position.distanceTo(beforePosition)>1e-8 || ik.controls.some((c,i)=>Math.abs(c.angle-beforeAngles[i])>1e-8)) throw Error('Collision rollback failed');
+  world.remove(blocker);
+  const held=demo.transfers[9].box;
+  const duplicate=held.clone(true);
+  duplicate.position.copy(held.getWorldPosition(new T.Vector3()));
+  duplicate.quaternion.copy(held.getWorldQuaternion(new T.Quaternion()));
+  world.add(duplicate);ik.grip.attach(held);
+  ik.collisions.setContext({boxes:[held,duplicate],active:held,carrying:true});
+  if(!ik.collisions.collision()) throw Error('Held/placed cargo overlap was not detected');
+  console.log(`${fps} fps: 10/10 collision-free transfers; limits, wrist placement, body/cargo obstacles and runtime rollback passed`);
 }
 
 

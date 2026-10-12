@@ -78,8 +78,9 @@ export default defineConfig([
 
 The scene starts with 10 boxes on the right pallet. It removes the upper
 layer first and transfers each box onto the left pallet. Cargo attaches to
-GripPoint only after the arm reaches the pickup point, stays upright during
-transport, and detaches at its planned position.
+GripPoint only after the arm reaches the pickup point, preserves its world
+contact pose, and detaches at its planned position. It lifts upright first,
+then follows the gripper during transport and returns upright for placement.
 
 `src/features/stacking.ts` compares the two uniform rectangular grid
 orientations and selects the higher per-layer capacity. It fills each layer
@@ -92,8 +93,8 @@ hand03 stays fixed at its exported pose. Blender XYZ X angles are limited to
 [-90, 90] degrees for hand01 and [-240, -50] degrees for hand02. Initial
 GLB quaternions are converted back to Blender XYZ to measure absolute angles,
 so these limits are not offsets from the imported pose. hand04 has no mechanical
-angle limit: the planner first tries keeping it still, then searches equivalent
-orientations requiring at most 180 degrees of travel per waypoint.
+angle limit: the planner prefers keeping it still and minimizing rotation.
+When the shorter path is obstructed it also considers the opposite wrist bend.
 `src/features/robotIK.ts` builds a separate kinematic chain from the GLB
 transforms and uses `closed-chain-ik/core` with an SVD damped-least-squares
 solver. A translational Z joint represents the base rail. Rotational X joints
@@ -104,8 +105,15 @@ orientation: hand04 is above GripPoint, pointing down toward the cargo.
 The wrist mesh bounds must remain at least 0.03 units above the contact height
 at those endpoints. Motors interpolate together so the aligned wrist stays
 above the cargo during lowering; release waits for all motors to settle.
-The demo uses kinematic animation; it does not simulate contact forces or
-perform full arm collision planning.
+`src/features/collisions.ts` uses oriented cargo boxes and robot mesh BVHs to
+check robot/cargo and held/placed cargo collisions. It permits the intended
+hand05 top-face grasp and resting contacts (0.002-unit penetration tolerance).
+When a direct path is blocked, opposite hand01/hand02 retreats are tested first,
+with coordinated hand04 rotation, followed by deterministic RRT exploration.
+All segments and payload reorientations are sampled before use; animation
+checks intermediate steps again and rolls back if an obstacle has moved.
+The demo is kinematic: robot self-collision, pallet/environment geometry and
+contact forces are not modeled. Sampling is not continuous collision detection.
 
 The scene initially stays at the exported robot pose. Use Start / Continue to run, Pause to inspect, and Restore initial pose to reset the demo. Box count, pallet positions and
 model scales are configured in `src/features/Canvas.tsx`. Grid clearance is
@@ -123,11 +131,14 @@ lower of its start/target heights, or hand02–hand05 mesh bounds cross the
 nearer solution sweeps downward. If no candidate passes, the demo stops.
 The source pallet center is X=2.3 and destination center is
 X=-1.6, keeping the targets inside this restricted workspace. Cargo attaches
-only within the contact tolerance. Full-body collision avoidance is not included.
+only within the contact tolerance. Cargo is not snapped into an approximate
+IK contact point, preventing wrist overlap on attachment. Collision detours may
+lower the tip to 0.25 units, while checking arm and cargo clearance from the floor.
 
 The IK dependency is pinned to upstream commit
 `1132da3dc3ac774426e9af503e4915bc04ca413b` (package version 0.0.7).
 Use `npm run test:ik` to verify all 10 transfers at 30/60 fps, joint limits,
-fixed hand03, GLB/IK transform alignment, floor/approach clearance, and rejection of unreachable targets.
-The test uses GLB accessor bounds instead of rendering textures; it does not
-validate visual appearance or arm/body collisions.
+fixed hand03, GLB/IK transform alignment, floor/approach clearance, rejection of
+unreachable targets, collision-free transfers, body and overlapping cargo
+obstacles, and runtime rollback. It reads actual GLB triangle geometry without
+decoding textures; it does not validate visual appearance.

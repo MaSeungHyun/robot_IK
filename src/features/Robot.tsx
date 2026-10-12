@@ -65,11 +65,15 @@ export default function Robot({ jobs, running, onProgress, ...props }: Props) {
     }
     if (!r.pose.reachable) return;
     if (!ik.animate(r.pose, dt)) {
-      onProgress(r.index, "충돌 위험으로 이동 정지");
+      if (!r.reported) {
+        onProgress(r.index, "충돌 위험으로 이동 정지");
+        r.reported = true;
+      }
       return;
     }
     if (r.stage === 2) {
-      // Vacuum-gripper demo: keep cargo upright while its position follows GripPoint.
+      // Lift upright first; then cargo follows the gripper during bends and
+      // returns upright at the downward-oriented destination pose.
       grip.getWorldQuaternion(r.quaternion).invert();
       if (r.waypoint >= 1) job.box.quaternion.copy(ik.carryRotation);
       else job.box.quaternion.copy(r.quaternion);
