@@ -1,4 +1,4 @@
-import { Box3, Group, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from "three";
+import { Box3, DoubleSide, Group, Matrix4, Mesh, Quaternion, Ray, Vector3, type Object3D } from "three";
 import { OBB } from "three/addons/math/OBB.js";
 import { MeshBVH } from "three-mesh-bvh";
 
@@ -25,6 +25,7 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
   const point = new Vector3();
   const narrowBox = new Box3();
   const boxToMesh = new Matrix4();
+  const insideRay = new Ray(new Vector3(), new Vector3(0.937,0.231,0.263).normalize());
 
   function collider(box: Group) {
     let cached = cargo.get(box);
@@ -81,7 +82,15 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
       // broad phase. Empty space in large arm bounds is not an obstacle.
       boxToMesh.copy(part.node.matrixWorld).invert().multiply(box.node.matrixWorld);
       narrowBox.copy(box.local).expandByScalar(-0.002);
-      if (!part.bvh!.intersectsBox(narrowBox, boxToMesh)) continue;
+      if (!part.bvh!.intersectsBox(narrowBox, boxToMesh)) {
+        // A cargo volume wholly inside a closed robot mesh may not cross
+        // any triangles. Odd ray parity detects that containment case.
+        narrowBox.getCenter(insideRay.origin).applyMatrix4(boxToMesh);
+        const hits = part.bvh!.raycast(insideRay, DoubleSide).sort((a,b)=>a.distance-b.distance);
+        let crossings=0, lastDistance=-Infinity;
+        for (const hit of hits) if (hit.distance-lastDistance>1e-5) {crossings++;lastDistance=hit.distance;}
+        if (crossings % 2 === 0) continue;
+      }
       // Only the end gripper can make the intended top-face pickup contact.
       if (box.node === context.active && part.part === "hand05") {
         grip.getWorldPosition(point);
