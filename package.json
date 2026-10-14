@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:ik": "node scripts/verify-ik.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:packing": "node scripts/verify-ik.mjs --packing-only"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
