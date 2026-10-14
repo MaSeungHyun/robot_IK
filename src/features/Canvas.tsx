@@ -1,3 +1,5 @@
+import PackingPanel from "./PackingPanel";
+import type { PackingSnapshot } from "./packingDiagnostics";
 import { Canvas as R3FCanvas } from "@react-three/fiber";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { OrbitControls, useGLTF } from "@react-three/drei";
@@ -6,6 +8,8 @@ import Robot, { type Transfer } from "./Robot";
 import { planStack } from "./stacking";
 import boxUrl from "@/assets/models/box.glb?url";
 import palletUrl from "@/assets/models/pallet.glb?url";
+import ConveyorDemo from "./ConveyorDemo";
+import { STREAM_CONFIG, type StreamStats } from "./conveyor";
 
 const COUNT = 10;
 function Demo({
@@ -93,6 +97,9 @@ function Demo({
 }
 
 export default function Canvas() {
+  const [continuous,setContinuous]=useState(true);
+  const [diagnostics,setDiagnostics]=useState<PackingSnapshot|null>(null);
+  const [stats,setStats]=useState<StreamStats>({spawned:3,placed:0,passed:0,live:3,utilization:0,full:false,size:""});
   const [run, setRun] = useState(0);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState({
@@ -104,10 +111,23 @@ export default function Canvas() {
       <div className="absolute left-5 top-5 z-10 rounded-xl bg-black/70 px-5 py-4">
         <div className="font-semibold">로봇 팔레타이징 데모</div>
         <div className="mt-2 text-sm">
-          {progress.status} · {progress.count}/{COUNT}
+          {progress.status} · {continuous?`${stats.placed}개 적재`:`${progress.count}/${COUNT}`}
         </div>
+        {continuous&&<div className="mt-2 text-xs text-neutral-300">
+          <div>생성 {stats.spawned} · 이동 {stats.live} · 통과 {stats.passed}</div>
+          <div>팔레트 {stats.palletNumber??1}번 · 출고 {stats.completedPallets??0}개{stats.exchanging?" · 교체 중":""}</div>
+          <div>팔레트 {STREAM_CONFIG.palletWidth}×{STREAM_CONFIG.palletDepth}m · 높이 제한 {STREAM_CONFIG.maxStackHeight}m · 공간 사용률 {(stats.utilization*100).toFixed(1)}%</div>
+          <div>현재 박스(X×Y×Z) {stats.size||"대기"} · spline 속도 {STREAM_CONFIG.speed}m/s · 중심 간격 {STREAM_CONFIG.spacing}m</div>
+          <div>바닥면 2×2(H1/H2), 3×2(H1/H2)m</div>
+          <div>데모 로봇 형상 4배 · 실제 박스는 미터 크기</div>
+          {stats.full&&!stats.exchanging&&<div className="text-amber-300">해당 박스는 팔레트 크기 또는 지지 공간을 초과 · 통과</div>}
+        </div>}
+        <button className="mt-3 mr-2 rounded bg-neutral-600 px-3 py-1 text-sm" onClick={()=>{
+          setContinuous(value=>!value);setRunning(false);setRun(value=>value+1);setDiagnostics(null);
+          setProgress({count:0,status:"초기 자세 · 시작 대기"});setStats({spawned:3,placed:0,passed:0,live:3,utilization:0,full:false,size:""});
+        }}>{continuous?"기존 10개 데모":"연속 공급 데모"}</button>
         <div className="mt-1 text-xs text-neutral-300">
-          hand1 −90°~90° · hand2 −240°~−50° · hand3 고정
+          hand1 −90°~90° · hand2 −240°~−50° · hand3 360° 회전
         </div>
         <button
           className="mt-3 rounded bg-blue-600 px-3 py-1 text-sm"
@@ -120,33 +140,36 @@ export default function Canvas() {
           onClick={() => {
             setRunning(false);
             setProgress({ count: 0, status: "초기 자세 · 시작 대기" });
-            setRun((value) => value + 1);
+            setStats({spawned:3,placed:0,passed:0,live:3,utilization:0,full:false,size:""});
+            setRun((value) => value + 1);setDiagnostics(null);
           }}
         >
           초기 자세 복원
         </button>
       </div>
+      {continuous&&<PackingPanel snapshot={diagnostics}/>}
       <R3FCanvas
-        camera={{ position: [4, 3.5, 5], fov: 45 }}
+        key={continuous?"stream":"batch"}
+        camera={{ position: continuous?[18,13,20]:[4, 3.5, 5], fov: 45 }}
         gl={{ antialias: true }}
       >
         <ambientLight intensity={2} />
         <directionalLight position={[3, 6, 4]} intensity={2} />
         <gridHelper
-          args={[10, 20, "#64748b", "#334155"]}
+          args={[continuous?40:10, 40, "#64748b", "#334155"]}
           position={[0, -0.01, 0]}
         />
-        <mesh position={[0, 0.025, 0]}>
+        {!continuous&&<mesh position={[0, 0.025, 0]}>
           <boxGeometry args={[4.5, 0.05, 0.35]} />
           <meshStandardMaterial color="#475569" />
-        </mesh>
+        </mesh>}
         <Suspense fallback={null}>
-          <OrbitControls target={[0, 0.8, 0]} enableDamping={false} />
-          <Demo
+          <OrbitControls target={[0, continuous?2:0.8, 0]} enableDamping={false} />
+          {continuous?<ConveyorDemo key={run} running={running} onStats={setStats} onDiagnostics={setDiagnostics} onProgress={(count,status)=>setProgress({count,status})}/>:<Demo
             key={run}
             running={running}
             onProgress={(count, status) => setProgress({ count, status })}
-          />
+          />}
         </Suspense>
       </R3FCanvas>
     </div>
