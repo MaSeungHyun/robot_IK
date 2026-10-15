@@ -1,11 +1,12 @@
 import { Box3, CatmullRomCurve3, Group, Vector3 } from "three";
-import { OnlinePacker, type Placement } from "./onlinePacking";
-import type { Transfer } from "./Robot";
-import { randomPerfectSet } from "./perfectTiling";
-import { candidateKey, type CandidateView, type PackingSnapshot } from "./packingDiagnostics";
+import { OnlinePacker, type Placement } from "../../utils/packing/onlinePacking";
+import { FixedLayerPacker } from "../../utils/packing/fixedLayerPacking";
+import type { Transfer } from "../../types/robot";
+import { randomPerfectSet } from "../../utils/packing/perfectTiling";
+import { candidateKey, type CandidateView, type PackingSnapshot } from "../../utils/packing/packingDiagnostics";
 
-import { BOX_SIZES, BOX_BASE_SIZE, PALLET_BASE_SIZE, STREAM_CONFIG, CONVEYOR_PATH } from "./constants";
-export { BOX_SIZES, STREAM_CONFIG } from "./constants";
+import { BOX_SIZES, BOX_BASE_SIZE, PALLET_BASE_SIZE, STREAM_CONFIG, CONVEYOR_PATH } from "../../constants/simulation";
+export { BOX_SIZES, STREAM_CONFIG } from "../../constants/simulation";
 
 // Normalize once. The wrapper origin is the top-face centre (GripPoint).
 export function createUnitBox(asset: Group) {
@@ -41,18 +42,7 @@ type Item = {
   state: "moving" | "reserved" | "held" | "placed" | "departing" | "passed";
   attempted?: boolean;
 };
-export type StreamStats = {
-  spawned: number;
-  placed: number;
-  passed: number;
-  live: number;
-  utilization: number;
-  full: boolean;
-  size: string;
-  palletNumber?: number;
-  completedPallets?: number;
-  exchanging?: boolean;
-};
+import type { StreamStats } from "../../types/conveyor";
 
 export class ConveyorWorld {
   readonly root = new Group();
@@ -95,7 +85,7 @@ export class ConveyorWorld {
     pallet.scale.set(STREAM_CONFIG.palletWidth/PALLET_BASE_SIZE.x,STREAM_CONFIG.palletHeight/PALLET_BASE_SIZE.y,STREAM_CONFIG.palletDepth/PALLET_BASE_SIZE.z);
     pallet.position.copy(STREAM_CONFIG.center);
     this.palletTop = STREAM_CONFIG.center.y + STREAM_CONFIG.palletHeight;
-    this.packer = new OnlinePacker(new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.maxStackHeight, STREAM_CONFIG.palletDepth));
+    this.packer = new FixedLayerPacker(new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.maxStackHeight, STREAM_CONFIG.palletDepth),BOX_SIZES[0],STREAM_CONFIG.center);
     this.root.add(pallet);
     this.root.add(this.palletMotion);
     for (
@@ -106,6 +96,7 @@ export class ConveyorWorld {
       this.spawn(distance);
   }
   spawn(distance = 0) {
+    if(BOX_SIZES.length===1)this.supply.push(0);
     if(!this.supply.length){
       const heights=Array.from({length:Math.floor(STREAM_CONFIG.maxStackHeight/2)},()=>2);
       if(STREAM_CONFIG.maxStackHeight%2)heights.push(1);
@@ -203,7 +194,7 @@ export class ConveyorWorld {
       this.palletMotion.clear();
       this.items=this.items.filter(item=>item.state!=="departing");
       this.completedPallets++;this.palletNumber++;
-      this.packer=new OnlinePacker(new Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth));
+      this.packer=new FixedLayerPacker(new Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth),BOX_SIZES[0],STREAM_CONFIG.center);
       this.diagnosticCandidates=[];this.diagnosticSelected=null;this.inspectedCandidates.clear();this.placedFootprints=[];
       this.diagnosticPhase="새 팔레트 준비";this.diagnosticReason="높이 지도 초기화";
       this.pallet=this.palletTemplate.clone(true);
@@ -231,7 +222,7 @@ export class ConveyorWorld {
     this.full = false;
     item.state = "reserved";
     this.lastSize = item.size.toArray().join("×") + "m";
-    this.diagnosticCandidates=alternatives.map((p,rank)=>({...p,rank:rank+1,state:"pending",reason:"",phase:""}));
+    this.diagnosticCandidates=alternatives.map((p,rank)=>({...p,rank:p.order??rank+1,state:"pending",reason:"",phase:""}));
     this.inspectedCandidates.clear();
     const selectDiagnostic=(p:Placement)=>{
       let candidate=this.diagnosticCandidates.find(c=>candidateKey(c)===candidateKey(p));
@@ -271,10 +262,11 @@ export class ConveyorWorld {
         const candidate=this.diagnosticSelected;
         if(candidate){candidate.state=event.state;candidate.reason=event.reason;candidate.phase=event.phase;
           if(event.state!=="searching")this.inspectedCandidates.add(candidateKey(candidate));}
-        this.diagnosticPhase=event.phase==="quick"?"빠른 경로 검사":"정밀 경로 검사";
+        this.diagnosticPhase=this.packer instanceof FixedLayerPacker&&event.state==="rejected"?"순서 유지 · 현재 위치 경로 미발견":event.phase==="quick"?"빠른 경로 검사":"정밀 경로 검사";
         this.diagnosticReason=event.reason;
       },
       replanPlacement: (restart=false) => {
+        if(this.packer instanceof FixedLayerPacker)return false;
         if(restart)attemptedPlacements.clear();
         // A rotated box at the same centre is a different candidate. Try
         // every supported footprint, preserving far-to-near priority.
@@ -283,6 +275,7 @@ export class ConveyorWorld {
         return selectPlacement(next);
       },
       advancePlacementLevel:()=>{
+        if(this.packer instanceof FixedLayerPacker)return false;
         let next=alternatives.find(p=>p.bottom>placementLevel||(p.bottom===placementLevel&&accessDepth(p)>placementBand));
         if(!next&&!usedRobotFallback){
           usedRobotFallback=true;
@@ -367,6 +360,7 @@ export class ConveyorWorld {
       selected:this.diagnosticSelected?{...this.diagnosticSelected}:null,
       candidates:this.diagnosticCandidates.map(c=>({...c})),boxes:this.placedFootprints.map(p=>({...p})),
       phase:this.diagnosticPhase,reason:this.diagnosticReason,exchanging:this.exchange!==null,
+      sequence:this.packer instanceof FixedLayerPacker?{perLayer:this.packer.slotsPerLayer,layer:Math.floor(this.packer.count/this.packer.slotsPerLayer)+1,placedInLayer:this.packer.count%this.packer.slotsPerLayer,nextOrder:this.packer.count+1}:undefined,
     };
   }
 }

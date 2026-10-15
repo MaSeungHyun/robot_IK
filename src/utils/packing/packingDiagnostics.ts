@@ -8,5 +8,6 @@ export type PackingSnapshot = {
   inspected:number; candidateCount:number; selected:CandidateView|null;
   candidates:CandidateView[]; boxes:(Placement&{id:number})[];
   phase:string; reason:string; exchanging:boolean;
+  sequence?:{perLayer:number;layer:number;placedInLayer:number;nextOrder:number};
 };
 export const candidateKey=(p:Placement)=>`${p.x}:${p.z}:${p.bottom}:${p.yaw}`;

@@ -1,8 +1,8 @@
-import { PACKING } from "./constants";
+import { PACKING } from "../../constants/simulation";
 import { Vector3 } from "three";
 import { LayerTiling } from "./tiling";
 
-export type Placement = { x:number; z:number; width:number; depth:number; height:number; bottom:number; yaw:number; revision:number; preservesTiling?:boolean };
+export type Placement = { x:number; z:number; width:number; depth:number; height:number; bottom:number; yaw:number; revision:number; preservesTiling?:boolean; order?:number };
 
 // Online best-fit heightmap: full footprint support, no overlap/overhang.
 // This is a heuristic for unknown future arrivals, not a global optimum.
@@ -32,15 +32,20 @@ export class OnlinePacker {
     const result:{placement:Placement;score:number[]}[]=[];
     const peak=Math.max(0,...this.heights);
     const completion=new Map<number,{mask:bigint;shapes:[number,number][];possible:boolean|null}>();
+    const unitW=Math.round(size.x/this.cell),unitD=Math.round(size.z/this.cell);
+    const uniformPattern=knownSizes?.length===1&&knownSizes[0].distanceTo(size)<PACKING.epsilon
+      &&unitW>0&&unitD>0&&Math.abs(unitW*this.cell-size.x)<PACKING.epsilon&&Math.abs(unitD*this.cell-size.z)<PACKING.epsilon
+      &&this.columns%unitW===0&&this.rows%unitD===0;
     for(const yaw of size.x===size.z?[0]:[0,Math.PI/2]) {
       const width=yaw?size.z:size.x,depth=yaw?size.x:size.z;
       const w=Math.ceil(width/this.cell-PACKING.epsilon),d=Math.ceil(depth/this.cell-PACKING.epsilon);
-      for(let z=0;z+d<=this.rows;z++)for(let x=0;x+w<=this.columns;x++) {
+      if(uniformPattern&&(this.columns%w!==0||this.rows%d!==0))continue;
+      for(let z=0;z+d<=this.rows;z+=uniformPattern?d:1)for(let x=0;x+w<=this.columns;x+=uniformPattern?w:1) {
         const bottom=this.heights[z*this.columns+x]; let flat=true,contact=0;
         for(let dz=0;dz<d;dz++)for(let dx=0;dx<w;dx++)if(Math.abs(this.heights[(z+dz)*this.columns+x+dx]-bottom)>PACKING.supportTolerance)flat=false;
         if(!flat||bottom+size.y>this.size.y+PACKING.epsilon)continue;
         let preservesTiling=true;
-        if(knownSizes?.length){
+        if(knownSizes?.length&&!uniformPattern){
           let layer=completion.get(bottom);
           if(!layer){
             let mask=0n;
@@ -70,7 +75,7 @@ export class OnlinePacker {
           if(x+w===this.columns||this.heights[(z+dz)*this.columns+x+w]>bottom)contact++;
         }
         // Project the near face toward the robot, rather than using radial
-        // distance: the rail moves along Z, so +X is the access corridor.
+        // distance: the fixed robot sits on +X; hand00 supplies lateral reach.
         const accessDepth=approachDirection
           ? Math.max(x*this.cell*approachDirection.x,(x*this.cell+width)*approachDirection.x)
             +Math.max(z*this.cell*approachDirection.z,(z*this.cell+depth)*approachDirection.z)

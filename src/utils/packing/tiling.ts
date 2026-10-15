@@ -1,4 +1,4 @@
-import { PACKING } from "./constants";
+import { PACKING } from "../../constants/simulation";
 
 // Exact cover of a small integer grid. null means the work limit was reached;
 // it must never be interpreted as proof that a placement is impossible.

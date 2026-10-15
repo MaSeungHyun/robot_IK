@@ -1,9 +1,9 @@
-import { COLLISION, MOTION } from "./constants";
+import { COLLISION, MOTION } from "../../constants/simulation";
 import { Box3, DoubleSide, Group, Matrix4, Mesh, Quaternion, Ray, Vector3, type Object3D } from "three";
 import { OBB } from "three/addons/math/OBB.js";
 import { MeshBVH } from "three-mesh-bvh";
 
-export type CollisionContext = { boxes: Group[]; active: Group; carrying: boolean; releasing?: boolean; carryRotation?: Quaternion };
+export type CollisionContext = { boxes: Group[]; active: Group; carrying: boolean; grasping?: boolean; releasing?: boolean; carryRotation?: Quaternion };
 type Collider = { node: Object3D; local: Box3; world: OBB; part: string; bvh?: MeshBVH };
 
 export function createCollisionWorld(robot: Group, grip: Object3D) {
@@ -12,7 +12,7 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
     if (!(node instanceof Mesh)) return;
     node.geometry.computeBoundingBox();
     let part: Object3D = node;
-    while (part.parent && !/^hand0[1-5]$|^base/.test(part.name)) part = part.parent;
+    while (part.parent && !/^hand0[0-5]$|^base/.test(part.name)) part = part.parent;
     robotParts.push({ node, local: node.geometry.boundingBox!.clone(), world: new OBB(), part: part.name, bvh: new MeshBVH(node.geometry) });
   });
   const cargo = new WeakMap<Group, Collider>();
@@ -21,8 +21,6 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
   const inverse = new Matrix4();
   const relative = new Matrix4();
   const bounds = new Box3();
-  const quaternion = new Quaternion();
-  const heldRotation = new Quaternion();
   const point = new Vector3();
   const narrowBox = new Box3();
   const boxToMesh = new Matrix4();
@@ -59,18 +57,16 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
   function setContext(next: CollisionContext) {
     context = next;
     next.boxes.forEach(collider);
-    if (next.carrying) next.active.getWorldQuaternion(heldRotation);
+
   }
   function syncHeld() {
     if (!context?.carrying || context.active.parent !== grip) return;
     if (context.carryRotation) context.active.quaternion.copy(context.carryRotation);
-    else {
-      grip.getWorldQuaternion(quaternion).invert();
-      context.active.quaternion.copy(quaternion).multiply(heldRotation);
-    }
+    // Otherwise preserve the attached local transform. A rigidly held box
+    // rotates with hand04; there is no world-upright counter-rotation.
     context.active.updateWorldMatrix(true, true);
   }
-  function collision(): string | null {
+  function collision(armClearance = 0): string | null {
     lastHit = null;
     if (!context) return null;
     syncHeld();
@@ -80,14 +76,16 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
     update(active);
     if (context.carrying && bounds.copy(active.local).applyMatrix4(active.node.matrixWorld).min.y < COLLISION.floorClearance) return lastHit = "held box / floor";
     for (const part of robotParts) for (const box of boxes) {
-      const heldCargo= context.carrying && box.node===context.active;
-      if(!COLLISION.armBoxCollisions&&/^hand0[1-5]$/.test(part.part)&&box.node.userData.collisionRole!=="pallet"
+      const heldCargo= (context.carrying || context.grasping) && box.node===context.active;
+      if(!COLLISION.armBoxCollisions&&/^hand0[0-5]$/.test(part.part)&&box.node.userData.collisionRole!=="pallet"
         &&!(heldCargo&&COLLISION.carriedRobotCollisions))continue;
-      if (!part.world.intersectsOBB(box.world)) continue;
+      const margin = box.node.userData.collisionRole === "pallet" ? armClearance : 0;
+      const broadBox = box.world.clone(); broadBox.halfSize.addScalar(margin);
+      if (!part.world.intersectsOBB(broadBox)) continue;
       // Exact robot triangles against the cargo volume after a cheap OBB
       // broad phase. Empty space in large arm bounds is not an obstacle.
       boxToMesh.copy(part.node.matrixWorld).invert().multiply(box.node.matrixWorld);
-      narrowBox.copy(box.local).expandByScalar(-COLLISION.restingTolerance);
+      narrowBox.copy(box.local).expandByScalar(margin - COLLISION.restingTolerance);
       if (!part.bvh!.intersectsBox(narrowBox, boxToMesh)) {
         // A cargo volume wholly inside a closed robot mesh may not cross
         // any triangles. Odd ray parity detects that containment case.
@@ -101,7 +99,8 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
       if (box.node === context.active && part.part === "hand05") {
         grip.getWorldPosition(point);
         point.applyMatrix4(inverse.copy(box.node.matrixWorld).invert());
-        const onTopFace = Math.abs(point.y-box.local.max.y)<COLLISION.graspTopTolerance
+        const onTopFace = point.y >= box.local.max.y - COLLISION.graspTopTolerance
+          && point.y <= box.local.max.y + MOTION.approachHeight + COLLISION.graspTopTolerance
           && point.x>box.local.min.x+COLLISION.graspEdgeInset && point.x<box.local.max.x-COLLISION.graspEdgeInset
           && point.z>box.local.min.z+COLLISION.graspEdgeInset && point.z<box.local.max.z-COLLISION.graspEdgeInset;
         const releasingAbove = context.releasing && point.y >= box.local.max.y - COLLISION.graspTopTolerance
@@ -124,27 +123,6 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
       }
     }
     return null;
-  }
-  function orientCargo(target: Quaternion, dt: number): "ready" | "moving" | "blocked" {
-    if (!context?.carrying || context.active.parent !== grip) return "ready";
-    const original = context.active.quaternion.clone();
-    const angle = original.angleTo(target);
-    if (angle < COLLISION.rotationTolerance) { context.carryRotation = target; syncHeld(); return "ready"; }
-    const step = Math.min(angle, dt * MOTION.angularSpeed);
-    const next = original.clone().slerp(target, step / angle);
-    // Check intermediate payload rotations too, not just the rendered frame.
-    const samples = Math.max(1, Math.ceil(step / COLLISION.rotationStep));
-    for (let i=1;i<=samples;i++) {
-      context.carryRotation = original.clone().slerp(next, i / samples);
-      if (collision()) {
-        context.carryRotation = original;
-        syncHeld();
-        return "blocked";
-      }
-    }
-    context.carryRotation = next;
-    syncHeld();
-    return step === angle ? "ready" : "moving";
   }
   function liftHeight(destinationTop:number) {
     if(!context)return destinationTop+MOTION.liftClearance;
@@ -180,5 +158,5 @@ export function createCollisionWorld(robot: Group, grip: Object3D) {
     }
     return true;
   }
-  return { setContext, syncHeld, collision, orientCargo, liftHeight, placementClear, get lastHit() { return lastHit; } };
+  return { setContext, syncHeld, collision, liftHeight, placementClear, get lastHit() { return lastHit; } };
 }

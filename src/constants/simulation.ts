@@ -1,0 +1,105 @@
+import { Vector3 } from "three";
+
+// Metres, seconds and radians unless explicitly stated otherwise.
+export const BOX_BASE_SIZE = new Vector3(1, 1, 1);
+export const PALLET_BASE_SIZE = new Vector3(1, 1, 1);
+export const BOX_SIZES = [new Vector3(0.22, 0.2, 0.275)];
+export const CONVEYOR_PATH = [
+  new Vector3(1.0625, 0.25, -1.25),
+  new Vector3(1.075, 0.25, -0.375),
+  new Vector3(1.0625, 0.25, 0.375),
+  new Vector3(1.0625, 0.25, 1.25),
+];
+export const STREAM_CONFIG = {
+  robotScale: 0.5,
+  palletHeight: 0.15,
+  palletWidth: 1.1,
+  palletDepth: 1.1,
+  maxStackHeight: 5,
+  center: new Vector3(-0.7, 0, 0),
+  // The robot approaches the pallet from +X; fill the -X edge first.
+  palletApproachDirection: new Vector3(1, 0, 0),
+  speed: 0.0625,
+  spacing: 0.5,
+  pickupStartZ: -0.625,
+  pickupEndZ: 0.375,
+  pickupExpiryZ: 0.625,
+  statsInterval: 0.5,
+  palletGridOffset: 0.0006,
+  palletExchangeDistance: 3.75,
+  palletExchangeSpeed: 0.75,
+};
+// 55mm is the common lattice for 275mm and 220mm footprints on a 1.1m pallet.
+export const PACKING = {
+  cell: 0.055,
+  epsilon: 1e-8,
+  supportTolerance: 1e-6,
+  tilingSearchStates: 3000,
+};
+export const MOTION = {
+  maxDelta: 0.05,
+  approachHeight: 0.0225,
+  predictionSeconds: 0.12,
+  trackingInterval: 0.2,
+  retryInterval: 1,
+  maxPlacementMotionRetries: 3,
+  contactTolerance: 0.003125,
+  approachTimeout: 15,
+  movingContactHold: 0.03,
+  contactHold: 0.15,
+  liftClearance: 0.08125,
+  destinationHoverClearance: 0.08,
+  maxTransportHeight: 0.775,
+  retreatHeight: 0.0375,
+  angularSpeed: 1.8,
+  baseAngularSpeed: 1.2,
+};
+export const COLLISION = {
+  armBoxCollisions: false,
+  carriedRobotCollisions: true,
+  carriedConveyorBoxCollisions: false,
+  restingTolerance: 0.00025,
+  floorClearance: 0.001875,
+  graspTopTolerance: 0.00625,
+  graspEdgeInset: 0.00125,
+  releaseOrientationToleranceDegrees: 1,
+  rayMergeTolerance: 1e-5,
+  rotationTolerance: 0.001,
+  rotationStep: 0.015,
+  cargoLiftClearance: 0.015,
+};
+export const IK_CONFIG = {
+  planningBudgetMs: 4,
+  collisionSamplesPerSlice: 16,
+  angularSample: 0.01,
+  pathSamplesPerSecond: 60,
+  placementWorldTiltToleranceDegrees: 5,
+  releaseWorldXDegrees: [-100, 80] as const,
+  settledAngle: 0.002,
+  settledBaseAngle: 0.002,
+};
+export const JOINT_SETTINGS = { lockHand3: false } as const;
+export const NUMERICAL_IK = {
+  iterations: 100,
+  iterationsPerSlice: 4,
+  initialDamping: 0.0001,
+  minimumDamping: 1e-8,
+  maximumDamping: 100,
+  derivativeStep: 0.0001,
+  maxJointStep: 0.25,
+  orientationLength: 0.3,
+  seedShoulderDegrees: [-120, -90, -45, 0, 45, 90, 120],
+  seedElbowDegrees: [-150, -90, 0, 90, 150],
+  seedRollDegrees: [0, 90, -90, 180],
+  endpointCandidates: 12,
+  cartesianStep: 0.04,
+  routeIterations: 500,
+  routeStep: 0.35,
+  positionTolerance: 0.00015,
+  planningArmClearance: 0.002,
+  planningAngularSample: 0.005,
+};
+export const JOINT_LIMITS = {
+  hand01: [-120, 120],
+  hand02: [-180, 180],
+} as const;

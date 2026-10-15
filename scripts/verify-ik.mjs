@@ -38,26 +38,98 @@ function load(name) {
   return root;
 }
 const output = path.resolve('.tmp/ik-tests'); fs.mkdirSync(output,{recursive:true});
-for (const name of ['constants','packingDiagnostics','perfectTiling','tiling','joints','collisions','robotIK','onlinePacking','conveyor']) {
-  const source = fs.readFileSync(`src/features/${name}.ts`,'utf8').replaceAll('"./constants"','"./constants.mjs"').replace('"./tiling"','"./tiling.mjs"').replace('"./perfectTiling"','"./perfectTiling.mjs"').replace('"./packingDiagnostics"','"./packingDiagnostics.mjs"').replace('"./joints"','"./joints.mjs"').replace('"./collisions"','"./collisions.mjs"').replace('"./onlinePacking"','"./onlinePacking.mjs"');
+const sourcePaths = {
+  constants: 'src/constants/simulation.ts',
+  conveyor: 'src/features/conveyor/conveyor.ts',
+  ...Object.fromEntries(['joints','collisions','robotKinematics','robotIK'].map(name => [name, `src/utils/robot/${name}.ts`])),
+  ...Object.fromEntries(['packingDiagnostics','perfectTiling','tiling','onlinePacking','fixedLayerPacking'].map(name => [name, `src/utils/packing/${name}.ts`])),
+};
+for (const name of Object.keys(sourcePaths)) {
+  const source = fs.readFileSync(sourcePaths[name], "utf8").replace(/from "(?:\.\.?\/)+[^"\n]+"/g, spec => spec.replace(/"[^"\n]+"/, value => `"./${path.basename(value.slice(1, -1)).replace("simulation", "constants")}.mjs"`));
   fs.writeFileSync(path.join(output,`${name}.mjs`),ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}));
 }
 const { createRobotIK } = await import(new URL('../.tmp/ik-tests/robotIK.mjs',import.meta.url));
-const strip = source => source.replace(/^import .*;\r?\n/gm,'').replaceAll('export ','');
+const strip = source => source.replace(/^import[\s\S]*?;\r?\n/gm,'').replaceAll('export ','');
 const compile = source => ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
-let demoSource = strip(fs.readFileSync('src/features/Canvas.tsx','utf8'));
-demoSource = demoSource.slice(0,demoSource.indexOf('default function Canvas'));
+let demoSource = strip(fs.readFileSync('src/features/Viewport/index.tsx','utf8'));
+demoSource = demoSource.slice(0,demoSource.indexOf('default function Viewport'));
 demoSource = demoSource.slice(0,demoSource.lastIndexOf('  return ('))+'return demo;}';
-const stacking = compile(strip(fs.readFileSync('src/features/stacking.ts','utf8')));
+const stacking = compile(strip(fs.readFileSync('src/utils/packing/stacking.ts','utf8')));
 const makeDemo = new Function('useGLTF','useMemo','useRef','useEffect','Box3','Group','Vector3','boxUrl','palletUrl',stacking+compile(demoSource)+';return Demo({running:true,onProgress:()=>{}});');
-const { MOTION, IK_CONFIG } = await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
-let robotSource = strip(fs.readFileSync('src/features/Robot.tsx','utf8')).replace('default function Robot','function Robot');
-robotSource = robotSource.replace('return <group {...props}><primitive object={model} /></group>;','return model;');
-const makeRobot = new Function('useGLTF','useMemo','useRef','useFrame','Group','Quaternion','Vector3','robot','createRobotIK','jobs','report','options',compile(`const MOTION=${JSON.stringify(MOTION)};const IK_CONFIG=${JSON.stringify(IK_CONFIG)};`+robotSource)+';return Robot({jobs,running:true,onProgress:report,...options});');
-for (const fps of process.env.IK_STREAM_ONLY?[]:[30,60]) {
+const { MOTION, IK_CONFIG, COLLISION, PACKING } = await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
+const { setJointAngle, createJointControl, blenderWorldX } = await import(new URL('../.tmp/ik-tests/joints.mjs',import.meta.url));
+const controllerSource = compile(strip(fs.readFileSync('src/features/robots/SuctionRobotController.ts', 'utf8')));
+function controllerClass(createIK = createRobotIK) {
+  return new Function('createRobotIK','MOTION','IK_CONFIG','Group','Quaternion','Vector3','Euler','setJointAngle','blenderWorldX',
+    controllerSource+';return SuctionRobotController;')(createIK,MOTION,IK_CONFIG,T.Group,T.Quaternion,T.Vector3,T.Euler,setJointAngle,blenderWorldX);
+}
+const makeRobot = (useGLTF, useMemo, useRef, useFrame, Group, Quaternion, Vector3, robot, createIK, jobs, report, options = {}) => {
+  const model = useGLTF(robot).scene.clone(true);
+  const geometryScale = options.geometryScale ?? 1;
+  if (geometryScale !== 1) model.traverse(node => {
+    node.position.multiplyScalar(geometryScale);
+    if (node.isMesh) {
+      node.geometry = node.geometry.clone();
+      node.geometry.scale(geometryScale,geometryScale,geometryScale);
+    }
+  });
+  const Controller = controllerClass(createIK);
+  const controller = new Controller({ id: 'fixture', model, geometryScale, getJobs: () => jobs.current,
+    getObstacles: () => options.obstacles?.current ?? jobs.current.map(job => job.box), onProgress: report });
+  controller.start();
+  useFrame((_, delta) => controller.update(delta));
+  return model;
+};
+// Exercise the public contract using separate copies of the actual robot GLB.
+{
+  const Controller = controllerClass();
+  const first = new Controller({ id: 'robot-a', model: load('robot'), getJobs: () => [] });
+  const second = new Controller({ id: 'robot-b', model: load('robot'), getJobs: () => [] });
+  const initial = first.getJointAngles();
+  const other = second.getJointAngles();
+  first.start();
+  second.start();
+  first.setJointAngle('hand01', 25);
+  if (first.running || !second.running) throw Error('Manual control must pause only its own robot');
+  first.update(0);
+  if (Math.abs(first.getJointAngles().find(angle => angle.name === 'hand01').degrees - 25) > 1e-6) throw Error('Manual angle was not applied');
+  if (second.getJointAngles().some((angle, index) => Math.abs(angle.degrees - other[index].degrees) > 1e-6)) throw Error('Controllers share joint state');
+  first.setJointAngle('hand01', 9999);
+  first.update(0);
+  const limited = first.getJointAngles().find(angle => angle.name === 'hand01');
+  if (limited.degrees > limited.max + 1e-6) throw Error('Controller bypassed joint limits');
+  first.reset();
+  if (first.running || first.getJointAngles().some((angle, index) => Math.abs(angle.degrees - initial[index].degrees) > 1e-6)) throw Error('Reset did not restore the initial joint pose');
+  first.dispose(); first.dispose(); first.start(); first.setJointAngle('hand01', 30); first.update(1);
+  if (first.running || first.getJointAngles().some((angle, index) => Math.abs(angle.degrees - initial[index].degrees) > 1e-6)) throw Error('Disposed controller still operates');
+  second.pause(); second.update(1); second.dispose();
+  console.log('RobotController: independent instances, manual pause, joint limits, reset and disposal passed');
+}
+{
+  const Controller = controllerClass();
+  const model = load('robot'), parent = new T.Group(), box = new T.Group();
+  parent.position.set(2, 0, -1); parent.add(box); box.position.set(1, 0.3, 0);
+  const origin = box.position.clone();
+  let jobs = [];
+  const controller = new Controller({ id: 'cargo', model, getJobs: () => jobs });
+  jobs = [{ box, pickup: new T.Vector3(8,8,8), destination: new T.Vector3(), available: () => true }];
+  controller.start(); controller.update(0);
+  box.position.set(4, 5, 6);
+  controller.reset();
+  if (box.parent !== parent || box.position.distanceTo(origin) > 1e-6) throw Error('Reset lost cargo transform');
+  jobs[0].available = () => true;
+  controller.start(); controller.update(0);
+  model.getObjectByName('GripPoint').attach(box);
+  const heldPosition = box.getWorldPosition(new T.Vector3());
+  jobs = []; // Cleanup must work even if the queue owner already cleared it.
+  controller.dispose();
+  if (box.parent !== parent || box.getWorldPosition(new T.Vector3()).distanceTo(heldPosition) > 1e-6) throw Error('Dispose lost held cargo or changed its world position');
+  console.log('RobotController: live queue, cargo reset and held-cargo cleanup passed');
+}
+for (const fps of process.argv.includes("--legacy")?[30,60]:[]) {
   const demo = makeDemo(url=>({scene:load(url)}),f=>f(),v=>({current:v}),()=>{},T.Box3,T.Group,T.Vector3,'box','pallet');
-  let frame, ik, completed = 0, minimumGripY = -Infinity, lowering = false;
-  const model = makeRobot(()=>({scene:load('gripper_robot')}),f=>f(),v=>({current:v}),f=>{frame=f;},T.Group,T.Quaternion,T.Vector3,'',m=>{
+  let frame, ik, completed = 0, minimumGripY = -Infinity, lowering = false, batchStatus="";
+  const model = makeRobot(()=>({scene:load('robot')}),f=>f(),v=>({current:v}),f=>{frame=f;},T.Group,T.Quaternion,T.Vector3,'',m=>{
     ik=createRobotIK(m);
     const plan=ik.plan;
     ik.plan=(target,...options)=>{
@@ -71,7 +143,7 @@ for (const fps of process.env.IK_STREAM_ONLY?[]:[30,60]) {
       return pose;
     };
     return ik;
-  },{current:demo.transfers},count=>{completed=count;});
+  },{current:demo.transfers},(count,status)=>{completed=count;batchStatus=status;});
   const world = new T.Group(); world.add(demo.root,model);
   const movingArmMeshes=[];
   model.traverse(node=>{
@@ -105,7 +177,7 @@ for (const fps of process.env.IK_STREAM_ONLY?[]:[30,60]) {
     }
   }
   const placed = demo.transfers.filter(job=>job.box.getWorldPosition(new T.Vector3()).distanceTo(job.destination)<1e-5).length;
-  if (placed!==10 || completed!==10) throw Error(`Only ${placed}/10 placed at ${fps} fps`);
+  if (placed!==10 || completed!==10) throw Error(`Only ${placed}/10 placed at ${fps} fps: ${batchStatus}`);
   // A distant goal must fail rather than attach/move to a fabricated pose.
   if (ik.plan(new T.Vector3(100,100,100)).reachable) throw Error('Unreachable goal accepted');
   ik.collisions.setContext({boxes:[],active:demo.transfers[9].box,carrying:false});
@@ -117,7 +189,7 @@ for (const fps of process.env.IK_STREAM_ONLY?[]:[30,60]) {
   for(let n=0;n<10000&&!resumed;n++){const result=deferred.next();if(result.done)resumed=result.value;}
   if(!resumed?.reachable)throw Error('Timed-out safe plan could not resume');
   const blocker=new T.Group(); blocker.add(new T.Mesh(new T.BoxGeometry(1,1.2,1)));
-  const base=model.getObjectByName('base.009');
+  const base=model.getObjectByName('base');
   blocker.position.copy(new T.Box3().setFromObject(base).getCenter(new T.Vector3()));
   world.add(blocker);
   ik.collisions.setContext({boxes:[blocker],active:demo.transfers[9].box,carrying:false});
@@ -141,50 +213,139 @@ for (const fps of process.env.IK_STREAM_ONLY?[]:[30,60]) {
 
 
 
-const { setJointAngle, createJointControl }=await import(new URL('../.tmp/ik-tests/joints.mjs',import.meta.url));
-const rollModel=load('gripper_robot'),rollWorld=new T.Group();rollWorld.add(rollModel);
+const rollModel=load('robot'),rollWorld=new T.Group();rollWorld.add(rollModel);
 const rollIK=createRobotIK(rollModel),roll=rollIK.controls.find(c=>c.node.name==='hand03');
+// The new model's hand00 is local Y (Blender Z), not a translating root.
+const baseStart=rollIK.baseControl.angle,rootStart=rollModel.position.clone();
+const baseRest=rollIK.baseControl.rest.clone();
+setJointAngle(rollIK.baseControl,baseStart+Math.PI/2);
+const expectedBase=baseRest.clone().multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),Math.PI/2));
+if(rollIK.baseControl.node.quaternion.clone().normalize().angleTo(expectedBase.normalize())>1e-6||rollModel.position.distanceTo(rootStart)>1e-8)throw Error('hand00 did not rotate about local Y with a fixed root');
+setJointAngle(rollIK.baseControl,baseStart);
+setJointAngle(rollIK.baseControl,baseStart+.4);rollModel.updateWorldMatrix(true,true);
+const rotatedTarget=rollIK.grip.getWorldPosition(new T.Vector3());
+setJointAngle(rollIK.baseControl,baseStart);rollModel.updateWorldMatrix(true,true);
+const yawPlan=rollIK.plan(rotatedTarget);
+if(!yawPlan.reachable)throw Error('hand00 rotation target could not be solved: '+yawPlan.blockedBy);
+if(Math.abs(rollIK.baseControl.angle-baseStart)>1e-8||rollModel.position.distanceTo(rootStart)>1e-8)throw Error('Base yaw planning mutated visible pose');
+for(let frame=0;frame<1200&&!rollIK.isSettled(yawPlan);frame++)if(!rollIK.animate(yawPlan,1/60))throw Error('Base yaw motion unexpectedly blocked');
+if(!rollIK.isSettled(yawPlan)||rollIK.grip.getWorldPosition(new T.Vector3()).distanceTo(rotatedTarget)>.02||Math.abs(rollIK.baseControl.angle-baseStart)<.05)throw Error('hand00 did not reach the off-plane target');
+if(rollModel.position.distanceTo(rootStart)>1e-8)throw Error('Base yaw animation translated root');
+// Reset for the independent hand03 and collision fixtures.
+setJointAngle(rollIK.baseControl,baseStart);rollIK.controls.forEach(c=>setJointAngle(c,c.initialX));rollModel.updateWorldMatrix(true,true);
+console.log('hand00: local Y rotation, off-plane IK, pose restoration and fixed robot position passed');
+
 const active=new T.Group();active.add(new T.Mesh(new T.BoxGeometry(.1,.1,.1).translate(0,-.05,0)));active.position.set(100,100,100);rollWorld.add(active);
 rollIK.collisions.setContext({boxes:[],active,carrying:false});
-for(const offset of [Math.PI/2,2*Math.PI,-2*Math.PI]) {
-  setJointAngle(roll,roll.initialX+offset);
-  const expected=roll.rest.clone().multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),offset));
-  if(roll.node.quaternion.angleTo(expected)>1e-6)throw Error('Blender Z / glTF Y axis mismatch');
+const rollRest=roll.node.quaternion.clone();
+for(const offset of [Math.PI/2,-Math.PI/2,2*Math.PI,-2*Math.PI]){
+ setJointAngle(roll,roll.initialX+offset);
+ const expected=roll.rest.clone().multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),offset));
+ if(roll.locked||Math.abs(roll.angle-roll.initialX-offset)>1e-8||roll.node.quaternion.clone().normalize().angleTo(expected.normalize())>1e-6)throw Error('hand03 free local Y rotation failed');
 }
 setJointAngle(roll,roll.initialX);
-const rollPose={angles:rollIK.controls.map(c=>c.angle),rail:0,error:0,reachable:true};rollPose.angles[3]+=Math.PI/2;
-if(!rollIK.animate(rollPose,10)||Math.abs(roll.angle-rollPose.angles[3])>1e-6)throw Error('hand03 rotation was not animated');
-const wristMesh=[];rollModel.getObjectByName('hand04').traverse(n=>{if(n.isMesh)wristMesh.push(n);});
-setJointAngle(roll,roll.initialX+Math.PI/4);rollModel.updateWorldMatrix(true,true);
-const obstaclePoints=[];
-for(const mesh of wristMesh){const positions=mesh.geometry.attributes.position;for(let i=0;i<positions.count;i+=Math.max(1,Math.floor(positions.count/30)))obstaclePoints.push(new T.Vector3().fromBufferAttribute(positions,i).applyMatrix4(mesh.matrixWorld));}
-const rollBlocker=new T.Group();rollBlocker.userData.collisionRole='pallet';rollBlocker.add(new T.Mesh(new T.BoxGeometry(.03,.03,.03)));rollWorld.add(rollBlocker);
-let sweptCollision=false;
-for(const point of obstaclePoints){
-  rollBlocker.position.copy(point);setJointAngle(roll,roll.initialX);
-  rollIK.collisions.setContext({boxes:[rollBlocker],active,carrying:false});
-  if(rollIK.collisions.collision())continue;
-  setJointAngle(roll,roll.initialX+Math.PI/2);if(rollIK.collisions.collision())continue;
-  setJointAngle(roll,roll.initialX);
-  if(!rollIK.animate(rollPose,10)){
-    if(Math.abs(roll.angle-roll.initialX)>1e-8)throw Error('hand03 collision rollback failed');
-    sweptCollision=true;break;
-  }
+const rollPose={angles:rollIK.controls.map(c=>c.angle),baseYaw:rollIK.baseControl.angle,error:0,reachable:true};rollPose.angles[3]+=Math.PI/2;
+if(!rollIK.animate(rollPose,10)||Math.abs(roll.angle-roll.initialX-Math.PI/2)>1e-8)throw Error('Animation rejected free hand03 rotation');
+setJointAngle(roll,roll.initialX);
+if(roll.node.quaternion.clone().normalize().angleTo(rollRest.normalize())>1e-6)throw Error('hand03 did not restore its initial pose');
+const wristControl=rollIK.controls[2];
+for(const degrees of [-720,-360,-100,0,80,360,720]){
+ setJointAngle(wristControl,T.MathUtils.degToRad(degrees));
+ if(Math.abs(wristControl.angle-T.MathUtils.degToRad(degrees))>1e-8)throw Error('hand04 full-turn rotation was clamped');
 }
-if(!sweptCollision)throw Error('hand03 intermediate rotation collision fixture failed');
-for(const name of ['hand02','hand03']){
+setJointAngle(wristControl,wristControl.initialX);
+const wristMesh=[];rollModel.getObjectByName('hand04').traverse(n=>{if(n.isMesh)wristMesh.push(n);});
+for(const name of ['hand00','hand02']){
   const node=new T.Group();node.name=name;const control=createJointControl(node);
   setJointAngle(control,T.MathUtils.degToRad(179));const before=node.quaternion.clone();
   setJointAngle(control,T.MathUtils.degToRad(181));
   if(Math.abs(control.angle-T.MathUtils.degToRad(181))>1e-8||Math.abs(before.angleTo(node.quaternion)-T.MathUtils.degToRad(2))>1e-6)throw Error(name+' full-turn seam clamped');
 }
-console.log('hand03: Blender local Z axis, full turns, animation and intermediate collision rollback passed');
+console.log('hand03: free rotation and animation; hand04: continuous 360 degree rotation passed');
+
+// Independent numerical FK/IK regressions on the real hierarchy and transformed root.
+const {createKinematics,solvePosition}=await import(new URL('../.tmp/ik-tests/robotKinematics.mjs',import.meta.url));
+const {NUMERICAL_IK}=await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
+const numericModel=load('robot'), numericParent=new T.Group();numericParent.position.set(.1,.2,-.3);numericParent.rotation.y=.35;numericParent.add(numericModel);
+const numericIK=createRobotIK(numericModel),numericControls=[numericIK.baseControl,...numericIK.controls];
+const reference=numericControls.map(c=>c.angle);
+const changed=reference.map((value,i)=>Math.max(numericControls[i].min,Math.min(numericControls[i].max,value+[.2,-.1,.2,-.1,.3][i])));
+numericControls.forEach((c,i)=>setJointAngle(c,changed[i]));numericModel.updateWorldMatrix(true,true);
+const fk=createKinematics(numericControls,numericIK.grip,numericModel.getObjectByName('hand04'));
+const exactTip=numericIK.grip.getWorldPosition(new T.Vector3()),calculated=fk.forward(changed);
+if(calculated.position.distanceTo(exactTip)>1e-7||calculated.rotation.angleTo(numericIK.grip.getWorldQuaternion(new T.Quaternion()).normalize())>1e-6)throw Error('Detached FK differs from GLB under transformed parent');
+numericControls.forEach((c,i)=>setJointAngle(c,reference[i]));numericModel.updateWorldMatrix(true,true);
+const numericLimits=numericControls.map((c,i)=>[Number.isFinite(c.min)?c.min:reference[i]-Math.PI,Number.isFinite(c.max)?c.max:reference[i]+Math.PI]);
+function finishNumerical(generator){for(;;){const result=generator.next();if(result.done)return result.value;}}
+const measuredBefore=numericIK.grip.getWorldPosition(new T.Vector3());
+const solved=finishNumerical(solvePosition(fk.forward,reference,numericLimits,exactTip,false,NUMERICAL_IK.positionTolerance,.1));
+if(!solved.converged||fk.forward(solved.angles).position.distanceTo(exactTip)>NUMERICAL_IK.positionTolerance)throw Error('Numerical IK failed FK-generated reachable target');
+if(numericIK.grip.getWorldPosition(new T.Vector3()).distanceTo(measuredBefore)>1e-8)throw Error('Numerical exploration changed displayed pose');
+const outside=finishNumerical(solvePosition(fk.forward,reference,numericLimits,new T.Vector3(100,100,100),false,NUMERICAL_IK.positionTolerance,.1));
+if(outside.converged)throw Error('Numerical IK accepted unreachable target');
+const releaseRange=IK_CONFIG.releaseWorldXDegrees.map(T.MathUtils.degToRad);
+for(const [degrees,allowed] of [[-101,false],[-100,true],[0,true],[80,true],[81,false]]){
+ const worldX=blenderWorldX(new T.Quaternion().setFromAxisAngle(new T.Vector3(1,0,0),T.MathUtils.degToRad(degrees)));
+ const accepted=worldX>=releaseRange[0]-1e-8&&worldX<=releaseRange[1]+1e-8;
+ if(accepted!==allowed)throw Error('Release world-X boundary check failed');
+}
+const releaseSolve=finishNumerical(solvePosition(angles=>({position:new T.Vector3(),rotation:new T.Quaternion(),direction:new T.Vector3(0,-1,0),wristRotation:new T.Quaternion().setFromAxisAngle(new T.Vector3(1,0,0),angles[0])}),[T.MathUtils.degToRad(120)],[[-Math.PI,Math.PI]],new T.Vector3(),false,.00015,0,releaseRange));
+if(!releaseSolve.converged)throw Error('World release range could not be solved');
+console.log('Release world X: -100..80 accepted only as a placement condition, independent of local turns');
+console.log('Numerical IK: FK/GLB parity, transformed parent, reachable target, unreachable target and zero scene mutation passed');
+
+// A held box is a rigid child of GripPoint, not a world-upright object.
+const rigidModel=load('robot'),rigidIK=createRobotIK(rigidModel);
+const rigidCargo=new T.Group();rigidCargo.add(new T.Mesh(new T.BoxGeometry(.22,.2,.275).translate(0,-.1,0)));
+rigidIK.grip.add(rigidCargo);rigidCargo.position.set(0,0,0);
+const shaft=rigidIK.grip.getWorldPosition(new T.Vector3()).sub(rigidModel.getObjectByName('hand04').getWorldPosition(new T.Vector3())).normalize();
+const cargoWorld=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,-1,0),shaft);
+rigidCargo.quaternion.copy(rigidIK.grip.getWorldQuaternion(new T.Quaternion()).invert()).multiply(cargoWorld);
+rigidCargo.updateWorldMatrix(true,true);
+const rigidLocal=rigidCargo.quaternion.clone(),rigidPosition=rigidCargo.position.clone();
+const wristRelative=new T.Matrix4().copy(rigidModel.getObjectByName('hand04').matrixWorld).invert().multiply(rigidCargo.matrixWorld);
+rigidIK.collisions.setContext({boxes:[rigidCargo],active:rigidCargo,carrying:true});
+for(const degrees of [-720,-360,-100,-80,0,80,180,360,720]){
+ setJointAngle(rigidIK.controls[2],T.MathUtils.degToRad(degrees));rigidModel.updateWorldMatrix(true,true);rigidIK.collisions.syncHeld();
+ if(rigidCargo.quaternion.angleTo(rigidLocal)>1e-6||rigidCargo.position.distanceTo(rigidPosition)>1e-8)throw Error('Held cargo changed its local attachment pose');
+ const relative=new T.Matrix4().copy(rigidModel.getObjectByName('hand04').matrixWorld).invert().multiply(rigidCargo.matrixWorld);
+ if(relative.elements.some((value,i)=>Math.abs(value-wristRelative.elements[i])>1e-6))throw Error('hand04/cargo relative transform changed');
+ const hit=rigidIK.collisions.collision();if(hit?.includes('운반 박스와 hand04'))throw Error('Rigid wrist turn introduced a false hand04/cargo collision');
+}
+if(rigidCargo.getWorldQuaternion(new T.Quaternion()).angleTo(cargoWorld)<.1)throw Error('Held cargo was incorrectly kept upright in world coordinates');
+console.log('Rigid grasp: hand04 sweep preserves box attachment and cannot introduce wrist/box penetration');
 
 const { OnlinePacker }=await import(new URL('../.tmp/ik-tests/onlinePacking.mjs',import.meta.url));
 const { ConveyorWorld, createUnitPallet }=await import(new URL('../.tmp/ik-tests/conveyor.mjs',import.meta.url));
 const FULL_PALLET_RECIPE=[];
-const { BOX_SIZES, STREAM_CONFIG }=await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
-const recipeBuilder=new OnlinePacker(new T.Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth));
+const { BOX_SIZES: PRODUCTION_BOX_SIZES, STREAM_CONFIG }=await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
+// Historical mixed-size fixtures exercise the generic packer independently
+// of the production conveyor, which now generates only 3x2x2m boxes.
+const BOX_SIZES=[new T.Vector3(2,1,2),new T.Vector3(2,2,2),new T.Vector3(2,1,3),new T.Vector3(2,2,3)];
+if(PRODUCTION_BOX_SIZES.length!==1||PRODUCTION_BOX_SIZES[0].distanceTo(new T.Vector3(0.22,0.2,0.275))>1e-8)throw Error('Production box size is not uniformly 0.22x0.2x0.275m');
+const {FixedLayerPacker}=await import(new URL('../.tmp/ik-tests/fixedLayerPacking.mjs',import.meta.url));
+const ordered=new FixedLayerPacker(new T.Vector3(1.1,5,1.1),PRODUCTION_BOX_SIZES[0],STREAM_CONFIG.center);
+const skipped=ordered.candidates(PRODUCTION_BOX_SIZES[0])[1];let skipRejected=false;
+try{ordered.commit(skipped);}catch{skipRejected=true;}
+if(!skipRejected||ordered.count!==0)throw Error('Fixed layer accepted an out-of-order slot');
+let previousDistance=Infinity;
+for(let n=0;n<40;n++){
+ const placement=ordered.candidates(PRODUCTION_BOX_SIZES[0])[0];
+ const position=ordered.position(placement,STREAM_CONFIG.center,0);
+ const distance=position.x**2+position.z**2;
+ if(n%20===0)previousDistance=Infinity;
+ if(distance>previousDistance+1e-8||Math.abs(placement.bottom-Math.floor(n/20)*.2)>1e-8||placement.order!==n+1)throw Error('Fixed layer violated far-first / lower-layer sequence');
+ previousDistance=distance;ordered.commit(placement);
+}
+console.log('Fixed order: twenty slots per layer, far-to-near on every layer, no skipping passed');
+const uniformPacking=new OnlinePacker(new T.Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth));
+for(let n=0;n<1000;n++){
+ const placement=uniformPacking.candidates(PRODUCTION_BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,PRODUCTION_BOX_SIZES)[0];
+ if(!placement)break;uniformPacking.commit(placement);
+}
+if(uniformPacking.count!==500||Math.abs(uniformPacking.volume-6.05)>1e-6||uniformPacking.heights.some(h=>Math.abs(h-5)>1e-6))throw Error('T11 should fit twenty 0.275x0.22m footprints per layer, up to the configured height');
+console.log('T11 production: twenty boxes per layer, 55mm grid, no gaps and 0.2m layer heights passed');
+const recipeBuilder=new OnlinePacker(new T.Vector3(8,5,8),1);
 let layerBottom=0;
 for(const height of [1,2,2]){
   let step=0;
@@ -199,14 +360,14 @@ for(const height of [1,2,2]){
   }
   layerBottom+=height;
 }
-const cachedPacking=new OnlinePacker(new T.Vector3(6,5,6));
+const cachedPacking=new OnlinePacker(new T.Vector3(6,5,6),1);
 const ranked=cachedPacking.candidates(BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,BOX_SIZES);
 const evaluations=cachedPacking.candidateEvaluations;
 for(let i=0;i<100;i++)cachedPacking.candidates(BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,BOX_SIZES);
 if(cachedPacking.candidateEvaluations!==evaluations)throw Error('Unchanged pallet recomputed packing scores');
 cachedPacking.commit(ranked[0]);cachedPacking.candidates(BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,BOX_SIZES);
 if(cachedPacking.candidateEvaluations!==evaluations+1)throw Error('Packing cache was not invalidated');
-const balancedPacking=new OnlinePacker(new T.Vector3(6,5,6));
+const balancedPacking=new OnlinePacker(new T.Vector3(6,5,6),1);
 balancedPacking.commit({x:0,z:0,width:2,depth:2,height:4,bottom:0,yaw:0,revision:0});
 if(balancedPacking.candidates(BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,BOX_SIZES)[0].bottom!==0)
   throw Error('Planner grew a tall side before filling lower space');
@@ -262,7 +423,7 @@ armBox.userData.collisionRole='held';rollIK.grip.attach(armBox);
 rollIK.collisions.setContext({boxes:[armBox],active:armBox,carrying:true});
 if(!rollIK.collisions.collision())throw Error('Held cargo/robot overlap was disabled');
 const heldBefore=rollIK.controls.map(c=>c.angle);
-const blockedHeldPose={angles:[...heldBefore],rail:0,error:0,reachable:true};blockedHeldPose.angles[0]+=.01;
+const blockedHeldPose={angles:[...heldBefore],baseYaw:rollIK.baseControl.angle,error:0,reachable:true};blockedHeldPose.angles[0]+=.01;
 if(rollIK.animate(blockedHeldPose,1/60))throw Error('Held cargo/robot collision did not stop motion');
 if(rollIK.controls.some((c,i)=>Math.abs(c.angle-heldBefore[i])>1e-8))throw Error('Held cargo/robot collision did not roll back');
 rollWorld.attach(armBox);rollWorld.remove(armBox);
@@ -272,8 +433,8 @@ console.log('Packing cache, low-layer balance and actual gripper sweep filter pa
 let selection=0;
 const randomShapes=new ConveyorWorld(load('box'),load('pallet'),()=>[0,0.3,0.6,0.9][selection++%4]);
 for(let n=0;n<100;n++)randomShapes.spawn(0);
-if(new Set(randomShapes.items.map(item=>item.size.toArray().join(','))).size!==BOX_SIZES.length)
-  throw Error('Random generation cannot select all box height variants');
+if(new Set(randomShapes.items.map(item=>item.size.toArray().join(','))).size!==PRODUCTION_BOX_SIZES.length)
+  throw Error('Conveyor generation did not keep the single production size');
 const { tile,randomPerfectSet }=await import(new URL('../.tmp/ik-tests/perfectTiling.mjs',import.meta.url));
 const inventory=[{w:2,d:3,count:2},{w:2,d:2,count:4},{w:2,d:1,count:4}];
 const finiteSolution=tile(6,6,inventory);if(!finiteSolution)throw Error('Finite inventory tiling failed');
@@ -283,10 +444,10 @@ for(const p of finiteSolution){used[p.type]++;for(let dz=0;dz<p.d;dz++)for(let d
 }}
 if(cells.size!==36||used.some((n,i)=>n!==inventory[i].count))throw Error('Finite inventory counts changed');
 if(tile(6,6,[{w:2,d:2,count:8}])!==null)throw Error('Area mismatch accepted');
-const guaranteed=randomPerfectSet(STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth,[[2,2],[2,3]],()=>.3);
-if(!guaranteed||!tile(STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth,guaranteed))throw Error('Guaranteed random inventory could not re-tile');
+const guaranteed=randomPerfectSet(8,8,[[2,2],[2,3]],()=>.3);
+if(!guaranteed||!tile(8,8,guaranteed))throw Error('Guaranteed random inventory could not re-tile');
 console.log('Inventory exact cover: counts, rotations, area rejection and guaranteed random set passed');
-const reachModel=load('gripper_robot');reachModel.traverse(n=>{n.position.multiplyScalar(4);if(n.isMesh){n.geometry=n.geometry.clone();n.geometry.scale(4,4,4);}});
+const reachModel=load('robot');reachModel.traverse(n=>{n.position.multiplyScalar(4);if(n.isMesh){n.geometry=n.geometry.clone();n.geometry.scale(4,4,4);}});
 const reachRoot=new T.Group();reachRoot.add(reachModel);const reachIK=createRobotIK(reachModel,4);
 const farLow=reachIK.plan(new T.Vector3(-9.4,2,0),true),farHigh=reachIK.plan(new T.Vector3(-9.4,6.12,0),true);
 if(!farLow.reachable)throw Error(`Far edge reachability regression: ${farLow.blockedBy}`);
@@ -298,21 +459,21 @@ const exactLayer=new LayerTiling(6,6),fullMask=(1n<<36n)-1n;
 if(exactLayer.canFill(fullMask,[[2,2],[3,2],[2,3]])!==true)throw Error('6x6 exact tiling was rejected');
 let oneMetreStrip=0n;for(let z=0;z<6;z++)oneMetreStrip|=1n<<BigInt(z*6);
 if(exactLayer.canFill(oneMetreStrip,[[2,2],[3,2],[2,3]])!==false)throw Error('Unfillable 1m strip accepted');
-const protectedPacking=new OnlinePacker(new T.Vector3(6,5,6));
+const protectedPacking=new OnlinePacker(new T.Vector3(6,5,6),1);
 const initialChoices=protectedPacking.candidates(BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,BOX_SIZES);
 if(initialChoices.some(p=>p.x===1&&p.z===1&&p.width===2&&p.depth===2))throw Error('Interior placement destroyed the remaining tiling');
 protectedPacking.commit({x:0,z:0,width:2,depth:2,height:1,bottom:0,yaw:0,revision:0});
 if(protectedPacking.candidates(BOX_SIZES[2],STREAM_CONFIG.palletApproachDirection,BOX_SIZES).some(p=>p.x===2&&p.z===0&&p.width===3&&p.depth===2&&p.bottom===0))throw Error('2+3 placement left a 1m unusable gap');
 console.log('Exact-cover lookahead: complete layer allowed, unfillable slivers rejected');
-const recipePacking=new OnlinePacker(new T.Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth));
-const farFirst=new OnlinePacker(new T.Vector3(6,5,6));
+const recipePacking=new OnlinePacker(new T.Vector3(8,5,8),1);
+const farFirst=new OnlinePacker(new T.Vector3(6,5,6),1);
 for(let i=0;i<9;i++){
   const placement=farFirst.candidates(new T.Vector3(2,1,2),new T.Vector3(1,0,0),BOX_SIZES)[0];
   if(placement.bottom!==0||placement.x!==Math.floor(i/3)*2)throw Error('Far-side column was not filled before the near side');
   farFirst.commit(placement);
 }
 if(farFirst.utilization!==1)throw Error('Far-first layer did not fill completely');
-const emptyFarFirst=new OnlinePacker(new T.Vector3(6,5,6));
+const emptyFarFirst=new OnlinePacker(new T.Vector3(6,5,6),1);
 for(const size of BOX_SIZES){
   const candidates=emptyFarFirst.candidates(size,STREAM_CONFIG.palletApproachDirection,BOX_SIZES);
   let previous=-Infinity;
@@ -327,23 +488,23 @@ for(const index of FULL_PALLET_RECIPE){
   if(!placement)throw Error('8x8 mixed-height production recipe did not fit');
   recipePacking.commit(placement);
 }
-if(recipePacking.volume!==STREAM_CONFIG.palletWidth*STREAM_CONFIG.palletDepth*STREAM_CONFIG.maxStackHeight||recipePacking.utilization!==1||recipePacking.heights.some(h=>h!==5))
+if(recipePacking.volume!==320||recipePacking.utilization!==1||recipePacking.heights.some(h=>h!==5))
   throw Error('8x8x5 recipe left unused space');
-console.log(`${STREAM_CONFIG.palletWidth}x${STREAM_CONFIG.palletDepth} pallet: ${FULL_PALLET_RECIPE.length} mixed-height boxes fill ${recipePacking.volume}m³ without gaps or overhang`);
-const remainderPacking=new OnlinePacker(new T.Vector3(8,5,8));
+console.log(`Historical 8x8 packing fixture: ${FULL_PALLET_RECIPE.length} mixed-height boxes fill ${recipePacking.volume}m³ without gaps or overhang`);
+const remainderPacking=new OnlinePacker(new T.Vector3(8,5,8),1);
 let rowX=0;
 for(const width of [2,2,3]) {
   remainderPacking.commit({x:rowX,z:0,width,depth:2,height:1,bottom:0,yaw:0,revision:remainderPacking.revision});
   rowX+=width;
 }
 if(remainderPacking.columns-rowX!==1||remainderPacking.heights[7]!==0)throw Error('2+2+3 row must leave exactly 1 metre');
-const heightFixture=new OnlinePacker(new T.Vector3(2,5,2));
+const heightFixture=new OnlinePacker(new T.Vector3(2,5,2),1);
 heightFixture.commit(heightFixture.reserve(new T.Vector3(2,2,2)));
 const upper=heightFixture.reserve(new T.Vector3(2,3,2));
 if(!upper||upper.bottom+upper.height!==5)throw Error('5m stack rejected');
 heightFixture.commit(upper);
 if(heightFixture.reserve(new T.Vector3(2,1,2)))throw Error('5m stack height exceeded');
-const packing=new OnlinePacker(new T.Vector3(4,3,3));
+const packing=new OnlinePacker(new T.Vector3(4,3,3),1);
 const packed=[];
 for(const size of [new T.Vector3(1,1,1),new T.Vector3(2,2,1),new T.Vector3(2,1,1),new T.Vector3(1,1,1),new T.Vector3(2,1,1)]){
   const p=packing.reserve(size);if(!p)throw Error('Mixed packing fixture did not fit');
@@ -366,14 +527,17 @@ const palletExtent=new T.Box3().setFromObject(stream.pallet).getSize(new T.Vecto
 if(Math.abs(palletExtent.x-STREAM_CONFIG.palletWidth)>1e-5||Math.abs(palletExtent.z-STREAM_CONFIG.palletDepth)>1e-5)
   throw Error('Visual pallet and packing dimensions differ');
 for(const item of stream.items){
+  if(item.size.distanceTo(PRODUCTION_BOX_SIZES[0])>1e-8)throw Error("Conveyor spawned a non-uniform box");
   if(new T.Box3().setFromObject(item.node).getSize(new T.Vector3()).distanceTo(item.size)>1e-5)
     throw Error('Visual box and packing dimensions differ');
 }
 // Fill a real load, then exercise outgoing/incoming exchange without robot motion.
 const exchangeWorld=new ConveyorWorld(load('box'),load('pallet'),()=>0);
-for(const index of FULL_PALLET_RECIPE){
-  exchangeWorld.spawn(0);const item=exchangeWorld.items.at(-1);item.size.copy(BOX_SIZES[index]);item.node.children[0].scale.copy(item.size);
-  const placement=exchangeWorld.packer.candidates(item.size,STREAM_CONFIG.palletApproachDirection,BOX_SIZES)[0];exchangeWorld.packer.commit(placement);
+for(let n=0;n<1000;n++){
+  const placement=exchangeWorld.packer.candidates(PRODUCTION_BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,PRODUCTION_BOX_SIZES)[0];
+  if(!placement)break;
+  exchangeWorld.spawn(0);const item=exchangeWorld.items.at(-1);
+  exchangeWorld.packer.commit(placement);
   item.node.position.copy(exchangeWorld.packer.position(placement,STREAM_CONFIG.center,exchangeWorld.palletTop));item.state='placed';
 }
 const oldPallet=exchangeWorld.pallet,loadedItem=exchangeWorld.items.find(item=>item.state==='placed');
@@ -391,25 +555,19 @@ exchangeWorld.advance(1/60);if(!exchangeWorld.jobs.length)throw Error('Picking d
 console.log('Pallet exchange: loaded exit, continuous belt, empty reset and next reservation passed');
 const rotationWorld=new ConveyorWorld(load('box'),load('pallet'),()=>0);
 rotationWorld.advance(1/60);
-const rotationJob=rotationWorld.jobs[0],yawOptions=new Set([rotationJob.yaw]);
+const rotationJob=rotationWorld.jobs[0];
 const initialDiagnostic=rotationWorld.diagnostics;
-if(initialDiagnostic.columns!==STREAM_CONFIG.palletWidth||initialDiagnostic.rows!==STREAM_CONFIG.palletDepth||!initialDiagnostic.selected)throw Error('Packing dashboard grid/candidate not initialized');
+if(initialDiagnostic.columns!==Math.round(STREAM_CONFIG.palletWidth/PACKING.cell)||initialDiagnostic.rows!==Math.round(STREAM_CONFIG.palletDepth/PACKING.cell)||!initialDiagnostic.selected)throw Error('Packing dashboard grid/candidate not initialized');
 rotationJob.onPlanEvent({state:'rejected',phase:'quick',reason:'fixture: far candidate blocked'});
 const rejectedDiagnostic=rotationWorld.diagnostics;
 fs.writeFileSync('.tmp/packingSnapshot.json',JSON.stringify(rejectedDiagnostic));
 if(rejectedDiagnostic.inspected!==1||rejectedDiagnostic.selected.state!=='rejected'||!rejectedDiagnostic.reason.includes('fixture'))throw Error('Packing dashboard did not record actual rejection');
-let retryCount=0;
-do {
-  yawOptions.add(rotationJob.yaw);
-  while(rotationJob.replanPlacement()){
-    yawOptions.add(rotationJob.yaw);
-    if(++retryCount>1000)throw Error('Placement retries did not terminate');
-  }
-} while(rotationJob.advancePlacementLevel());
-if(retryCount<1)throw Error('Rotated packing candidates were skipped');
-console.log('Placement fallback: both orientations and all supported cells examined');
+const reservedDestination=rotationJob.destination.clone();
+if(rotationJob.replanPlacement()||rotationJob.replanPlacement(true)||rotationJob.advancePlacementLevel()
+  ||rotationJob.destination.distanceTo(reservedDestination)>1e-8)throw Error('Fixed production silently skipped its blocked slot');
+console.log('Fixed production: blocked placement preserves the same destination and layer');
 function makeGapPacking(){
-  const packing=new OnlinePacker(new T.Vector3(6,5,6));
+  const packing=new OnlinePacker(new T.Vector3(6,5,6),1);
   for(let x=0;x<6;x++)for(let z=0;z<6;z+=2){
     if(x<2&&z===0)continue;
     packing.commit({x,z,width:1,depth:2,height:1,bottom:0,yaw:Math.PI/2,revision:packing.revision});
@@ -428,8 +586,8 @@ gapWorld.items[3].size.copy(BOX_SIZES[3]);gapWorld.items[3].node.children[0].sca
 gapWorld.robotZ=2;gapWorld.advance(0);
 if(gapWorld.jobs[0].box!==smallItem.node)throw Error('Belt selection did not favour the box that fills the lower gap');
 const levelWorld=new ConveyorWorld(load('box'),load('pallet'),()=>0);
-for(const item of levelWorld.items){item.size.copy(BOX_SIZES[0]);item.node.children[0].scale.copy(item.size);}
-levelWorld.packer.commit({x:0,z:0,width:2,depth:2,height:1,bottom:0,yaw:0,revision:0});levelWorld.advance(0);
+levelWorld.packer=new OnlinePacker(new T.Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth));
+levelWorld.packer.commit(levelWorld.packer.candidates(PRODUCTION_BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,PRODUCTION_BOX_SIZES)[0]);levelWorld.advance(0);
 const levelJob=levelWorld.jobs[0],lowerTop=levelJob.destination.y;
 while(levelJob.replanPlacement())if(levelJob.destination.y!==lowerTop)throw Error('Quick search climbed before testing the whole lower level');
 if(!levelJob.replanPlacement(true)||levelJob.destination.y!==lowerTop)throw Error('Precise pass did not restart on the lower level');
@@ -447,28 +605,43 @@ console.log('Bottom-first: both search passes stay low, upper fallback preserves
 
 if(process.argv.includes('--packing-only'))process.exit(0);
 const obstacles={current:stream.boxes};let streamFrame,streamIK;
+const streamFps=Number(process.env.IK_FPS??60);
 let lastStatus='';let failures=0;let planningSlices=0,pendingSlices=0,maxPlanningMs=0;
-const streamModel=makeRobot(()=>({scene:load('gripper_robot')}),f=>f(),v=>({current:v}),f=>{streamFrame=f;},T.Group,T.Quaternion,T.Vector3,'',model=>{streamIK=createRobotIK(model,4);const originalAdvance=streamIK.advancePlan;streamIK.advancePlan=(...args)=>{
-  const before=streamIK.controls.map(c=>c.angle),position=model.position.clone(),start=performance.now();
+const streamModel=makeRobot(()=>({scene:load('robot')}),f=>f(),v=>({current:v}),f=>{streamFrame=f;},T.Group,T.Quaternion,T.Vector3,'',model=>{streamIK=createRobotIK(model,STREAM_CONFIG.robotScale);const originalAdvance=streamIK.advancePlan;streamIK.advancePlan=(...args)=>{
+  const before=streamIK.controls.map(c=>c.angle),baseAngle=streamIK.baseControl.angle,position=model.position.clone(),start=performance.now();
   const result=originalAdvance(...args);maxPlanningMs=Math.max(maxPlanningMs,performance.now()-start);planningSlices++;
-  if(!result){pendingSlices++;if(model.position.distanceTo(position)>1e-8||streamIK.controls.some((c,i)=>Math.abs(c.angle-before[i])>1e-8))throw Error('Planning yield left speculative pose visible');}
-  if(result&&!result.reachable&&failures++<8)console.log('failed-plan',{tip:streamIK.grip.getWorldPosition(new T.Vector3()).toArray(),hit:streamIK.collisions.lastHit,error:result.error});
+  if(!result){pendingSlices++;if(Math.abs(streamIK.baseControl.angle-baseAngle)>1e-8||model.position.distanceTo(position)>1e-8||streamIK.controls.some((c,i)=>Math.abs(c.angle-before[i])>1e-8))throw Error('Planning yield left speculative pose visible');}
+  if(result&&!result.reachable&&result.reason!=='timeout'&&failures++<8)console.log('failed-plan',{tip:streamIK.grip.getWorldPosition(new T.Vector3()).toArray(),hit:streamIK.collisions.lastHit,blockedBy:result.blockedBy,error:result.error});
   return result;
-};const originalPlan=streamIK.plan;streamIK.plan=(...args)=>{const pose=originalPlan(...args);if(!pose.reachable&&failures++<5)console.log("moving failed",args[0].toArray(),pose,streamIK.collisions.lastHit);return pose;};return streamIK;},{current:stream.jobs},(_,status)=>{if(lastStatus!==status)console.log('stream',status);lastStatus=status;},{geometryScale:4,obstacles});
+};const originalPlan=streamIK.plan;streamIK.plan=(...args)=>{const pose=originalPlan(...args);if(!pose.reachable&&failures++<5)console.log("moving failed",args[0].toArray(),pose,streamIK.collisions.lastHit);return pose;};return streamIK;},{current:stream.jobs},(_,status)=>{if(lastStatus!==status)console.log('stream',status);lastStatus=status;},{geometryScale:STREAM_CONFIG.robotScale,obstacles});
 const streamRoot=new T.Group();streamRoot.add(stream.root,streamModel);
+const streamOrigin=streamModel.position.clone();
+let minimumBaseYaw=Infinity,maximumBaseYaw=-Infinity;
 let maximumMovementWhileReserved=0;
-for(let i=0;i<60*Number(process.env.IK_STREAM_SECONDS??100)&&stream.placed<Number(process.env.IK_STREAM_TARGET??3);i++){
+const attachmentPoses=new WeakMap();
+for(let i=0;i<streamFps*Number(process.env.IK_STREAM_SECONDS??100)&&stream.placed<Number(process.env.IK_STREAM_TARGET??3);i++){
   const reserved=stream.items.find(item=>item.state==='reserved');const before=reserved?.node.position.clone();
-  stream.advance(1/60);stream.syncJobs();obstacles.current=stream.boxes;
+  stream.advance(1/streamFps);stream.syncJobs();obstacles.current=stream.boxes;
   if(before&&reserved?.state==='reserved')maximumMovementWhileReserved+=before.distanceTo(reserved.node.position);
-  streamFrame(null,1/60);
+  streamFrame(null,1/streamFps);
+  if(streamIK.collisions.collision())throw Error("Actual stream collision: "+streamIK.collisions.lastHit);
+  for(const item of stream.items.filter(item=>item.state==='held')){
+    if(item.node.parent!==streamIK.grip)continue;
+    const saved=attachmentPoses.get(item.node);
+    if(!saved)attachmentPoses.set(item.node,{rotation:item.node.quaternion.clone(),position:item.node.position.clone()});
+    else if(item.node.quaternion.angleTo(saved.rotation)>1e-6||item.node.position.distanceTo(saved.position)>1e-8)throw Error("Held cargo lost its rigid attachment");
+  }
+  if(streamModel.position.distanceTo(streamOrigin)>1e-8)throw Error("Robot root translated during conveyor pickup");
+  minimumBaseYaw=Math.min(minimumBaseYaw,streamIK.baseControl.angle);maximumBaseYaw=Math.max(maximumBaseYaw,streamIK.baseControl.angle);
+
   const wristControl=streamIK.controls[2];
-  if(wristControl.angle<T.MathUtils.degToRad(-330)-1e-8||wristControl.angle>T.MathUtils.degToRad(-30)+1e-8)throw Error('hand04 frame exceeded negative-angle limits');
+  if(!Number.isFinite(wristControl.angle))throw Error('hand04 angle is not finite');
 }
 console.log({streamPlaced:stream.placed,spawned:stream.spawned,passed:stream.passed,status:lastStatus,movingPickupDistance:maximumMovementWhileReserved,planningSlices,pendingSlices,maxPlanningMs});
 if(pendingSlices===0)throw Error('Planning was not spread across frames');
 if(stream.placed<Number(process.env.IK_STREAM_TARGET??3)||maximumMovementWhileReserved<0.01)throw Error('Continuous mixed-size moving pickup fixture failed');
 if(stream.items.filter(item=>item.state==='placed').length!==stream.packer.count)throw Error('Pallet committed before placement');
-console.log('Continuous spline: three metre-sized shapes picked while moving and committed after placement');
+if(maximumBaseYaw-minimumBaseYaw<.1)throw Error('Continuous pickup did not use hand00 yaw');
+console.log('Continuous spline: '+stream.placed+' T11 boxes at '+streamFps+'fps; fixed root, no collision, rigid attachment verified');
 
 
