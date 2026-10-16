@@ -13,8 +13,12 @@ import robotUrl from "@/assets/models/robot.glb?url";
 import { useInstanceModel } from "@/features/Viewport/instancing/useInstanceModel";
 
 export { default as Belt } from "@/features/conveyor/ConveyorBelt";
-const dockGeometry=new PlaneGeometry(1.3,1.3);
-const dockMaterial=new MeshBasicMaterial({color:"#075985",transparent:true,opacity:.75});
+const dockGeometry = new PlaneGeometry(1.3, 1.3);
+const dockMaterial = new MeshBasicMaterial({
+  color: "#075985",
+  transparent: true,
+  opacity: 0.75,
+});
 export function PalletPreview() {
   const { scene } = useGLTF(palletUrl);
   const model = useMemo(() => {
@@ -40,9 +44,16 @@ export function RobotPreview() {
   );
 }
 export function Dock() {
-  const model=useMemo(()=>{const group=new Group(),mesh=new Mesh(dockGeometry,dockMaterial);mesh.rotation.x=-Math.PI/2;mesh.position.y=.004;group.add(mesh);return group;},[]);
+  const model = useMemo(() => {
+    const group = new Group(),
+      mesh = new Mesh(dockGeometry, dockMaterial);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 0.004;
+    group.add(mesh);
+    return group;
+  }, []);
   useInstanceModel(model);
-  return <primitive object={model} dispose={null}/>;
+  return <primitive object={model} dispose={null} />;
 }
 
 export default function Equipment({
@@ -56,7 +67,7 @@ export default function Equipment({
     useShallow((s) => ({
       active: s.selected === entity.id && s.editing,
       editing: s.editing,
-      tool: s.selected === entity.id ? s.tool : "translate" as const,
+      tool: s.selected === entity.id ? s.tool : ("translate" as const),
       updatePose: s.updatePose,
       select: s.select,
     })),
@@ -67,11 +78,11 @@ export default function Equipment({
     <>
       <group
         ref={setObject}
-        userData={{sceneId:entity.id}}
+        userData={{ sceneId: entity.id }}
         position={[pose.x, 0, pose.z]}
         rotation={[0, pose.yaw, 0]}
         onPointerDown={(event) => {
-          if (editing&&!useSceneStore.getState().pending) {
+          if (editing && !useSceneStore.getState().pending) {
             event.stopPropagation();
             select(entity.id);
           }
