@@ -16,7 +16,7 @@ export const STREAM_CONFIG = {
   palletWidth: 1.1,
   palletDepth: 1.1,
   maxStackHeight: 5,
-  center: new Vector3(-0.7, 0, 0),
+  center: new Vector3(-0.95, 0, 0),
   // The robot approaches the pallet from +X; fill the -X edge first.
   palletApproachDirection: new Vector3(1, 0, 0),
   speed: 0.0625,
@@ -56,13 +56,18 @@ export const MOTION = {
 };
 // Radius is robot-local; waypoint clearances and speeds use world metres.
 export const ROBOT_PICKING = {
+  transferMode: "base" as const,
   radius: 3,
   preGraspHeight: 0.15,
+  liftRearwardDistance: 0.5,
+  rearLiftHeight: 0.4,
+  transferPlanningBudgetMs: 1,
   prePlaceHeight: 0.15,
   retreatHeight: 0.15,
   verticalSpeed: 0.15,
   graspHoldSeconds: 0.12,
   releaseSeconds: 0.15,
+  releaseAngularSpeed: Math.PI,
   loadedSpeedScale: 0.8,
 };
 export const COLLISION = {
@@ -80,6 +85,7 @@ export const COLLISION = {
   cargoLiftClearance: 0.015,
 };
 export const IK_CONFIG = {
+  wristTravelDegrees: [-180, 180] as const,
   planningBudgetMs: 4,
   collisionSamplesPerSlice: 16,
   angularSample: 0.01,
@@ -90,6 +96,7 @@ export const IK_CONFIG = {
   releaseWorldXDegrees: [-100, 80] as const,
   settledAngle: 0.002,
   settledBaseAngle: 0.002,
+  cartesianSettledAngle: 1e-7,
   oppositeWristSpreadDegrees: 60,
   collisionRecoveryIterations: 2000,
   collisionEscapeDegrees: [5, 10, 20, 40] as const,
@@ -116,6 +123,20 @@ export const NUMERICAL_IK = {
   planningAngularSample: 0.005,
 };
 export const JOINT_LIMITS = {
-  hand01: [-120, 120],
-  hand02: [-180, 180],
+  hand01: [-Infinity, Infinity],
+  hand02: [-Infinity, Infinity],
 } as const;
+
+export const CLOSED_CHAIN_IK = {
+  iterationsPerSlice: 3,
+  maxSlices: 40,
+  damping: 0.001,
+  stallThreshold: 1e-7,
+  translationStep: 0.1,
+  rotationStep: 0.15,
+  restPoseFactor: 0.001,
+  goalToleranceScale: 0.5,
+  rotationTolerance: 1e-5,
+  coneSearchIterations: 12,
+  coneCorrectionMargin: 0.001,
+};

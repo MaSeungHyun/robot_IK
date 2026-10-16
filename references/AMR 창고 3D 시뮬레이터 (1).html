@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AMR 창고 3D 시뮬레이터</title>
+<style>
+:root{--bg:#eceae4;--fg:#1c1c1a;--mut:#6b6b66;--card:#fff;--bd:#d8d8d2;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17171a;--fg:#ececea;--mut:#9a9a94;--card:#222226;--bd:#3a3a40;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17171a;--fg:#ececea;--mut:#9a9a94;--card:#222226;--bd:#3a3a40;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:14px}
+h1{font-size:18px;margin:0 0 10px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1.5px dashed var(--bd);border-radius:10px;background:var(--card);cursor:grab;user-select:none;touch-action:none;font-weight:600}
+button{font:inherit;padding:7px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);cursor:pointer}
+label{display:inline-flex;align-items:center;gap:5px;color:var(--mut)}
+.stats{display:flex;flex-wrap:wrap;gap:14px;color:var(--mut);margin:8px 0}.stats b{color:var(--fg)}
+#wrap{border:1px solid var(--bd);border-radius:12px;overflow:hidden;height:min(62vw,620px);min-height:340px;background:var(--card)}
+canvas{display:block;touch-action:none}
+.ghost{position:fixed;z-index:9;transform:translate(-50%,-50%);pointer-events:none;padding:6px 10px;border-radius:8px;background:#2f6fed;color:#fff;font-weight:700;opacity:.9}
+p.h{color:var(--mut);margin:10px 0 0;font-size:13px}
+</style></head><body><main>
+<h1>AMR 창고 3D 시뮬레이터</h1>
+<div class="bar">
+ <div class="chip" id="chip">🤖 AMR 추가 (드래그해서 바닥에 놓기)</div>
+ <button id="rnd">랜덤 주문 5개</button>
+ <label><input type="checkbox" id="auto"> 자동 주문</label>
+ <label><input type="checkbox" id="paths" checked> 경로 표시</label>
+ <label>속도 <input type="range" id="spd" min="0" max="3" step="0.5" value="1"></label>
+ <button id="rst">초기화</button>
+</div>
+<div class="stats"><span>AMR <b id="sA">0</b></span><span>대기 주문 <b id="sQ">0</b></span><span>완료 <b id="sD">0</b></span><span>일시 정지 중 <b id="sW">0</b></span></div>
+<div id="wrap"></div>
+<p class="h">박스를 클릭하면 주문 → 가장 가까운 대기 AMR이 박스 밑으로 들어가 들어올려 파란 스테이션(S)까지 옮기고 제자리에 돌려놓습니다. 왼쪽 드래그 = 회전, 휠/핀치 = 확대, 우클릭 드래그 = 이동. 대기 중인 AMR 더블클릭 = 삭제. 빨간 링 = 충돌 회피로 잠깐 정지 중.</p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const W=24,H=13,N=W*H,TICK=380,D=[[0,0],[1,0],[-1,0],[0,1],[0,-1]];
+const $=s=>document.getElementById(s),id=(x,y)=>y*W+x,X=i=>i%W,Y=i=>(i/W)|0,STN=[id(0,4),id(0,8)];
+const dark=matchMedia('(prefers-color-scheme:dark)').matches||document.documentElement.dataset.theme==='dark';
+let boxAt,boxes,agents,queue,T,done,acc=0,speed=1,drag=null,hov=null,nid=0;
+// ---------- Three.js ----------
+const wrap=$('wrap'),scene=new THREE.Scene(),R=new THREE.WebGLRenderer({antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio||1,2));R.shadowMap.enabled=true;wrap.appendChild(R.domElement);
+scene.background=new THREE.Color(dark?0x17171a:0xeceae4);
+const cam=new THREE.PerspectiveCamera(45,1,.1,200);cam.position.set(0,19,17);
+const ctl=new THREE.OrbitControls(cam,R.domElement);ctl.enableDamping=true;ctl.maxPolarAngle=1.5;ctl.target.set(0,0,0);
+scene.add(new THREE.HemisphereLight(0xffffff,0x666677,.75));
+const sun=new THREE.DirectionalLight(0xffffff,.7);sun.position.set(-8,18,10);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-16,right:16,top:10,bottom:-10,near:1,far:50});scene.add(sun);
+// 바닥 텍스처 (격자 + 스테이션)
+const fc=document.createElement('canvas');fc.width=W*40;fc.height=H*40;const f2=fc.getContext('2d');
+f2.fillStyle=dark?'#26262b':'#f7f6f2';f2.fillRect(0,0,fc.width,fc.height);f2.strokeStyle=dark?'#34343a':'#dedcd4';
+for(let x=0;x<=W;x++){f2.beginPath();f2.moveTo(x*40,0);f2.lineTo(x*40,fc.height);f2.stroke()}
+for(let y=0;y<=H;y++){f2.beginPath();f2.moveTo(0,y*40);f2.lineTo(fc.width,y*40);f2.stroke()}
+f2.font='700 22px sans-serif';f2.textAlign='center';f2.textBaseline='middle';
+for(const s of STN){f2.fillStyle='#4a7fd4';f2.fillRect(X(s)*40+2,Y(s)*40+2,36,36);f2.fillStyle='#fff';f2.fillText('S',X(s)*40+20,Y(s)*40+21)}
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(W,H),new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(fc),roughness:.95}));
+floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+const hl=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({transparent:true,opacity:.55}));hl.rotation.x=-Math.PI/2;hl.position.y=.02;hl.visible=false;scene.add(hl);
+const gBox=new THREE.BoxGeometry(.8,.5,.8),gLeg=new THREE.BoxGeometry(.07,.3,.07),mLeg=new THREE.MeshStandardMaterial({color:0x555555}),
+ gBase=new THREE.CylinderGeometry(.38,.38,.2,28),gDisc=new THREE.CylinderGeometry(.27,.27,.05,24),mDisc=new THREE.MeshStandardMaterial({color:0x333333}),
+ gMark=new THREE.BoxGeometry(.14,.06,.2),gRing=new THREE.RingGeometry(.46,.54,32),mRing=new THREE.MeshBasicMaterial({color:0xd64545,side:THREE.DoubleSide});
+function mkBox(b){const g=new THREE.Group(),m=new THREE.Mesh(gBox,new THREE.MeshStandardMaterial({color:0xc9a26a,roughness:.7}));m.position.y=.55;m.castShadow=true;m.userData.b=b;g.add(m);
+ for(const[x,z]of[[1,1],[1,-1],[-1,1],[-1,-1]]){const l=new THREE.Mesh(gLeg,mLeg);l.position.set(x*.35,.15,z*.35);g.add(l)}
+ g.position.set(X(b.home)-W/2+.5,0,Y(b.home)-H/2+.5);scene.add(g);b.g=g;b.m=m}
+function mkAgent(a){const g=new THREE.Group(),c=new THREE.Color(a.col),base=new THREE.Mesh(gBase,new THREE.MeshStandardMaterial({color:c}));base.position.y=.1;base.castShadow=true;base.userData.a=a;g.add(base);
+ const d=new THREE.Mesh(gDisc,mDisc);d.position.y=.22;g.add(d);const mk=new THREE.Mesh(gMark,new THREE.MeshBasicMaterial({color:0xffffff}));mk.position.set(.3,.21,0);g.add(mk);
+ const r=new THREE.Mesh(gRing,mRing);r.rotation.x=-Math.PI/2;r.position.y=.03;r.visible=false;g.add(r);
+ const ln=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:c}));ln.frustumCulled=false;scene.add(ln);
+ scene.add(g);Object.assign(a,{m:g,base,disc:d,ring:r,ln,lift:0,rot:0})}
+function resize(){const w=wrap.clientWidth,h=wrap.clientHeight;R.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix()}
+// ---------- 시뮬레이션 로직 ----------
+function init(){for(const b of boxes||[])scene.remove(b.g);for(const a of agents||[]){scene.remove(a.m);scene.remove(a.ln)}
+ boxAt=new Array(N).fill(-1);boxes=[];agents=[];queue=[];T=0;done=0;nid=0;
+ for(const x of[4,5,8,9,12,13,16,17])for(const y of[2,3,4,7,8,9]){const b={id:boxes.length,home:id(x,y),st:'home',carrier:null};boxes.push(b);boxAt[b.home]=b.id;mkBox(b)}
+ for(const c of[id(2,6),id(10,12),id(20,6)])addAgent(c)}
+const pos=(o,t)=>o.path[Math.min(Math.max(t-o.t0,0),o.path.length-1)];
+class Heap{constructor(){this.a=[]}push(f,v){const a=this.a;a.push([f,v]);let i=a.length-1;while(i>0){const p=(i-1)>>1;if(a[p][0]<=a[i][0])break;[a[p],a[i]]=[a[i],a[p]];i=p}}
+pop(){const a=this.a,t=a[0],l=a.pop();if(a.length){a[0]=l;let i=0;for(;;){let c=2*i+1;if(c>=a.length)break;if(c+1<a.length&&a[c+1][0]<a[c][0])c++;if(a[i][0]<=a[c][0])break;[a[i],a[c]]=[a[c],a[i]];i=c}}return t[1]}}
+function clash(os,c,n,t){for(const o of os){const p1=pos(o,t+1);if(p1===n)return true;if(c!==n&&pos(o,t)===n&&p1===c)return true}return false}
+// 시공간 A*: (칸, 시간) 상태에서 이동/대기 → 충돌 없는 최단 시간 경로
+function plan(a,goal){
+ const s=a.cell,os=agents.filter(o=>o!==a);let busy=-1;
+ for(const o of os){const L=o.path.length;if(o.path[L-1]===goal)return false;for(let k=0;k<L;k++)if(o.path[k]===goal)busy=Math.max(busy,o.t0+k)}
+ const nodes=[{i:s,d:0,p:-1}],hp=new Heap(),seen=new Set();hp.push(0,0);let cnt=0;
+ while(hp.a.length&&cnt++<30000){
+  const k=hp.pop(),n=nodes[k],key=n.d*N+n.i;if(seen.has(key))continue;seen.add(key);
+  if(n.i===goal&&T+n.d>busy){const p=[];for(let j=k;j>=0;j=nodes[j].p)p.push(nodes[j].i);p.reverse();a.path=late(os,p,goal);a.t0=T;return true}
+  if(n.d>=90)continue;const x=X(n.i),y=Y(n.i);
+  for(const[dx,dy]of D){const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=W||ny>=H)continue;const ni=id(nx,ny);
+   if(ni!==n.i&&a.carry&&boxAt[ni]>=0)continue;
+   if(clash(os,n.i,ni,T+n.d))continue;
+   nodes.push({i:ni,d:n.d+1,p:k});hp.push(n.d+1+Math.abs(nx-X(goal))+Math.abs(ny-Y(goal)),nodes.length-1)}}
+ return false}
+// 대기를 가능한 한 뒤로 미룸: 먼저 이동하고, 다른 AMR이 실제로 가까워졌을 때만 멈춤
+function late(os,p,goal){for(let ch=true,g=0;ch&&g<400;g++){ch=false;
+ for(let k=0;k+2<p.length;k++)if(p[k]===p[k+1]&&p[k+1]!==p[k+2]&&p[k+2]!==goal&&!clash(os,p[k],p[k+2],T+k)&&!clash(os,p[k+2],p[k+2],T+k+1)){p[k+1]=p[k+2];ch=true}}
+ return p}
+// 목적지가 점유 중이면 가만히 있지 않고 목적지 바로 옆까지 먼저 접근
+function approach(a){let b=null,bd=1e9;for(const[dx,dy]of D.slice(1)){const x=X(a.goal)+dx,y=Y(a.goal)+dy;if(x<0||y<0||x>=W||y>=H)continue;const c=id(x,y);if(a.carry&&boxAt[c]>=0)continue;const d=Math.abs(x-X(a.cell))+Math.abs(y-Y(a.cell));if(d<bd){bd=d;b=c}}return b}
+const hold=(a,n)=>{a.path=Array(n+1).fill(a.cell);a.t0=T};
+const nearStn=c=>STN.reduce((b,s)=>Math.abs(X(s)-X(c))+Math.abs(Y(s)-Y(c))<Math.abs(X(b)-X(c))+Math.abs(Y(b)-Y(c))?s:b);
+function next(a){const S=a.stage,b=a.box;
+ if(S==='toBox'){a.stage='lift';hold(a,3)}
+ else if(S==='lift'){boxAt[b.home]=-1;b.carrier=a;a.carry=true;a.stage='toStn';a.goal=nearStn(a.cell)}
+ else if(S==='toStn'){a.stage='serve';hold(a,4)}
+ else if(S==='serve'){a.stage='toHome';a.goal=b.home}
+ else if(S==='toHome'){a.stage='lower';hold(a,3)}
+ else if(S==='lower'){boxAt[b.home]=b.id;b.carrier=null;b.st='home';a.carry=false;a.box=null;a.stage='idle';done++}
+ else if(S==='relocate')a.stage='idle'}
+function step(a){
+ if(a.goal!=null&&a.cell!==a.goal){if(plan(a,a.goal))a.stuck=0;else{a.stuck++;const nb=approach(a);if(nb==null||!plan(a,nb)){a.path=[a.cell];a.t0=T}}return}
+ a.goal=null;next(a);if(a.goal!=null)step(a)}
+function relocate(){for(const a of agents){if(a.stage!=='idle')continue;
+ for(let t=0;t<60;t++){const c=(Math.random()*N)|0;if(boxAt[c]>=0||STN.includes(c)||agents.some(o=>pos(o,T)===c))continue;a.stage='relocate';a.goal=c;step(a);break}}}
+function tick(){T++;
+ if($('auto').checked&&T%8===0){const h=boxes.filter(b=>b.st==='home');if(h.length)order(h[Math.random()*h.length|0])}
+ for(const a of agents)a.cell=pos(a,T);
+ for(;;){let best=null,bd=1e9;
+  for(const a of agents)if(a.stage==='idle')for(const b of queue){const d=Math.abs(X(a.cell)-X(b.home))+Math.abs(Y(a.cell)-Y(b.home));if(d<bd){bd=d;best=[a,b]}}
+  if(!best)break;const[a,b]=best;queue.splice(queue.indexOf(b),1);a.stage='toBox';a.box=b;b.st='taken';a.goal=b.home}
+ for(const a of agents)if(T-a.t0>=a.path.length-1)step(a);
+ if(agents.some(a=>a.stuck>6)){agents.forEach(a=>a.stuck=0);relocate()}}
+function order(b){if(b&&b.st==='home'){b.st='queued';queue.push(b)}}
+const canAdd=c=>c!=null&&!STN.includes(c)&&!agents.some(o=>pos(o,T)===c);
+function addAgent(c){if(!canAdd(c))return;
+ const a={n:++nid,col:`hsl(${(nid*47)%360},65%,50%)`,cell:c,path:[c],t0:T,stage:'idle',goal:null,box:null,carry:false,stuck:0};
+ const hit=agents.filter(o=>o.path.some((q,k)=>q===c&&o.t0+k>=T));mkAgent(a);agents.push(a);
+ const p=new THREE.Color(a.col);a.m.position.set(X(c)-W/2+.5,0,Y(c)-H/2+.5);
+ for(const o of hit){o.cell=pos(o,T);o.path=[o.cell];o.t0=T;step(o)}} // 새 AMR 위치를 지나는 경로는 즉시 재계획
+// ---------- 입력 ----------
+const ray=new THREE.Raycaster(),nd=new THREE.Vector2();
+function pick(e,objs){const r=R.domElement.getBoundingClientRect();nd.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(nd,cam);return ray.intersectObjects(objs,false)[0]}
+function cellAt(e){const h=pick(e,[floor]);if(!h)return null;const x=Math.floor(h.point.x+W/2),y=Math.floor(h.point.z+H/2);return x<0||y<0||x>=W||y>=H?null:id(x,y)}
+$('chip').addEventListener('pointerdown',e=>{e.preventDefault();drag=document.createElement('div');drag.className='ghost';drag.textContent='🤖';document.body.appendChild(drag);mv(e)});
+function mv(e){if(!drag)return;drag.style.left=e.clientX+'px';drag.style.top=e.clientY+'px';hov=cellAt(e)}
+function endDrag(e,ok){if(!drag)return;const c=cellAt(e);if(ok&&c!=null)addAgent(c);drag.remove();drag=null;hov=null}
+addEventListener('pointermove',mv);addEventListener('pointerup',e=>endDrag(e,true));addEventListener('pointercancel',e=>endDrag(e,false));
+let dn=null;const cvs=R.domElement;
+cvs.addEventListener('pointerdown',e=>dn=[e.clientX,e.clientY]);
+cvs.addEventListener('pointerup',e=>{if(!dn||Math.hypot(e.clientX-dn[0],e.clientY-dn[1])>5)return;const h=pick(e,boxes.map(b=>b.m));if(h)order(h.object.userData.b)});
+cvs.addEventListener('dblclick',e=>{const h=pick(e,agents.map(a=>a.base));if(!h)return;const a=h.object.userData.a;if(a.stage!=='idle')return;scene.remove(a.m);scene.remove(a.ln);agents.splice(agents.indexOf(a),1)});
+$('rnd').onclick=()=>boxes.filter(b=>b.st==='home').sort(()=>Math.random()-.5).slice(0,5).forEach(order);
+$('rst').onclick=init;$('spd').oninput=e=>speed=+e.target.value;
+// ---------- 렌더 ----------
+function upd(f){
+ let waiting=0;
+ for(const a of agents){const p0=pos(a,T),p1=pos(a,T+1),dx=X(p1)-X(p0),dz=Y(p1)-Y(p0);
+  a.gx=X(p0)+dx*f+.5-W/2;a.gz=Y(p0)+dz*f+.5-H/2;a.m.position.set(a.gx,0,a.gz);
+  if(dx||dz){let d=Math.atan2(-dz,dx)-a.rot;d=Math.atan2(Math.sin(d),Math.cos(d));a.rot+=d*.25;a.m.rotation.y=a.rot}
+  const tg=(a.stage==='lift'||(a.carry&&a.stage!=='lower'))?1:0;a.lift+=(tg-a.lift)*.1;a.disc.position.y=.22+a.lift*.12;
+  const w=a.goal!=null&&p0===p1;if(w)waiting++;a.ring.visible=w;
+  a.ln.visible=$('paths').checked;
+  if(a.ln.visible){const pts=[new THREE.Vector3(a.gx,.06,a.gz)];for(let k=Math.max(T+1-a.t0,0);k<a.path.length;k++){const c=a.path[k];pts.push(new THREE.Vector3(X(c)-W/2+.5,.06,Y(c)-H/2+.5))}a.ln.geometry.setFromPoints(pts)}}
+ for(const b of boxes){const o=b.carrier||agents.find(a=>a.box===b);
+  if(b.carrier)b.g.position.set(b.carrier.gx,0,b.carrier.gz);else b.g.position.set(X(b.home)-W/2+.5,0,Y(b.home)-H/2+.5);
+  b.g.position.y=o?o.lift*.12:0;b.m.material.color.setHex(b.st==='queued'?0xf0a030:b.st==='taken'?0x6cc08b:0xc9a26a)}
+ if(drag&&hov!=null){hl.visible=true;hl.position.set(X(hov)-W/2+.5,.02,Y(hov)-H/2+.5);hl.material.color.setHex(canAdd(hov)?0x2e9e5b:0xd64545)}else hl.visible=false;
+ $('sA').textContent=agents.length;$('sQ').textContent=queue.length;$('sD').textContent=done;$('sW').textContent=waiting}
+let last=performance.now();
+function loop(now){const dt=Math.min(now-last,100);last=now;acc+=dt*speed;while(acc>=TICK){acc-=TICK;tick()}upd(acc/TICK);ctl.update();R.render(scene,cam);requestAnimationFrame(loop)}
+addEventListener('resize',resize);resize();init();requestAnimationFrame(loop);
+</script></body></html>

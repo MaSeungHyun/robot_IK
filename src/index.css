@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+.simulation-panel {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}

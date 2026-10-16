@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>로봇 피킹 시뮬레이터</title>
+<style>
+:root{--bg:#eef0f4;--panel:#fff;--text:#1d2330;--muted:#667085;--line:#d9dde5;--accent:#2563eb;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151c;--panel:#1b2030;--text:#e8ebf2;--muted:#98a1b5;--line:#2c3348;--accent:#6ea0ff}}
+:root[data-theme="dark"]{--bg:#12151c;--panel:#1b2030;--text:#e8ebf2;--muted:#98a1b5;--line:#2c3348;--accent:#6ea0ff}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+#app{display:grid;grid-template-columns:1fr 300px;height:100%}
+#view{position:relative;min-height:0;min-width:0}
+#view canvas{display:block;width:100%;height:100%;touch-action:none}
+aside{background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:14px}
+@media(max-width:800px){#app{grid-template-columns:1fr;grid-template-rows:50% 50%}aside{border-left:0;border-top:1px solid var(--line)}}
+h3{margin:0 0 6px;font-size:13px;color:var(--muted);font-weight:600}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+button,.chip{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip{cursor:grab;border-style:dashed;user-select:none}
+label{display:block;margin:8px 0 2px;color:var(--muted)}
+input[type=range]{width:100%}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px}
+.stat{background:var(--bg);border-radius:8px;padding:6px 8px;font-size:12px;color:var(--muted)}
+.stat b{display:block;font-size:17px;color:var(--text)}
+table{width:100%;border-collapse:collapse}td,th{padding:3px 4px;text-align:left;font-weight:400}th{color:var(--muted)}
+.hint{position:absolute;left:10px;bottom:8px;color:var(--muted);font-size:12px;pointer-events:none}
+</style></head><body>
+<div id="app">
+<div id="view"><div class="hint">빈 곳 드래그: 회전 · 휠: 확대 · 로봇 드래그: 이동</div></div>
+<aside>
+<div><h3>배치</h3><div class="row"><div class="chip" id="chip" draggable="true">🤖 로봇을 끌어다 놓기</div><button id="add">로봇 추가</button></div></div>
+<div><h3>시뮬레이션</h3><div class="row"><button id="play" class="on">⏸ 일시정지</button><button data-m="1" class="on">1x</button><button data-m="3">3x</button><button data-m="8">8x</button><button id="reset">초기화</button></div></div>
+<div><h3>선택한 항목</h3><div id="props"></div></div>
+<div><h3>성과</h3><div class="grid" id="stats"></div><table id="rt"></table></div>
+</aside></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const V=THREE.Vector3,$=s=>document.querySelector(s),cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const wrap=$('#view'),R=new THREE.WebGLRenderer({antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));wrap.appendChild(R.domElement);
+const cv=R.domElement,scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,200),orb={az:.5,el:.8,d:15};
+function camUp(){cam.position.set(orb.d*Math.cos(orb.el)*Math.sin(orb.az),.5+orb.d*Math.sin(orb.el),orb.d*Math.cos(orb.el)*Math.cos(orb.az));cam.lookAt(0,.5,0)}
+function theme(){scene.background=new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())}
+theme();matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
+scene.add(new THREE.HemisphereLight(0xffffff,0x667085,.9));
+const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(5,10,6);scene.add(dl);
+const grid=new THREE.GridHelper(40,40,0x7b8499,0x7b8499);grid.material.transparent=true;grid.material.opacity=.3;scene.add(grid);
+
+// 컨베이어
+const B={len:16,speed:1.5,spawn:1.2};
+const beltMat=new THREE.MeshStandardMaterial({color:0x334155});
+const belt=new THREE.Mesh(new THREE.BoxGeometry(B.len,.4,1.6),beltMat);belt.position.y=.3;belt.userData.belt=1;scene.add(belt);
+const slats=[];
+for(let i=0;i<32;i++){const s=new THREE.Mesh(new THREE.BoxGeometry(.12,.03,1.5),new THREE.MeshStandardMaterial({color:0x64748b}));s.position.set(-B.len/2+i*.5,.51,0);scene.add(s);slats.push(s)}
+[-.85,.85].forEach(z=>{const r=new THREE.Mesh(new THREE.BoxGeometry(B.len,.15,.1),new THREE.MeshStandardMaterial({color:0xf59e0b}));r.position.set(0,.55,z);scene.add(r)});
+
+// 상태
+const S={t:0,sp:0,spawned:0,done:0,missed:0,boxes:[],robots:[],sel:null,run:true,mult:1,id:1};
+const D={approach:.3,grab:.1,move:.35,release:.1,ret:.15};
+const bg=new THREE.BoxGeometry(.4,.4,.4),mats=[0xd97706,0xb45309,0xea580c,0xca8a04].map(c=>new THREE.MeshStandardMaterial({color:c}));
+const sg=r=>r.g.position.z>=0?1:-1;
+const home=r=>{const p=r.g.position;return new V(p.x,1.7,p.z-sg(r)*1.2)};
+const bTip=b=>new V(b.m.position.x,1.05,0);
+function slot(r){const p=r.g.position,n=r.slot%18,dd=Math.max(1.5,r.reach*.5);return new V(p.x+(n%3-1)*.5,.2+(n/9|0)*.42,p.z+sg(r)*dd+((n/3|0)%3-1)*.5)}
+function spawn(){const m=new THREE.Mesh(bg,mats[Math.random()*4|0]);m.position.set(-B.len/2,.7,0);scene.add(m);S.boxes.push({m,st:'belt',claim:null});S.spawned++}
+const kill=b=>{scene.remove(b.m);b.dead=1;b.st='dead'};
+
+// 로봇 (관절 3개 + 그리퍼: 요 회전 + 2링크 평면 IK)
+function addRobot(x,z){
+ const g=new THREE.Group(),m1=new THREE.MeshStandardMaterial({color:0xf59e0b,roughness:.5});
+ const base=new THREE.Mesh(new THREE.CylinderGeometry(.45,.55,.9,24),new THREE.MeshStandardMaterial({color:0x475569}));base.position.y=.45;
+ const sh=new THREE.Group();sh.position.y=1;
+ const u=new THREE.BoxGeometry(1,.22,.22);u.translate(.5,0,0);
+ const l1=new THREE.Mesh(u,m1),el=new THREE.Group(),l2=new THREE.Mesh(u,m1);
+ const grip=new THREE.Mesh(new THREE.BoxGeometry(.2,.3,.3),new THREE.MeshStandardMaterial({color:0x1e293b}));
+ sh.add(l1,el);el.add(l2,grip);
+ const ring=new THREE.Mesh(new THREE.RingGeometry(.98,1,64),new THREE.MeshBasicMaterial({color:0x2563eb,side:2}));ring.rotation.x=-Math.PI/2;ring.position.y=.03;ring.visible=false;
+ g.add(base,sh,ring);g.position.set(x,0,z);scene.add(g);
+ const r={id:S.id++,g,sh,el,l1,l2,grip,ring,m1,base,cycle:3,reach:3.6,state:'idle',ph:0,box:null,slot:0,stack:[],busy:0,n:0};
+ [base,l1,l2,grip].forEach(o=>o.userData.robot=r);
+ r.tip=home(r);S.robots.push(r);pose(r);return r}
+function pose(r){
+ const p=r.g.position,t=r.tip,dx=t.x-p.x,dz=t.z-p.z,L=r.reach/2;
+ r.g.rotation.y=-Math.atan2(dz,dx);
+ let rr=Math.hypot(dx,dz),dy=t.y-1,d=Math.hypot(rr,dy)||.01;const mx=2*L-.01;
+ if(d>mx){rr*=mx/d;dy*=mx/d;d=mx}
+ const q=-Math.acos(cl((d*d-2*L*L)/(2*L*L),-1,1));
+ r.sh.rotation.z=Math.atan2(dy,rr)-Math.atan2(L*Math.sin(q),L+L*Math.cos(q));r.el.rotation.z=q;
+ r.el.position.x=L;r.l1.scale.x=r.l2.scale.x=L;r.grip.position.x=L;
+ const s=r.reach*.9;r.ring.scale.set(s,s,1)}
+
+// 작업 상태 머신: 대기 → 접근 → 집기 → 이동 → 놓기 → 복귀
+function nxt(r,s){r.state=s;r.ph=0;r.from=r.tip.clone()}
+function abort(r){if(r.box){if(r.box.st==='held')kill(r.box);else r.box.claim=null;r.box=null}r.state='idle'}
+const hold=(r,b)=>b.m.position.set(r.tip.x,r.tip.y-.35,r.tip.z);
+function stepR(r,dt){
+ const p=r.g.position,c=r.cycle,h=home(r);
+ if(r.state==='idle'){
+  r.tip.lerp(h,Math.min(1,dt*4));
+  const T=c*D.approach,lim=r.reach*.9;let best=null;
+  for(const b of S.boxes){if(b.st!=='belt'||b.claim)continue;const x=b.m.position.x;
+   if(Math.hypot(x-p.x,p.z)<lim&&Math.hypot(x+B.speed*T-p.x,p.z)<lim&&(!best||x>best.m.position.x))best=b}
+  if(best){best.claim=r;r.box=best;nxt(r,'approach')}
+  return}
+ r.busy+=dt;r.ph+=dt;
+ const b=r.box,u=Math.min(1,r.ph/(c*D[r.state])),e=u*u*(3-2*u);
+ if(b&&b.dead){abort(r);return}
+ switch(r.state){
+ case'approach':
+  if(Math.hypot(b.m.position.x-p.x,p.z)>r.reach*.97){abort(r);return}
+  r.tip.lerpVectors(r.from,bTip(b),e);if(u>=1)nxt(r,'grab');break;
+ case'grab':
+  r.tip.copy(bTip(b));
+  if(u>=1){b.st='held';if(r.slot>0&&r.slot%18===0){r.stack.forEach(m=>scene.remove(m));r.stack=[]}
+   nxt(r,'move');r.to=slot(r).add(new V(0,.35,0))}break;
+ case'move':
+  r.tip.lerpVectors(r.from,r.to,e);r.tip.y+=Math.sin(Math.PI*u)*.9;hold(r,b);if(u>=1)nxt(r,'release');break;
+ case'release':
+  b.m.position.lerpVectors(r.from.clone().sub(new V(0,.35,0)),slot(r),e);
+  if(u>=1){b.st='stacked';r.stack.push(b.m);r.slot++;r.n++;S.done++;r.box=null;nxt(r,'ret')}break;
+ case'ret':
+  r.tip.lerpVectors(r.from,h,e);if(u>=1)r.state='idle';break}
+}
+function sim(dt){
+ S.t+=dt;S.sp+=dt;
+ if(S.sp>=B.spawn){S.sp-=B.spawn;spawn()}
+ for(const b of S.boxes)if(b.st==='belt'){b.m.position.x+=B.speed*dt;if(b.m.position.x>B.len/2){S.missed++;kill(b)}}
+ S.boxes=S.boxes.filter(b=>b.st==='belt'||b.st==='held');
+ for(const s of slats){s.position.x+=B.speed*dt;if(s.position.x>B.len/2)s.position.x-=B.len}
+ S.robots.forEach(r=>stepR(r,dt))}
+
+// 선택 / 속성 패널
+function sel(x){S.sel=x;S.robots.forEach(r=>{r.ring.visible=r===x;r.m1.emissive.setHex(r===x?0x553300:0)});beltMat.emissive.setHex(x==='belt'?0x1d3a6b:0);props()}
+function delRobot(r){abort(r);r.stack.forEach(m=>scene.remove(m));scene.remove(r.g);S.robots=S.robots.filter(q=>q!==r);sel(null)}
+function props(){
+ const el=$('#props'),x=S.sel;
+ if(!x){el.innerHTML='<span style="color:var(--muted)">로봇이나 컨베이어를 클릭하세요.</span>';return}
+ const sl=(k,lab,min,max,st,v,u)=>`<label>${lab}: <b id="v_${k}">${v}</b>${u}</label><input type="range" data-k="${k}" min="${min}" max="${max}" step="${st}" value="${v}">`;
+ el.innerHTML=x==='belt'
+  ?'<b>컨베이어</b>'+sl('speed','벨트 속도',.5,4,.1,B.speed,' m/s')+sl('spawn','박스 투입 간격',.3,3,.1,B.spawn,'초')
+  :`<b>로봇 #${x.id}</b>`+sl('cycle','작업 사이클(짧을수록 빠름)',1,6,.1,x.cycle,'초')+sl('reach','팔 길이(도달 범위)',2.5,5,.1,x.reach,' m')+'<div class="row" style="margin-top:10px"><button id="del">삭제</button></div>';
+ el.querySelectorAll('input').forEach(i=>i.oninput=()=>{const v=+i.value;$('#v_'+i.dataset.k).textContent=v;(x==='belt'?B:x)[i.dataset.k]=v});
+ const d=$('#del');if(d)d.onclick=()=>delRobot(x)}
+function stats(){
+ const tot=S.done+S.missed;
+ $('#stats').innerHTML=[['경과',S.t.toFixed(0)+'초'],['투입',S.spawned],['처리량',(S.t>1?S.done/S.t*60:0).toFixed(1)+'/분'],['처리',S.done],['놓침',S.missed],['처리율',(tot?S.done/tot*100:0).toFixed(0)+'%']].map(([a,b])=>`<div class="stat">${a}<b>${b}</b></div>`).join('');
+ $('#rt').innerHTML='<tr><th>로봇</th><th>처리</th><th>가동률</th></tr>'+S.robots.map(r=>`<tr><td>#${r.id}</td><td>${r.n}</td><td>${S.t>1?(r.busy/S.t*100).toFixed(0):0}%</td></tr>`).join('')}
+
+// 입력: 드래그 앤 드롭, 이동, 카메라
+const ray=new THREE.Raycaster(),pl=new THREE.Plane(new V(0,1,0),0);
+const pk=()=>[belt,...S.robots.flatMap(r=>[r.base,r.l1,r.l2,r.grip])];
+function ndc(e){const b=cv.getBoundingClientRect();return new THREE.Vector2((e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1)}
+function ground(e){ray.setFromCamera(ndc(e),cam);const o=new V();return ray.ray.intersectPlane(pl,o)?o:null}
+function hit(e){ray.setFromCamera(ndc(e),cam);const h=ray.intersectObjects(pk())[0];return h&&h.object.userData}
+function fix(x,z,self){x=cl(x,-9,9);z=cl(Math.abs(z),1.6,7)*(z<0?-1:1);return S.robots.some(r=>r!==self&&Math.hypot(r.g.position.x-x,r.g.position.z-z)<1.3)?null:[x,z]}
+$('#chip').ondragstart=e=>e.dataTransfer.setData('text/plain','robot');
+cv.ondragover=e=>e.preventDefault();
+cv.ondrop=e=>{e.preventDefault();const g=ground(e);if(!g)return;const f=fix(g.x,g.z);if(f)sel(addRobot(...f))};
+$('#add').onclick=()=>{for(const z of[2.6,-2.6])for(let x=-6;x<=6;x+=2){const f=fix(x,z);if(f){sel(addRobot(...f));return}}};
+let drag=null;
+cv.onpointerdown=e=>{
+ cv.setPointerCapture(e.pointerId);const h=hit(e);
+ if(h&&h.robot){const r=h.robot,g=ground(e);sel(r);abort(r);drag={t:'r',r,off:new V(r.g.position.x-g.x,0,r.g.position.z-g.z)}}
+ else drag={t:'o',x:e.clientX,y:e.clientY,moved:0,belt:h&&h.belt}};
+cv.onpointermove=e=>{
+ if(!drag)return;
+ if(drag.t==='r'){const g=ground(e);if(!g)return;const r=drag.r,f=fix(g.x+drag.off.x,g.z+drag.off.z,r);
+  if(f){const dx=f[0]-r.g.position.x,dz=f[1]-r.g.position.z;r.g.position.x=f[0];r.g.position.z=f[1];r.stack.forEach(m=>{m.position.x+=dx;m.position.z+=dz});r.tip=home(r)}}
+ else{const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=1;
+  orb.az-=dx*.006;orb.el=cl(orb.el+dy*.005,.25,1.5);drag.x=e.clientX;drag.y=e.clientY}};
+cv.onpointerup=()=>{if(drag&&drag.t==='o'&&!drag.moved)sel(drag.belt?'belt':null);drag=null};
+cv.onwheel=e=>{e.preventDefault();orb.d=cl(orb.d*(1+e.deltaY*.001),6,30)};
+
+// 컨트롤
+$('#play').onclick=e=>{S.run=!S.run;e.target.textContent=S.run?'⏸ 일시정지':'▶ 재생';e.target.classList.toggle('on',S.run)};
+document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{S.mult=+b.dataset.m;document.querySelectorAll('[data-m]').forEach(x=>x.classList.toggle('on',x===b))});
+$('#reset').onclick=()=>{S.boxes.forEach(kill);S.boxes=[];S.robots.forEach(r=>{r.box=null;r.state='idle';r.stack.forEach(m=>scene.remove(m));r.stack=[];r.slot=0;r.n=0;r.busy=0;r.tip=home(r)});Object.assign(S,{t:0,sp:0,spawned:0,done:0,missed:0})};
+new ResizeObserver(()=>{const w=wrap.clientWidth,h=wrap.clientHeight;R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}).observe(wrap);
+
+sel(addRobot(-1,2.6));
+let last=performance.now(),acc=0,ui=0;
+function loop(now){
+ requestAnimationFrame(loop);const f=Math.min(.1,(now-last)/1000);last=now;
+ if(S.run){acc+=f*S.mult;let n=0;while(acc>=1/60&&n++<600){sim(1/60);acc-=1/60}}
+ S.robots.forEach(pose);camUp();R.render(scene,cam);
+ ui+=f;if(ui>.25){ui=0;stats()}}
+requestAnimationFrame(loop);
+</script></body></html>

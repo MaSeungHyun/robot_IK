@@ -1,253 +1,173 @@
-import type {
-  Transfer,
-  JointAngleRef,
-  JointAngleReading,
-} from "../../types/robot";
+import { Canvas } from "@react-three/fiber";
+import { Grid, OrbitControls, useProgress } from "@react-three/drei";
+import { Component, Suspense, useCallback, useMemo } from "react";
+import type { ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSimulationStore } from "../../stores/useSimulationStore";
-import PackingPanel from "../Hud/PackingPanel";
-import JointAnglesPanel from "../Hud/JointAnglesPanel";
-import { Canvas as R3FCanvas } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo, useRef } from "react";
-import { OrbitControls, useGLTF } from "@react-three/drei";
-import { Box3, Group, Vector3 } from "three";
-import Robot from "./models/Robot";
-import { planStack } from "../../utils/packing/stacking";
-import boxUrl from "@/assets/models/box.glb?url";
-import palletUrl from "@/assets/models/pallet.glb?url";
-import ConveyorDemo from "../Hud/ConveyorDemo";
-import { STREAM_CONFIG } from "../conveyor/conveyor";
+import SimulationPanel from "@/features/Hud/simulation/SimulationPanel";
+import ConveyorDemo from "@/demo/conveyor/ConveyorDemo";
+import RobotDemo from "@/demo/robot/RobotDemo";
+import AMRDemo from "@/demo/amr/AMRDemo";
+import CustomizeDemo from "@/demo/customize/CustomizeDemo";
+import AssetPalettePanel from "@/features/Hud/customize/AssetPalettePanel";
+import ObjectPropertiesPanel from "@/features/Hud/customize/ObjectPropertiesPanel";
+import EquipmentStatusPanel from "@/features/Hud/customize/EquipmentStatusPanel";
+import { useSceneStore } from "../../stores/useSceneStore";
+import useEditorShortcuts from "../../hooks/useEditorShortcuts";
 
-const COUNT = 10;
-function Demo({
-  running,
-  onProgress,
-  jointAnglesRef,
-}: {
-  running: boolean;
-  jointAnglesRef?: JointAngleRef;
-  onProgress: (count: number, status: string) => void;
-}) {
-  const boxAsset = useGLTF(boxUrl);
-  const palletAsset = useGLTF(palletUrl);
-  const jobs = useRef<Transfer[]>([]);
-  const demo = useMemo(() => {
-    const root = new Group();
-    const palletTemplate = palletAsset.scene.clone(true);
-    palletTemplate.scale.setScalar(0.55);
-    const palletBounds = new Box3().setFromObject(palletTemplate);
-    const palletSize = palletBounds.getSize(new Vector3());
-    const palletCenter = palletBounds.getCenter(new Vector3());
-    palletTemplate.position.set(
-      -palletCenter.x,
-      -palletBounds.min.y,
-      -palletCenter.z,
+class SceneBoundary extends Component<
+  { children: ReactNode; resetKey: number },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidUpdate(previous: { resetKey: number }) {
+    if (previous.resetKey !== this.props.resetKey && this.state.failed)
+      this.setState({ failed: false });
+  }
+  render() {
+    return this.state.failed ? (
+      <p
+        role="alert"
+        className="absolute bottom-6 right-6 rounded-xl bg-slate-900 p-4 text-sm text-rose-300"
+      >
+        모델을 불러오지 못했습니다. 초기화 후 다시 시도해 주세요.
+      </p>
+    ) : (
+      this.props.children
     );
-    // Keep pickup/drop points within the restricted shoulder/elbow workspace.
-    const centers = [new Vector3(2.3, 0, 0), new Vector3(-1.6, 0, 0)];
-    centers.forEach((center) => {
-      const pallet = new Group();
-      pallet.position.copy(center);
-      pallet.add(palletTemplate.clone(true));
-      root.add(pallet);
-    });
-    const template = boxAsset.scene.clone(true);
-    template.scale.setScalar(0.45);
-    const bounds = new Box3().setFromObject(template);
-    const size = bounds.getSize(new Vector3());
-    const center = bounds.getCenter(new Vector3());
-    // Cargo origin is its top center, making attachment and placement exact.
-    template.position.set(-center.x, -bounds.max.y, -center.z);
-    const plan = planStack(COUNT, palletSize, size);
-    const transfers: Transfer[] = [];
-    const sourcePositions = plan.slots.map((slot) =>
-      slot.position
-        .clone()
-        .add(centers[0])
-        .add(new Vector3(0, palletSize.y + size.y, 0)),
-    );
-    // Remove the top layer first, then the lower layer. Destination fills
-    // from the center outward and finishes each layer before starting another.
-    const order = plan.slots
-      .map((slot, i) => ({ layer: slot.layer, i }))
-      .sort((a, b) => b.layer - a.layer || a.i - b.i);
-    order.forEach(({ i }, destinationIndex) => {
-      const cargo = new Group();
-      // Rotate around the normalized top-center pivot.
-      const pivot = new Group();
-      pivot.add(template.clone(true));
-      pivot.rotation.y = plan.rotated ? Math.PI / 2 : 0;
-      cargo.add(pivot);
-      cargo.position.copy(sourcePositions[i]);
-      root.add(cargo);
-      transfers.push({
-        box: cargo,
-        pickup: sourcePositions[i],
-        destination: plan.slots[destinationIndex].position
-          .clone()
-          .add(centers[1])
-          .add(new Vector3(0, palletSize.y + size.y, 0)),
-      });
-    });
-    return { root, transfers };
-  }, [boxAsset.scene, palletAsset.scene]);
-  useEffect(() => {
-    jobs.current = demo.transfers;
-    return () => {
-      jobs.current = [];
-    };
-  }, [demo]);
-  return (
-    <>
-      <primitive object={demo.root} />
-      <Robot
-        jointAnglesRef={jointAnglesRef}
-        jobs={jobs}
-        running={running}
-        onProgress={onProgress}
-      />
-    </>
-  );
+  }
+}
+function LoadingOverlay() {
+  const active = useProgress((state) => state.active);
+  return active ? (
+    <p
+      role="status"
+      className="pointer-events-none absolute right-5 top-5 z-10 rounded-xl bg-slate-900/90 px-4 py-3 text-sm text-slate-300"
+    >
+      모델 불러오는 중…
+    </p>
+  ) : null;
 }
 
 export default function Viewport() {
-  const jointAnglesRef = useRef<JointAngleReading[] | null>(null);
+  const editing=useSceneStore(state=>state.editing);
   const {
-    continuous,
-    stats,
+    demoMode,
+    transferMode,
     run,
     running,
-    progress,
     setStats,
-    setDiagnostics,
-    setRunning,
     setProgress,
-    reset,
+    setDiagnostics,
   } = useSimulationStore(
-    useShallow((state) => ({
-      continuous: state.continuous,
-      stats: state.stats,
-      run: state.run,
-      running: state.running,
-      progress: state.progress,
-      setStats: state.setStats,
-      setDiagnostics: state.setDiagnostics,
-      setRunning: state.setRunning,
-      setProgress: state.setProgress,
-      reset: state.reset,
+    useShallow((s) => ({
+      demoMode: s.demoMode,
+      transferMode: s.transferMode,
+      run: s.run,
+      running: s.running,
+      setStats: s.setStats,
+      setProgress: s.setProgress,
+      setDiagnostics: s.setDiagnostics,
     })),
   );
+  const amr = demoMode === "amr",
+    batch = demoMode === "robot",
+    custom = demoMode === "customize";
+  useEditorShortcuts(custom);
+  const camera = useMemo(
+    () => ({
+      position: (amr
+        ? [9, 10, 11]
+        : custom
+          ? [5, 4.5, 6]
+          : batch
+            ? [4, 3.5, 5]
+            : [3, 2.2, 3]) as [number, number, number],
+      fov: 45,
+    }),
+    [amr, batch, custom],
+  );
+  const onProgress = useCallback(
+    (count: number, status: string) => setProgress({ count, status }),
+    [setProgress],
+  );
   return (
-    <div className="relative w-full h-full">
-      <div className="absolute left-5 top-5 z-10 max-h-[42vh] overflow-y-auto rounded-xl bg-black/70 px-5 py-4">
-        <div className="font-semibold">로봇 팔레타이징 데모</div>
-        <div className="mt-2 text-sm">
-          {progress.status} ·{" "}
-          {continuous ? `${stats.placed}개 적재` : `${progress.count}/${COUNT}`}
-        </div>
-        {continuous && (
-          <div className="mt-2 text-xs text-neutral-300">
-            <div>
-              생성 {stats.spawned} · 이동 {stats.live} · 통과 {stats.passed}
-            </div>
-            <div>
-              팔레트 {stats.palletNumber ?? 1}번 · 출고{" "}
-              {stats.completedPallets ?? 0}개
-              {stats.exchanging ? " · 교체 중" : ""}
-            </div>
-            <div>
-              팔레트 {STREAM_CONFIG.palletWidth}×{STREAM_CONFIG.palletDepth}m ·
-              높이 제한 {STREAM_CONFIG.maxStackHeight}m · 공간 사용률{" "}
-              {(stats.utilization * 100).toFixed(1)}%
-            </div>
-            <div>
-              현재 박스(X×Y×Z) {stats.size || "대기"} · spline 속도{" "}
-              {STREAM_CONFIG.speed}m/s · 중심 간격 {STREAM_CONFIG.spacing}m
-            </div>
-            <div>박스 0.22×0.2×0.275m (X×Y×Z)</div>
-            <div>T11 팔레트 · 먼 곳부터 아래층 20개 → 다음 층</div>
-            {stats.full && !stats.exchanging && (
-              <div className="text-amber-300">
-                해당 박스는 팔레트 크기 또는 지지 공간을 초과 · 통과
-              </div>
-            )}
-          </div>
-        )}
-        <button
-          className="mt-3 mr-2 rounded bg-neutral-600 px-3 py-1 text-sm"
-          onClick={() => reset(true)}
+    <div className="relative h-full w-full bg-[#101820]">
+      <SimulationPanel />
+      {custom && (
+        <>
+          <AssetPalettePanel />
+          {editing?<ObjectPropertiesPanel />:<EquipmentStatusPanel/>}
+        </>
+      )}
+      <LoadingOverlay />
+      <SceneBoundary key={demoMode} resetKey={run}>
+        <Canvas
+          key={demoMode}
+          camera={camera}
+          gl={{ antialias: true }}
+          dpr={[1, 1.5]}
         >
-          {continuous ? "기존 10개 데모" : "연속 공급 데모"}
-        </button>
-        <div className="mt-1 text-xs text-neutral-300">
-          hand00 좌우 정렬 · hand1 뒤로 넘기기 ±120° · hand3 고정 · hand4 360° 자유
-          회전
-          <div>수직 집기 → 들어 올려 이송 → 노란 포인트에 내려놓기</div>
-          {continuous && <div>파란 원: 집기 반경 · 노랑 점: 다음 적재 중앙</div>}
-        </div>
-        <button
-          className="mt-3 rounded bg-blue-600 px-3 py-1 text-sm"
-          onClick={() => setRunning((value) => !value)}
-        >
-          {running ? "일시 정지" : "시작 / 계속"}
-        </button>
-        <button
-          className="mt-3 ml-2 rounded bg-neutral-600 px-3 py-1 text-sm"
-          onClick={() => reset()}
-        >
-          초기 자세 복원
-        </button>
-      </div>
-      <div className="absolute right-4 top-4 bottom-4 z-20 w-[360px] max-w-[42vw] overflow-y-auto space-y-3">
-        {continuous && <PackingPanel />}
-      </div>
-      <div className="absolute left-4 bottom-4 z-20 w-[340px] max-w-[42vw] max-h-[48vh] overflow-y-auto">
-        <JointAnglesPanel
-          readings={jointAnglesRef}
-          onManualChange={() => setRunning(false)}
-        />
-      </div>
-      <R3FCanvas
-        key={continuous ? "stream" : "batch"}
-        camera={{ position: continuous ? [3, 2.2, 3] : [4, 3.5, 5], fov: 45 }}
-        gl={{ antialias: true }}
-      >
-        <ambientLight intensity={2} />
-        <directionalLight position={[3, 6, 4]} intensity={2} />
-        <gridHelper
-          args={[continuous ? 5 : 10, 40, "#64748b", "#334155"]}
-          position={[0, -0.01, 0]}
-        />
-        {!continuous && (
-          <mesh position={[0, 0.025, 0]}>
-            <boxGeometry args={[4.5, 0.05, 0.35]} />
-            <meshStandardMaterial color="#475569" />
-          </mesh>
-        )}
-        <Suspense fallback={null}>
-          <OrbitControls
-            target={[0, continuous ? 0.45 : 0.8, 0]}
-            enableDamping={false}
+          <color attach="background" args={["#101820"]} />
+          <ambientLight intensity={2} />
+          <directionalLight position={[3, 8, 4]} intensity={2} />
+
+          <Grid
+            infiniteGrid
+            followCamera
+            cellSize={0.25}
+            sectionSize={1}
+            cellColor="#23313e"
+            sectionColor="#344656"
+            fadeDistance={500}
+            position={[0, -0.01, 0]}
           />
-          {continuous ? (
-            <ConveyorDemo
-              jointAnglesRef={jointAnglesRef}
-              key={run}
-              running={running}
-              onStats={setStats}
-              onDiagnostics={setDiagnostics}
-              onProgress={(count, status) => setProgress({ count, status })}
-            />
-          ) : (
-            <Demo
-              jointAnglesRef={jointAnglesRef}
-              key={run}
-              running={running}
-              onProgress={(count, status) => setProgress({ count, status })}
-            />
-          )}
-        </Suspense>
-      </R3FCanvas>
+
+          <OrbitControls
+            makeDefault
+            target={[0, amr ? 0 : batch ? 0.8 : 0.45, 0]}
+            enableDamping={false}
+            maxPolarAngle={Math.PI / 2.05}
+          />
+          <Suspense fallback={null}>
+            {custom ? (
+              <CustomizeDemo
+                simulationRun={run}
+                running={running}
+                transferMode={transferMode}
+                onStats={setStats}
+                onProgress={onProgress}
+              />
+            ) : amr ? (
+              <AMRDemo
+                key={run}
+                running={running}
+                onStats={setStats}
+                onProgress={onProgress}
+              />
+            ) : batch ? (
+              <RobotDemo
+                key={run}
+                transferMode={transferMode}
+                running={running}
+                onProgress={onProgress}
+              />
+            ) : (
+              <ConveyorDemo
+                key={run}
+                transferMode={transferMode}
+                running={running}
+                onStats={setStats}
+                onDiagnostics={setDiagnostics}
+                onProgress={onProgress}
+              />
+            )}
+          </Suspense>
+        </Canvas>
+      </SceneBoundary>
     </div>
   );
 }

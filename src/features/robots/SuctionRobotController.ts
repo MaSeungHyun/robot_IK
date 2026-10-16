@@ -3,7 +3,7 @@ import { Euler, Group, Quaternion, Vector3 } from "three";
 import type { Object3D } from "three";
 import { MOTION, IK_CONFIG, ROBOT_PICKING } from "../../constants/simulation";
 import type { RobotController, RobotControllerOptions } from "../../interface/RobotController";
-import type { JointAngleReading, RobotPhase, Transfer } from "../../types/robot";
+import type { JointAngleReading, RobotPhase, RobotTransferMode, Transfer } from "../../types/robot";
 import { createRobotIK, type IKPose } from "../../utils/robot/robotIK";
 import { setJointAngle } from "../../utils/robot/joints";
 import { isPickupInRange, isWristAboveBox, setCargoWorldPose } from "../../utils/robot/picking";
@@ -13,29 +13,34 @@ const createRuntime = () => ({
   target: new Vector3(), command: new Vector3(), segmentStart: new Vector3(), segmentEnd: new Vector3(),
   point: new Vector3(), gripOffset: new Vector3(),
   parent: null as Object3D | null, transportBaseYaw: 0,
+  pickupWristStart: 0, pickupWristRange: null as [number,number] | null,
   pose: null as IKPose | null, recovery: null as IKPose | null, alignment: null as IKPose | null, transit: null as IKPose | null,
   planning: null as ReturnType<ReturnType<typeof createRobotIK>["startPlan"]> | null,
+  transferPlanning: null as ReturnType<ReturnType<typeof createRobotIK>["prepareShoulderTransfer"]> | null,
+  preparedShoulder: null as IKPose | null,
   releasePosition: new Vector3(), releaseRotation: new Quaternion(), destinationRotation: new Quaternion(), rotation: new Quaternion(),
 });
 const PHASE_LABELS: Record<RobotPhase,string> = {
   HOME:"다음 박스 대기", PRE_GRASP:"박스 위 경유점으로 접근", GRASP:"박스 위에서 수직 하강",
   ATTACH:"집기 접촉 확인", LIFT:"hand00 고정 · 수직 상승",
   SHOULDER_TRANSFER:"hand01으로 뒤로 넘기기 · hand00 고정", ALIGN_BASE:"hand00으로 팔레트 좌우 정렬",
-  TRANSIT:"슬롯 위 경유점으로 이동", PRE_PLACE:"놓기 전 자세 확인", PLACE:"슬롯 위에서 수직 하강",
+  TRANSIT:"슬롯 위 경유점으로 이동", PRE_PLACE:"슬롯 위에서 박스 방향 정렬", PLACE:"정렬 자세 유지 · 수직 하강",
   RELEASE:"박스 놓기", RETREAT:"놓은 뒤 수직 후퇴",
 };
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
 const LINEAR_PHASES: readonly RobotPhase[] = ["GRASP","LIFT","PLACE","RETREAT"];
 type CargoPose = { parent: Object3D | null; position: Vector3; quaternion: Quaternion; scale: Vector3 };
 
-/** Waypoint picking with the original IK and held-box/hand03 avoidance. */
+/** MoveJ between waypoints and MoveL for contact, with bounded wrist travel. */
 export class SuctionRobotController implements RobotController {
   readonly id: string;
   readonly model: Group;
+  readonly transferMode: RobotTransferMode;
   private active = false;
   private disposed = false;
   private readonly ik: ReturnType<typeof createRobotIK>;
   private readonly initialAngles: number[];
+  private homePose: IKPose | null = null;
   private runtime = createRuntime();
   private manualAngle: { name: string; degrees: number } | null = null;
   private readonly cargo = new Map<Group, CargoPose>();
@@ -48,9 +53,10 @@ export class SuctionRobotController implements RobotController {
     this.options = options;
     this.id = options.id;
     this.model = options.model;
+    this.transferMode = options.transferMode ?? ROBOT_PICKING.transferMode;
     this.pickupRadius = options.pickupRadius ?? ROBOT_PICKING.radius * (options.geometryScale ?? 1);
     if (!Number.isFinite(this.pickupRadius) || this.pickupRadius <= 0) throw new Error("Pickup radius must be positive");
-    this.ik = createRobotIK(this.model, options.geometryScale ?? 1, "held-box-hand03");
+    this.ik = createRobotIK(this.model, options.geometryScale ?? 1, "none");
     this.initialAngles = [this.ik.baseControl, ...this.ik.controls].map(control => control.angle);
   }
 
@@ -111,6 +117,7 @@ export class SuctionRobotController implements RobotController {
     this.cargo.clear();
     [this.ik.baseControl, ...this.ik.controls].forEach((control, index) => setJointAngle(control, this.initialAngles[index]));
     this.runtime = createRuntime();
+    this.homePose = null;
     this.manualAngle = null;
     this.model.updateWorldMatrix(true, true);
     this.options.onProgress?.(0, "초기 자세 · 시작 대기");
@@ -141,13 +148,29 @@ export class SuctionRobotController implements RobotController {
   private enter(phase: RobotPhase, job: Transfer): void {
     const r=this.runtime, grip=this.ik.grip;
     r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null;
+    if(phase==="PRE_GRASP")r.pickupWristStart=this.ik.controls[2].angle;
     grip.getWorldPosition(r.segmentStart);
     r.segmentEnd.copy(r.segmentStart);
     const carryPhase=["SHOULDER_TRANSFER","ALIGN_BASE","TRANSIT","PRE_PLACE"].includes(phase);
     this.ik.setMinimumToolHeight(carryPhase?job.destination.y+ROBOT_PICKING.prePlaceHeight
       :["LIFT","RETREAT"].includes(phase)?r.segmentStart.y-MOTION.contactTolerance:null);
     if(phase==="GRASP") r.segmentEnd.y=job.pickup.y;
-    if(phase==="LIFT") r.segmentEnd.y=Math.max(r.segmentStart.y+ROBOT_PICKING.preGraspHeight,job.destination.y+ROBOT_PICKING.prePlaceHeight);
+    if(phase==="LIFT") {
+      r.segmentEnd.y=Math.max(r.segmentStart.y+ROBOT_PICKING.preGraspHeight,job.destination.y+ROBOT_PICKING.prePlaceHeight);
+      if(this.transferMode==="shoulder"){
+        r.segmentEnd.y=Math.max(r.segmentEnd.y,r.segmentStart.y+ROBOT_PICKING.rearLiftHeight);
+        // Retract in the current arm plane, keeping hand00 fixed as cargo clears the belt.
+        this.ik.baseControl.node.getWorldPosition(r.point);
+        r.point.sub(r.segmentStart).setY(0);
+        r.command.copy(this.ik.controls[0].axis).transformDirection(this.ik.controls[0].node.matrixWorld).setY(0).normalize();
+        r.point.addScaledVector(r.command,-r.point.dot(r.command));
+        const distance=ROBOT_PICKING.liftRearwardDistance;
+        if(r.point.lengthSq()>1e-12)r.segmentEnd.addScaledVector(r.point.normalize(),distance);
+        const hover=job.destination.clone();hover.y+=ROBOT_PICKING.prePlaceHeight;
+        r.preparedShoulder=null;
+        r.transferPlanning=this.ik.prepareShoulderTransfer(r.segmentEnd,hover,job.destination);
+      }
+    }
     if(phase==="PLACE") {
       job.box.getWorldPosition(r.point);
       r.gripOffset.copy(r.segmentStart).sub(r.point);
@@ -155,11 +178,21 @@ export class SuctionRobotController implements RobotController {
     }
     if(phase==="RETREAT") r.segmentEnd.y+=ROBOT_PICKING.retreatHeight;
     const loaded=job.box.parent===grip;
-    r.duration=Math.max(0.1,Math.abs(r.segmentEnd.y-r.segmentStart.y)/ROBOT_PICKING.verticalSpeed*1.875/(loaded?ROBOT_PICKING.loadedSpeedScale:1));
-    if(phase==="RELEASE") {
+    r.duration=Math.max(0.1,r.segmentEnd.distanceTo(r.segmentStart)/ROBOT_PICKING.verticalSpeed*1.875/(loaded?ROBOT_PICKING.loadedSpeedScale:1));
+    if(phase==="PRE_PLACE") {
       job.box.getWorldPosition(r.releasePosition);
       job.box.getWorldQuaternion(r.releaseRotation);
       r.destinationRotation.setFromAxisAngle(new Vector3(0,1,0),job.yaw??0);
+      // A rectangular box occupies the same slot after a half turn about Y.
+      r.rotation.setFromAxisAngle(new Vector3(0,1,0),(job.yaw??0)+Math.PI);
+      if(r.releaseRotation.angleTo(r.rotation)<r.releaseRotation.angleTo(r.destinationRotation))r.destinationRotation.copy(r.rotation);
+      r.duration=Math.max(ROBOT_PICKING.releaseSeconds,
+        r.releaseRotation.angleTo(r.destinationRotation)*1.875/ROBOT_PICKING.releaseAngularSpeed);
+    }
+    if(phase==="RELEASE") {
+      job.box.getWorldPosition(r.releasePosition);
+      job.box.getWorldQuaternion(r.releaseRotation);
+      r.duration=ROBOT_PICKING.releaseSeconds;
       if(r.parent)r.parent.attach(job.box);
       else {
         const scale=job.box.getWorldScale(new Vector3());
@@ -168,14 +201,20 @@ export class SuctionRobotController implements RobotController {
       }
       this.ik.collisions.setHeld(null);
     }
-    this.options.onProgress?.(r.index,`${phase} · ${PHASE_LABELS[phase]}`);
+    const label=phase==="LIFT"&&this.transferMode==="shoulder"
+      ?"hand00 고정 · 상승하며 후퇴 · 후방 경로 계산":PHASE_LABELS[phase];
+    this.options.onProgress?.(r.index,`${phase} · ${label}`);
   }
 
   private planFromCurrent(target: Vector3, job: Transfer, linear: boolean) {
     const r=this.runtime,ik=this.ik;
+    if(r.phase==="PRE_GRASP"&&r.index===0)return r.pickupWristRange
+      ?ik.startConstrainedPlan(target,{wristAbovePoint:true,wristRange:r.pickupWristRange})
+      :ik.startPickupPlan(target);
+    if(r.phase==="TRANSIT"&&this.transferMode==="base")return ik.startBaseTransfer(target,job.destination);
     if(r.phase==="SHOULDER_TRANSFER"){
       const hover=job.destination.clone();hover.y+=ROBOT_PICKING.prePlaceHeight;
-      return ik.startShoulderTransfer(hover,job.destination);
+      return ik.startShoulderTransfer(hover,job.destination,r.preparedShoulder??undefined);
     }
     if(r.phase==="ALIGN_BASE")return ik.startBaseAlignment(job.destination);
     const fixedBase=r.phase==="LIFT"?r.transportBaseYaw
@@ -186,12 +225,12 @@ export class SuctionRobotController implements RobotController {
   private moveTo(target: Vector3, job: Transfer, delta: number, linear=false): boolean {
     const r=this.runtime, ik=this.ik;
     const tracking=job.moving&&BEFORE_PICK.includes(r.phase);
-    const settled=(pose:IKPose)=>linear||tracking?ik.isSettled(pose):ik.isEasedSettled(pose);
+    const settled=(pose:IKPose)=>linear?ik.isCartesianSettled(pose):tracking?ik.isSettled(pose):ik.isEasedSettled(pose);
     if(!["SHOULDER_TRANSFER","ALIGN_BASE"].includes(r.phase)&&r.pose&&settled(r.pose)&&r.target.distanceTo(target)>MOTION.contactTolerance/4){r.pose=null;r.planning=null;}
     if(!r.pose){
       if(!r.planning){
         r.target.copy(target);
-        job.onPlanEvent?.({state:"searching",reason:`${r.phase} · 손목 상향 위치와 박스/hand03 간섭 검사`,phase:"precise"});
+        job.onPlanEvent?.({state:"searching",reason:`${r.phase} · 손목 상향 위치와 회전 경로 계산`,phase:"precise"});
         const goal=r.target.clone();
         const replan=()=>this.planFromCurrent(goal,job,linear);
         if(r.recovery){
@@ -203,6 +242,10 @@ export class SuctionRobotController implements RobotController {
       const pose=cached??ik.advancePlan(r.planning,IK_CONFIG.planningBudgetMs);
       if(!pose)return false;
       r.planning=null;r.pose=pose;
+      if(pose.reachable&&r.phase==="PRE_GRASP"&&r.index===0&&!r.pickupWristRange){
+        const wrist=ik.controls[2];
+        r.pickupWristRange=pose.angles[2]<r.pickupWristStart?[wrist.min,r.pickupWristStart]:[r.pickupWristStart,wrist.max];
+      }
       if(pose.alignment)r.alignment=pose.alignment;
       if(pose.transit)r.transit=pose.transit;
       if(pose.target)r.target.copy(pose.target);
@@ -237,7 +280,7 @@ export class SuctionRobotController implements RobotController {
 
   private moveVertical(job: Transfer, delta: number): boolean {
     const r=this.runtime;
-    if(!r.recovery&&(!r.pose||this.ik.isSettled(r.pose)))r.elapsed=Math.min(r.duration,r.elapsed+delta);
+    if(!r.recovery&&(!r.pose||this.ik.isCartesianSettled(r.pose)))r.elapsed=Math.min(r.duration,r.elapsed+delta);
     const progress=minimumJerk(r.elapsed/r.duration);
     r.command.copy(r.segmentStart).lerp(r.segmentEnd,progress);
     if(r.phase==="GRASP"){
@@ -246,6 +289,10 @@ export class SuctionRobotController implements RobotController {
       r.command.y=job.pickup.y+(r.segmentStart.y-r.segmentEnd.y)*(1-progress);
     }
     const reached=this.moveTo(r.command,job,delta,true);
+    if(r.phase==="PLACE"){
+      job.box.getWorldPosition(r.point);
+      setCargoWorldPose(job.box,this.ik.grip,r.point,r.destinationRotation);
+    }
     return reached&&r.elapsed>=r.duration;
   }
 
@@ -262,12 +309,11 @@ export class SuctionRobotController implements RobotController {
 
   private release(job: Transfer, delta: number): void {
     const r=this.runtime;
-    r.elapsed=Math.min(ROBOT_PICKING.releaseSeconds,r.elapsed+delta);
-    const progress=minimumJerk(r.elapsed/ROBOT_PICKING.releaseSeconds);
+    r.elapsed=Math.min(r.duration,r.elapsed+delta);
+    const progress=minimumJerk(r.elapsed/r.duration);
     r.command.copy(r.releasePosition).lerp(job.destination,progress);
-    const rotation=r.rotation.copy(r.releaseRotation).slerp(r.destinationRotation,progress);
-    setCargoWorldPose(job.box,r.parent,r.command,rotation);
-    if(r.elapsed<ROBOT_PICKING.releaseSeconds)return;
+    setCargoWorldPose(job.box,r.parent,r.command,r.releaseRotation);
+    if(r.elapsed<r.duration)return;
     job.onPlace?.();this.cargo.delete(job.box);
     this.enter("RETREAT",job);
   }
@@ -279,11 +325,20 @@ export class SuctionRobotController implements RobotController {
       const request=this.manualAngle;
       const control=[ik.baseControl,...ik.controls].find(joint=>joint.node.name===request.name);
       if(control)setJointAngle(control,request.degrees*Math.PI/180);
-      this.model.updateWorldMatrix(true,true);r.pose=null;r.planning=null;r.recovery=null;r.alignment=null;r.transit=null;this.manualAngle=null;
+    this.model.updateWorldMatrix(true,true);r.pose=null;r.planning=null;r.recovery=null;r.alignment=null;r.transit=null;r.transferPlanning=null;r.preparedShoulder=null;this.manualAngle=null;
     }
     if(!this.running)return;
-    const job=this.options.getJobs()[r.index];if(!job)return;
     const dt=Math.min(delta,MOTION.maxDelta);
+    const job=this.options.getJobs()[r.index];
+    if(!job){
+      if(r.phase==="HOME"){
+        this.homePose??={baseYaw:this.initialAngles[0],angles:this.initialAngles.slice(1),error:0,reachable:true};
+        ik.setMinimumToolHeight(null);
+        ik.animateEased(this.homePose,dt);
+      }
+      return;
+    }
+    this.homePose=null;
     if(r.phase==="HOME"){
       if(job.available&&!job.available()){job.onMiss?.();r.index++;return;}
       this.model.getWorldPosition(this.origin);
@@ -295,6 +350,11 @@ export class SuctionRobotController implements RobotController {
       this.cargo.delete(job.box);job.onMiss?.();r.index++;r.phase="HOME";r.pose=null;r.planning=null;return;
     }
     if(r.phase==="RELEASE"){this.release(job,dt);return;}
+    if(r.transferPlanning&&["LIFT","SHOULDER_TRANSFER"].includes(r.phase)){
+      const prepared=ik.advancePlan(r.transferPlanning,ROBOT_PICKING.transferPlanningBudgetMs);
+      if(prepared){r.preparedShoulder=prepared;r.transferPlanning=null;}
+    }
+    if(r.phase==="SHOULDER_TRANSFER"&&r.transferPlanning)return;
     if(r.phase==="ATTACH"){
       if(this.moveTo(job.pickup,job,dt,true)&&isWristAboveBox(ik.controls[2].node,job.box))r.elapsed+=dt;
       else r.elapsed=0;
@@ -302,7 +362,12 @@ export class SuctionRobotController implements RobotController {
       return;
     }
     if(r.phase==="PRE_PLACE"){
-      r.elapsed+=dt;if(r.elapsed>=MOTION.contactHold)this.enter("PLACE",job);return;
+      r.elapsed=Math.min(r.duration+MOTION.contactHold,r.elapsed+dt);
+      const progress=minimumJerk(Math.min(1,r.elapsed/r.duration));
+      r.rotation.copy(r.releaseRotation).slerp(r.destinationRotation,progress);
+      setCargoWorldPose(job.box,ik.grip,r.releasePosition,r.rotation);
+      if(r.elapsed>=r.duration+MOTION.contactHold)this.enter("PLACE",job);
+      return;
     }
     let reached: boolean;
     if(LINEAR_PHASES.includes(r.phase))reached=this.moveVertical(job,dt);
@@ -315,8 +380,12 @@ export class SuctionRobotController implements RobotController {
       reached=this.moveTo(r.command,job,dt);
     }
     if(!reached)return;
+    if(r.phase==="LIFT"){
+      this.enter(this.transferMode==="base"?"TRANSIT":"SHOULDER_TRANSFER",job);
+      return;
+    }
     const next: Partial<Record<RobotPhase,RobotPhase>>={
-      PRE_GRASP:"GRASP",GRASP:"ATTACH",LIFT:"SHOULDER_TRANSFER",
+      PRE_GRASP:"GRASP",GRASP:"ATTACH",
       SHOULDER_TRANSFER:"ALIGN_BASE",ALIGN_BASE:"TRANSIT",TRANSIT:"PRE_PLACE",PLACE:"RELEASE",
     };
     if(r.phase==="RETREAT"){

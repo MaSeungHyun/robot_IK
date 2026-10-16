@@ -9,6 +9,8 @@ export type RobotState =
   | "MOVE_TO_PALLET"
   | "PLACE";
 
+export type RobotTransferMode = "base" | "shoulder";
+
 export type RobotPhase = "HOME" | "PRE_GRASP" | "GRASP" | "ATTACH" | "LIFT"
   | "SHOULDER_TRANSFER" | "ALIGN_BASE" | "TRANSIT" | "PRE_PLACE"
   | "PLACE" | "RELEASE" | "RETREAT";

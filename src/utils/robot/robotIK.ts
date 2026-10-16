@@ -2,7 +2,8 @@ import { IK_CONFIG, MOTION, COLLISION, NUMERICAL_IK } from "../../constants/simu
 import { Box3, Group, MathUtils, Mesh, Quaternion, Vector3, type Object3D } from "three";
 import { createCollisionWorld } from "./collisions";
 import { createJointControl, setJointAngle } from "./joints";
-import { createKinematics, solvePosition, type NumericResult } from "./robotKinematics";
+import { createKinematics, solvePosition } from "./closedChainKinematics";
+import type { NumericResult } from "./robotKinematics";
 import { createHeldBoxCollision } from "./heldBoxCollision";
 import { minimumJerk } from "./motionTiming";
 
@@ -10,7 +11,7 @@ type IKStep = { angles: number[]; baseYaw: number };
 export type IKPose = IKStep & { error: number; reachable: boolean; reason?: "timeout"; blockedBy?: string; route?: IKStep[]; step?: number; target?: Vector3; alignment?: IKPose; transit?: IKPose };
 type IKConstraints = { baseYaw?: number; wristAbovePoint?: boolean; descentTarget?: Vector3; wristRange?: [number,number] };
 
-export function createRobotIK(model: Group, motionScale = 1, collisionMode: "world" | "held-box-hand03" = "world") {
+export function createRobotIK(model: Group, motionScale = 1, collisionMode: "world" | "held-box-hand03" | "none" = "world") {
   if (motionScale <= 0) throw new Error("Robot geometry scale must be positive");
   const grip = model.getObjectByName("GripPoint")!;
   const wrist = model.getObjectByName("hand04")!;
@@ -29,7 +30,13 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   const downRotation = new Quaternion().setFromUnitVectors(shaft, new Vector3(0, -1, 0));
   const upright = downRotation.multiply(grip.getWorldQuaternion(new Quaternion()));
   const carryRotation = upright.clone().invert();
-  const heldBoxOnly = collisionMode === "held-box-hand03";
+  const collisionDisabled = collisionMode === "none";
+  if (collisionDisabled) {
+    const control=controls[2];
+    control.min=control.initialX+MathUtils.degToRad(IK_CONFIG.wristTravelDegrees[0]);
+    control.max=control.initialX+MathUtils.degToRad(IK_CONFIG.wristTravelDegrees[1]);
+  }
+  const heldBoxOnly = collisionMode !== "world";
   const payloadCollision = heldBoxOnly ? createHeldBoxCollision(model, grip) : null;
   const collisions = payloadCollision ?? Object.assign(
     createCollisionWorld(model, grip), { setHeld: (box: Group | null) => { void box; } },
@@ -61,13 +68,14 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     if (values.some((value, i) => !Number.isFinite(value) || value < all[i].min - 1e-9 || value > all[i].max + 1e-9)) return "관절 각도 제한 초과";
     if (minimumToolHeight!==null && grip.getWorldPosition(toolPoint).y<minimumToolHeight-MOTION.contactTolerance) return "이송 경유 높이 미만";
     if (payloadCollision && !payloadCollision.isWristAboveHeld()) return "들어 올리는 동안 hand04가 박스 위에 있어야 합니다.";
-    const collision = heldBoxOnly ? collisions.collision() : collisions.collision(planning ? NUMERICAL_IK.planningArmClearance : 0);
+    const collision = collisionDisabled ? null : heldBoxOnly ? collisions.collision() : collisions.collision(planning ? NUMERICAL_IK.planningArmClearance : 0);
     if (collision) return collision;
     if (!heldBoxOnly) for (const mesh of armMeshes) if (bounds.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld).min.y < COLLISION.floorClearance) return "관절이 바닥 여유를 침범";
     return null;
   }
   // Every sampled pose is restored before yielding; planning is invisible.
   function* edge(from: number[], to: number[], limits?: [number,number][]): Generator<void, string | null, void> {
+    if (collisionDisabled && Math.abs(to[3]-from[3])>Math.PI+1e-8) return "hand04 한 바퀴 우회 회전 금지";
     const saved = read();
     const duration = Math.max(...to.map((value, i) => Math.abs(value - from[i]) / (i === 0 ? MOTION.baseAngularSpeed : MOTION.angularSpeed)));
     const samples = Math.max(1, Math.ceil(duration * IK_CONFIG.pathSamplesPerSecond), ...to.map((value, i) => Math.ceil(Math.abs(value - from[i]) / NUMERICAL_IK.planningAngularSample)));
@@ -330,6 +338,11 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     }
     return {...pack(start),error:blocked.error,reachable:false,blockedBy:"박스 / hand03 양방향 회피 경로 미발견"};
   }
+  function isCartesianSettled(pose: IKPose) {
+    const target=unpack(pose);
+    return (!pose.route||(pose.step??0)===pose.route.length-1)
+      && all.every((control,i)=>Math.abs(control.angle-target[i])<IK_CONFIG.cartesianSettledAngle);
+  }
   function startConstrainedPlan(target: Vector3, constraints: IKConstraints, downward = Boolean(constraints.wristAbovePoint)) {
     return startPlan(target,downward,false,true,false,undefined,false,constraints.descentTarget,constraints);
   }
@@ -358,20 +371,43 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   }
   // Nested planning runs from a proposed checkpoint, restoring the real pose at every yield.
   function* fromPose(values: number[], search: () => Generator<void, IKPose, void>): Generator<void, IKPose, void> {
-    const actual=read();let virtual=[...values];
+    let virtual=[...values];
     const plan=search();
     try {
       for(;;){
-        apply(virtual);const next=plan.next();virtual=read();apply(actual);
+        const actual=read();
+        let next: IteratorResult<void,IKPose>;
+        try {apply(virtual);next=plan.next();virtual=read();} finally {apply(actual);}
         if(next.done)return next.value;
         yield;
       }
-    } finally {apply(actual);}
+    } finally {
+      const actual=read();
+      try {plan.return({...pack(virtual),error:0,reachable:false});} finally {apply(actual);}
+    }
   }
-  function* startShoulderTransfer(destination: Vector3, placement: Vector3): Generator<void, IKPose, void> {
+  /** Prefer the upright base turn, then synchronize every moving joint in one MoveJ. */
+  function* startBaseTransfer(target: Vector3, placement: Vector3): Generator<void, IKPose, void> {
+    target=target.clone();placement=placement.clone();
+    const start=read();
+    const alignment=yield* startBaseAlignment(target);
+    if(!alignment.reachable)return yield* startConstrainedPlan(target,{descentTarget:placement});
+    const transit=yield* fromPose(unpack(alignment),()=>startConstrainedPlan(target,{baseYaw:alignment.baseYaw,descentTarget:placement}));
+    if(!transit.reachable)return transit;
+    const goal=unpack(transit);
+    if(!(yield* edge(start,goal)))return {...transit,route:undefined,step:undefined,target};
+    const detour=yield* jointRoute(start,goal,limitsAround(start));
+    if(detour)return {...transit,route:detour,step:0,target};
+    // A verified waypoint is retained only when the simultaneous sweep is obstructed.
+    return {...transit,route:[pack(unpack(alignment)),...(transit.route??[pack(goal)])],step:0,target};
+  }
+  function* startShoulderTransfer(destination: Vector3, placement: Vector3, prepared?: IKPose): Generator<void, IKPose, void> {
     destination=destination.clone();placement=placement.clone();
     const start=read(),{forward}=createKinematics(all,grip,wrist);
+    if(prepared?.reachable&&!(yield* edge(start,unpack(prepared))))return prepared;
     const pivot=baseNode.getWorldPosition(new Vector3()),front=forward(start).position.clone().sub(pivot).setY(0).normalize();
+    // Keep the search finite even when the shoulder has no mechanical stops.
+    const shoulderMax=Math.min(controls[0].max,start[1]+Math.PI);
     let firstHit: string | null=null,checked=0;
     function* continuation(values:number[]): Generator<void, IKPose|null, void> {
       const hit=yield* edge(start,values);if(hit){firstHit??=hit;return null;}
@@ -382,7 +418,7 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
       return {...pack(values),error:0,reachable:true,target:forward(values).position,alignment,transit};
     }
     // Prefer a complete rear swing, but accept it only when the following alignment and transit are safe too.
-    for(let shoulder=controls[0].max;shoulder>start[1]+MathUtils.degToRad(1)&&checked<8;shoulder-=MathUtils.degToRad(4)){
+    for(let shoulder=shoulderMax;shoulder>start[1]+MathUtils.degToRad(1)&&checked<8;shoulder-=MathUtils.degToRad(4)){
       for(let n=0;n<=36&&checked<8;n++){
         const values=[...start],delta=n===0?0:MathUtils.degToRad(Math.ceil(n/2)*10)*(n%2?1:-1);
         values[1]=shoulder;values[2]+=delta;values[3]-=shoulder-start[1]+delta;
@@ -394,7 +430,7 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
       yield;
     }
     // Keep the largest safe shoulder swing when a full rear swing prevents reaching the slot.
-    for(let shoulder=controls[0].max;shoulder>start[1]+MathUtils.degToRad(1);shoulder-=MathUtils.degToRad(4)){
+    for(let shoulder=shoulderMax;shoulder>start[1]+MathUtils.degToRad(1);shoulder-=MathUtils.degToRad(4)){
       const values=[...start];values[1]=shoulder;values[3]-=shoulder-start[1];
       if(yield* edge(start,values))continue;
       const result=yield* continuation(values);if(result)return result;
@@ -402,9 +438,38 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     const result=yield* continuation(start);if(result)return result;
     return {...pack(start),error:0,reachable:false,blockedBy:firstHit??"이송까지 연결되는 안전한 경유 자세가 없습니다."};
   }
+  /** Prepare the rear transfer from the lift endpoint while the real arm keeps lifting. */
+  function prepareShoulderTransfer(liftTarget: Vector3, destination: Vector3, placement: Vector3) {
+    return fromPose(read(),()=>prepareShoulderTransferAtPose(liftTarget,destination,placement));
+  }
+  function* prepareShoulderTransferAtPose(liftTarget: Vector3, destination: Vector3, placement: Vector3): Generator<void,IKPose,void> {
+    liftTarget=liftTarget.clone();destination=destination.clone();placement=placement.clone();
+    const lift=yield* startConstrainedPlan(liftTarget,{baseYaw:baseControl.angle});
+    if(!lift.reachable)return lift;
+    const search=fromPose(unpack(lift),()=>startShoulderTransfer(destination,placement));
+    for(;;){
+      const height=minimumToolHeight;
+      let next: IteratorResult<void,IKPose>;
+      try {
+        minimumToolHeight=destination.y;
+        next=search.next();
+      } finally {minimumToolHeight=height;}
+      if(next.done)return next.value;
+      yield;
+    }
+  }
+  function* startPickupPlan(target: Vector3): Generator<void, IKPose, void> {
+    const start=controls[2].angle;
+    const usual=yield* startConstrainedPlan(target,{wristAbovePoint:true});
+    if(!usual.reachable)return usual;
+    const direction=Math.sign(usual.angles[2]-start);
+    if(!direction)return usual;
+    const wristRange: [number,number]=direction>0?[controls[2].min,start]:[start,controls[2].max];
+    return yield* startConstrainedPlan(target,{wristAbovePoint:true,wristRange});
+  }
   // Minimal FK adapter retained for callers that inspect the original chain.
   const effector={updateMatrixWorld:()=>model.updateWorldMatrix(true,true),getWorldPosition:(out:number[])=>grip.getWorldPosition(new Vector3()).toArray(out)};
-  return {plan,startPlan,startConstrainedPlan,startCartesianPlan,startBaseAlignment,startShoulderTransfer,advancePlan,animate,animateEased,isSettled,isEasedSettled,startCollisionRecovery,
+  return {plan,startPlan,startConstrainedPlan,startCartesianPlan,startBaseAlignment,startBaseTransfer,startShoulderTransfer,prepareShoulderTransfer,startPickupPlan,advancePlan,animate,animateEased,isSettled,isEasedSettled,isCartesianSettled,startCollisionRecovery,
     get lastMotionBlock(){return lastMotionBlock;},
     setMinimumToolHeight:(height:number|null)=>{minimumToolHeight=height;},collisions,carryRotation,grip,controls,baseControl,effector};
 }

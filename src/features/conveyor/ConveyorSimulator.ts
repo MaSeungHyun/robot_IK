@@ -1,40 +1,15 @@
-import { Box3, CatmullRomCurve3, Group, Vector3 } from "three";
-import { OnlinePacker, type Placement } from "../../utils/packing/onlinePacking";
-import { FixedLayerPacker } from "../../utils/packing/fixedLayerPacking";
-import type { Transfer } from "../../types/robot";
-import { randomPerfectSet } from "../../utils/packing/perfectTiling";
-import { candidateKey, type CandidateView, type PackingSnapshot } from "../../utils/packing/packingDiagnostics";
+import { CatmullRomCurve3, Group, Vector3 } from "three";
+import { OnlinePacker, type Placement } from "@/utils/packing/onlinePacking";
+import { FixedLayerPacker } from "@/utils/packing/fixedLayerPacking";
+import type { Transfer } from "@/types/robot";
+import { randomPerfectSet } from "@/utils/packing/perfectTiling";
+import { candidateKey, type CandidateView, type PackingSnapshot } from "@/utils/packing/packingDiagnostics";
 
-import { BOX_SIZES, BOX_BASE_SIZE, PALLET_BASE_SIZE, STREAM_CONFIG, CONVEYOR_PATH } from "../../constants/simulation";
-export { BOX_SIZES, STREAM_CONFIG } from "../../constants/simulation";
+import { BOX_BASE_SIZE, PALLET_BASE_SIZE, BOX_SIZES, STREAM_CONFIG, CONVEYOR_PATH } from "@/constants/simulation";
+export { BOX_SIZES, STREAM_CONFIG } from "@/constants/simulation";
 
-// Normalize once. The wrapper origin is the top-face centre (GripPoint).
-export function createUnitBox(asset: Group) {
-  const model = asset.clone(true);
-  const native = new Box3().setFromObject(model).getSize(new Vector3());
-  if(native.toArray().some(value=>!Number.isFinite(value)||value<=0))throw Error("Invalid box model bounds");
-  model.scale.multiply(new Vector3(BOX_BASE_SIZE.x/native.x, BOX_BASE_SIZE.y/native.y, BOX_BASE_SIZE.z/native.z));
-  const bounds = new Box3().setFromObject(model);
-  const center = bounds.getCenter(new Vector3());
-  model.position.sub(new Vector3(center.x, bounds.max.y, center.z));
-  const unit = new Group();
-  unit.add(model);
-  unit.updateWorldMatrix(true,true);
-  return unit;
-}
+import { createUnitBox, createUnitPallet } from "@/utils/three/modelNormalization";
 
-// Unit pallet origin is its bottom-face centre. Apply final size only
-// on the wrapper so exported scales never affect packing coordinates.
-export function createUnitPallet(asset: Group) {
-  const model=asset.clone(true);
-  const native=new Box3().setFromObject(model).getSize(new Vector3());
-  if(native.toArray().some(value=>!Number.isFinite(value)||value<=0))throw Error("Invalid pallet model bounds");
-  model.scale.multiply(new Vector3(PALLET_BASE_SIZE.x/native.x,PALLET_BASE_SIZE.y/native.y,PALLET_BASE_SIZE.z/native.z));
-  const bounds=new Box3().setFromObject(model),center=bounds.getCenter(new Vector3());
-  model.position.sub(new Vector3(center.x,bounds.min.y,center.z));
-  const unit=new Group();unit.add(model);unit.updateWorldMatrix(true,true);
-  return unit;
-}
 type Item = {
   node: Group;
   size: Vector3;
@@ -42,14 +17,18 @@ type Item = {
   state: "moving" | "reserved" | "held" | "placed" | "departing" | "passed";
   attempted?: boolean;
 };
-import type { StreamStats } from "../../types/conveyor";
+import type { StreamStats } from "@/types/conveyor";
+export type ConveyorOptions={center?:Vector3;path?:Vector3[];palletYaw?:number;boxYaw?:number;robotPosition?:Vector3;stackHeight?:number;dispatch?:(payload:Group,complete:()=>void)=>void};
 
-export class ConveyorWorld {
+export class ConveyorSimulator {
   readonly root = new Group();
-  readonly curve = new CatmullRomCurve3(CONVEYOR_PATH.map(point => point.clone()));
+  readonly curve: CatmullRomCurve3;
+  readonly center:Vector3;
+  readonly approachDirection:Vector3;
+  readonly options:ConveyorOptions;
   readonly jobs: Transfer[] = [];
   packer: OnlinePacker;
-  readonly length = this.curve.getLength();
+  readonly length:number;
   readonly palletTop: number;
   pallet: Group;
   readonly palletTemplate: Group;
@@ -75,17 +54,23 @@ export class ConveyorWorld {
   private diagnosticPhase="대기";
   private diagnosticReason="먼 쪽(-X)부터 후보 생성";
   private placedFootprints:(Placement&{id:number})[]=[];
-  constructor(boxAsset: Group, palletAsset: Group, random:()=>number = Math.random) {
+  constructor(boxAsset: Group, palletAsset: Group, random:()=>number = Math.random,options:ConveyorOptions={}) {
+    this.options=options;
+    this.center=(options.center??STREAM_CONFIG.center).clone();
+    this.approachDirection=options.robotPosition?options.robotPosition.clone().sub(this.center).setY(0).applyAxisAngle(new Vector3(0,1,0),-(options.palletYaw??0)).normalize():STREAM_CONFIG.palletApproachDirection.clone();
+    this.curve=new CatmullRomCurve3((options.path??CONVEYOR_PATH).map(point=>point.clone()));
+    this.length=this.curve.getLength();
     this.random = random;
     this.boxAsset = createUnitBox(boxAsset);
     const pallet = createUnitPallet(palletAsset);
     this.palletTemplate = pallet.clone(true);
     this.pallet = pallet;
+    pallet.rotation.y=options.palletYaw??0;
     pallet.userData.collisionRole="pallet";
     pallet.scale.set(STREAM_CONFIG.palletWidth/PALLET_BASE_SIZE.x,STREAM_CONFIG.palletHeight/PALLET_BASE_SIZE.y,STREAM_CONFIG.palletDepth/PALLET_BASE_SIZE.z);
-    pallet.position.copy(STREAM_CONFIG.center);
-    this.palletTop = STREAM_CONFIG.center.y + STREAM_CONFIG.palletHeight;
-    this.packer = new FixedLayerPacker(new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.maxStackHeight, STREAM_CONFIG.palletDepth),BOX_SIZES[0],STREAM_CONFIG.center);
+    pallet.position.copy(this.center);
+    this.palletTop = this.center.y + STREAM_CONFIG.palletHeight;
+    this.packer = new FixedLayerPacker(new Vector3(STREAM_CONFIG.palletWidth, this.options.stackHeight??STREAM_CONFIG.maxStackHeight, STREAM_CONFIG.palletDepth),BOX_SIZES[0],this.center);
     this.root.add(pallet);
     this.root.add(this.palletMotion);
     for (
@@ -113,6 +98,7 @@ export class ConveyorWorld {
     const model = this.boxAsset.clone(true);
     model.scale.set(size.x/BOX_BASE_SIZE.x, size.y/BOX_BASE_SIZE.y, size.z/BOX_BASE_SIZE.z);
     const node = new Group();
+    node.rotation.y=this.options.boxYaw??0;
     node.userData.collisionRole="conveyor";
     node.add(model);
     this.root.add(node);
@@ -154,18 +140,18 @@ export class ConveyorWorld {
         (item) =>
           item.state === "moving" &&
           !item.attempted &&
-          item.node.position.z >= STREAM_CONFIG.pickupStartZ &&
-          item.node.position.z <= STREAM_CONFIG.pickupEndZ,
+          (this.options.path?item.distance>=this.length*.25&&item.distance<=this.length*.65:
+          item.node.position.z >= STREAM_CONFIG.pickupStartZ && item.node.position.z <= STREAM_CONFIG.pickupEndZ),
       )
       .sort(
         (a, b) =>
-          (this.packer.candidates(a.size,STREAM_CONFIG.palletApproachDirection,BOX_SIZES)[0]?.bottom??Infinity)
-          -(this.packer.candidates(b.size,STREAM_CONFIG.palletApproachDirection,BOX_SIZES)[0]?.bottom??Infinity)||
+          (this.packer.candidates(a.size,this.approachDirection,BOX_SIZES)[0]?.bottom??Infinity)
+          -(this.packer.candidates(b.size,this.approachDirection,BOX_SIZES)[0]?.bottom??Infinity)||
           Math.abs(a.node.position.z - this.robotZ) -
           Math.abs(b.node.position.z - this.robotZ),
       );
     for (const item of candidates) {
-      const placements = this.packer.candidates(item.size, STREAM_CONFIG.palletApproachDirection, BOX_SIZES);
+      const placements = this.packer.candidates(item.size, this.approachDirection, BOX_SIZES);
       // Lowest layer, then far side toward the robot. Retries keep this order.
       const placement = placements[0];
       if (!placement) {
@@ -180,13 +166,27 @@ export class ConveyorWorld {
   private beginExchange() {
     if(this.busy||this.exchange)return;
     this.exchange="outgoing";this.full=true;
-    this.palletMotion.position.set(0,0,0);
+    this.palletMotion.position.copy(this.options.dispatch?this.center:new Vector3());
     this.palletMotion.attach(this.pallet);
     for(const item of this.items)if(item.state==="placed"){
       this.palletMotion.attach(item.node);item.state="departing";
     }
+    if(this.options.dispatch)this.options.dispatch(this.palletMotion,()=>this.completeExternalDispatch());
+  }
+  private completeExternalDispatch(){
+    this.root.attach(this.palletMotion);this.palletMotion.clear();this.palletMotion.position.set(0,0,0);
+    this.items=this.items.filter(item=>item.state!=="departing");
+    this.completedPallets++;this.palletNumber++;
+    this.packer=new FixedLayerPacker(new Vector3(STREAM_CONFIG.palletWidth,this.options.stackHeight??STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth),BOX_SIZES[0],this.center);
+    this.pallet=this.palletTemplate.clone(true);this.pallet.userData.collisionRole="pallet";
+    this.pallet.scale.set(STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletHeight,STREAM_CONFIG.palletDepth);
+    this.pallet.rotation.y=this.options.palletYaw??0;this.pallet.position.copy(this.center);this.root.add(this.pallet);
+    this.exchange=null;this.full=false;this.robotZ=0;this.lastSize="";
+    this.diagnosticCandidates=[];this.diagnosticSelected=null;this.inspectedCandidates.clear();this.placedFootprints=[];
+    for(const item of this.items)if(item.state==="moving")item.attempted=false;
   }
   private advanceExchange(dt:number) {
+    if(this.options.dispatch)return;
     const step=STREAM_CONFIG.palletExchangeSpeed*dt;
     if(this.exchange==="outgoing"){
       this.palletMotion.position.x=Math.max(-STREAM_CONFIG.palletExchangeDistance,this.palletMotion.position.x-step);
@@ -194,13 +194,13 @@ export class ConveyorWorld {
       this.palletMotion.clear();
       this.items=this.items.filter(item=>item.state!=="departing");
       this.completedPallets++;this.palletNumber++;
-      this.packer=new FixedLayerPacker(new Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth),BOX_SIZES[0],STREAM_CONFIG.center);
+      this.packer=new FixedLayerPacker(new Vector3(STREAM_CONFIG.palletWidth,this.options.stackHeight??STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth),BOX_SIZES[0],this.center);
       this.diagnosticCandidates=[];this.diagnosticSelected=null;this.inspectedCandidates.clear();this.placedFootprints=[];
       this.diagnosticPhase="새 팔레트 준비";this.diagnosticReason="높이 지도 초기화";
       this.pallet=this.palletTemplate.clone(true);
       this.pallet.userData.collisionRole="pallet";
       this.pallet.scale.set(STREAM_CONFIG.palletWidth/PALLET_BASE_SIZE.x,STREAM_CONFIG.palletHeight/PALLET_BASE_SIZE.y,STREAM_CONFIG.palletDepth/PALLET_BASE_SIZE.z);
-      this.pallet.position.copy(STREAM_CONFIG.center);
+      this.pallet.position.copy(this.center);
       this.palletMotion.add(this.pallet);
       this.exchange="incoming";
     }else{
@@ -235,28 +235,24 @@ export class ConveyorWorld {
     const attemptedPlacements = new Set([placementKey(placement)]);
     let placementLevel=placement.bottom;
     const accessDepth=(p:Placement)=>{
-      const direction=STREAM_CONFIG.palletApproachDirection;
+      const direction=this.approachDirection;
       return Math.max(p.x*this.packer.cell*direction.x,(p.x*this.packer.cell+p.width)*direction.x)
         +Math.max(p.z*this.packer.cell*direction.z,(p.z*this.packer.cell+p.depth)*direction.z);
     };
     let placementBand=accessDepth(placement);
     let usedRobotFallback=false;
     const selectPlacement=(next:Placement)=>{
-      placement=next;job.yaw=next.yaw;
+      placement=next;job.yaw=next.yaw+(this.options.palletYaw??0);
       selectDiagnostic(next);
-      job.destination.copy(this.packer.position(next,STREAM_CONFIG.center,this.palletTop));
+      job.destination.copy(this.placementPosition(next));
       attemptedPlacements.add(placementKey(next));return true;
     };
     const job: Transfer = {
       box: item.node,
       pickup: item.node.position.clone(),
-      destination: this.packer.position(
-        placement,
-        STREAM_CONFIG.center,
-        this.palletTop,
-      ),
+      destination: this.placementPosition(placement),
       moving: true,
-      yaw: placement.yaw,
+      yaw: placement.yaw+(this.options.palletYaw??0),
       velocity: new Vector3(),
       onPlanEvent:event=>{
         const candidate=this.diagnosticSelected;
@@ -281,7 +277,7 @@ export class ConveyorWorld {
           usedRobotFallback=true;
           // Packing feasibility is not robot feasibility. Only after all
           // gap-free candidates fail, allow a safe physical fallback.
-          alternatives=this.packer.candidates(item.size,STREAM_CONFIG.palletApproachDirection,BOX_SIZES,true).filter(p=>p.preservesTiling===false);
+          alternatives=this.packer.candidates(item.size,this.approachDirection,BOX_SIZES,true).filter(p=>p.preservesTiling===false);
           next=alternatives[0];
         }
         if(!next)return false;
@@ -290,7 +286,7 @@ export class ConveyorWorld {
       available: () =>
         item.state === "reserved" &&
         item.distance < this.length &&
-        item.node.position.z < STREAM_CONFIG.pickupExpiryZ,
+        (this.options.path?item.distance<this.length*.8:item.node.position.z < STREAM_CONFIG.pickupExpiryZ),
       onPick: () => {
         item.state = "held";
         item.node.userData.collisionRole="held";
@@ -315,6 +311,10 @@ export class ConveyorWorld {
       },
     };
     this.jobs.push(job);
+  }
+  private placementPosition(placement:Placement){
+    return this.packer.position(placement,this.center,this.palletTop).sub(this.center)
+      .applyAxisAngle(new Vector3(0,1,0),this.options.palletYaw??0).add(this.center);
   }
   syncJobs() {
     for (const job of this.jobs)

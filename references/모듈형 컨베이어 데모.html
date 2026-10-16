@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>모듈형 컨베이어 데모</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f4f4f0;--fg:#1f2328;--mut:#6b7280;--panel:#ffffff;--bd:#d6d6cf;--acc:#2563eb;--accfg:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171a;--fg:#e6e8eb;--mut:#9aa3af;--panel:#1f2328;--bd:#363b42;--acc:#5b8def;--accfg:#0b1020}}
+:root[data-theme="dark"]{--bg:#15171a;--fg:#e6e8eb;--mut:#9aa3af;--panel:#1f2328;--bd:#363b42;--acc:#5b8def;--accfg:#0b1020}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif;display:flex;flex-direction:column}
+.bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--bd)}
+.bar .grp{display:flex;gap:6px;flex-wrap:wrap}
+button{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;cursor:pointer}
+button.add{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
+button:disabled{opacity:.4;cursor:default}
+label{display:flex;align-items:center;gap:6px;color:var(--mut)}
+label b{color:var(--fg);font-weight:500;min-width:3.2em}
+input[type=range]{width:110px}
+#view{flex:1;min-height:0;position:relative}
+#view canvas{display:block;width:100%;height:100%}
+#info{position:absolute;left:10px;bottom:10px;padding:6px 10px;border-radius:8px;background:var(--panel);border:1px solid var(--bd);color:var(--mut);font-size:12px;max-width:calc(100% - 20px)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="grp">
+    <button class="add" data-add="S">직선 +</button>
+    <button class="add" data-add="L">좌 곡선 +</button>
+    <button class="add" data-add="R">우 곡선 +</button>
+    <button id="undo">마지막 제거</button>
+    <button id="reset">초기화</button>
+  </div>
+  <label>속도 <input id="spd" type="range" min="0" max="2" step="0.05" value="0.6"><b id="spdv"></b></label>
+  <label>스폰 간격 <input id="spw" type="range" min="0.6" max="4" step="0.1" value="1.6"><b id="spwv"></b></label>
+  <label><input id="dbg" type="checkbox" checked> 경로 표시</label>
+</div>
+<div id="view"><div id="info"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const W = 0.8, L = 2, R = 1.4, H = 0.6, EPS = 1e-4, TILE = 0.5, MAX_MODS = 24;
+
+// ── 렌더러 / 씬 ─────────────────────────────
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+view.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+camera.position.set(-3, 6.5, -2);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(4, 8, 3); scene.add(sun);
+const dark = matchMedia('(prefers-color-scheme: dark)').matches || document.documentElement.dataset.theme === 'dark';
+scene.add(new THREE.GridHelper(40, 40, dark ? 0x555b63 : 0x9a9a94, dark ? 0x33373d : 0xd0d0ca));
+const group = new THREE.Group(); scene.add(group);
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view); resize();
+
+// ── 재질 ────────────────────────────────────
+const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+const g = cv.getContext('2d');
+g.fillStyle = '#2b2f36'; g.fillRect(0, 0, 64, 64);
+g.fillStyle = '#4a515c'; g.fillRect(0, 0, 64, 5);
+g.strokeStyle = '#8a94a3'; g.lineWidth = 4; g.beginPath(); g.moveTo(10, 42); g.lineTo(32, 26); g.lineTo(54, 42); g.stroke();
+const beltTex = new THREE.CanvasTexture(cv);
+beltTex.wrapS = beltTex.wrapT = THREE.RepeatWrapping;
+const beltMat = new THREE.MeshStandardMaterial({ map: beltTex, roughness: 0.8, side: THREE.DoubleSide });
+const frameMat = new THREE.MeshStandardMaterial({ color: 0x6b7686, roughness: 0.6, side: THREE.DoubleSide });
+const baseMat = new THREE.MeshStandardMaterial({ color: 0x3a4049, roughness: 0.8, side: THREE.DoubleSide });
+
+// ── GLB 대신 코드로 만든 모듈 (CONN_IN / CONN_OUT / PATH_xx 노드 규칙은 동일) ──
+function strip(A, B, uvK) {
+  const pos = [], uv = [], idx = []; let acc = 0;
+  for (let i = 0; i < A.length; i++) {
+    if (i) acc += A[i].clone().add(B[i]).sub(A[i - 1].clone().add(B[i - 1])).length() / 2;
+    pos.push(A[i].x, A[i].y, A[i].z, B[i].x, B[i].y, B[i].z);
+    uv.push(0, acc * (uvK || 0), 1, acc * (uvK || 0));
+    if (i) { const a = 2 * (i - 1); idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx); geo.computeVertexNormals(); return geo;
+}
+const side = (cl, o, dy = 0) => cl.map((p, i) => {
+  const t = cl[Math.min(i + 1, cl.length - 1)].clone().sub(cl[Math.max(i - 1, 0)]).normalize();
+  return V(p.x + t.z * o, p.y + dy, p.z - t.x * o);
+});
+
+function buildScene(type) {
+  const root = new THREE.Group(), cl = [];
+  if (type === 'S') cl.push(V(0, H, 0), V(0, H, L));
+  else {
+    const s = type === 'L' ? 1 : -1;
+    for (let k = 0; k <= 12; k++) { const f = k / 12 * Math.PI / 2; cl.push(V(s * R * (1 - Math.cos(f)), H, R * Math.sin(f))); }
+  }
+  const mk = (name, p, ry = 0) => { const o = new THREE.Object3D(); o.name = name; o.position.copy(p); o.rotation.y = ry; root.add(o); };
+  mk('CONN_IN', cl[0]);
+  mk('CONN_OUT', cl[cl.length - 1], type === 'S' ? 0 : (type === 'L' ? 1 : -1) * Math.PI / 2);
+  if (type !== 'S') [2, 4, 6, 8, 10].forEach((k, i) => mk('PATH_0' + i, cl[k]));
+
+  const belt = new THREE.Mesh(strip(side(cl, W / 2), side(cl, -W / 2), 1 / TILE), beltMat); belt.name = 'BELT'; root.add(belt);
+  root.add(new THREE.Mesh(strip(side(cl, W / 2 + .05, -.05), side(cl, -W / 2 - .05, -.05)), baseMat));
+  for (const o of [W / 2 + .03, -W / 2 - .03]) root.add(new THREE.Mesh(strip(side(cl, o), side(cl, o, .12)), frameMat));
+  const mp = type === 'S' ? cl[0].clone().lerp(cl[1], .5) : cl[6];
+  const t = type === 'S' ? V(0, 0, 1) : cl[7].clone().sub(cl[5]).normalize();
+  for (const o of [W / 2, -W / 2]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, H - .05, 8), baseMat);
+    leg.position.set(mp.x + t.z * o, (H - .05) / 2, mp.z - t.x * o); root.add(leg);
+  }
+  return root;
+}
+
+// ── 여기부터가 실제 GLB에도 그대로 쓰는 로직 ─────────────
+function parseModule(root) {            // GLTFLoader로 읽은 scene을 넣어도 동일
+  root.updateMatrixWorld(true);
+  const by = (p) => { const f = []; root.traverse(o => { if (o.name.startsWith(p)) f.push(o); });
+    return f.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })); };
+  const cIn = by('CONN_IN')[0], cOuts = by('CONN_OUT');
+  if (!cIn || !cOuts.length) throw new Error('CONN_IN / CONN_OUT 없음');
+  const pos = (m) => new THREE.Vector3().setFromMatrixPosition(m);
+  const inM = cIn.matrixWorld.clone(), outMs = cOuts.map(o => o.matrixWorld.clone());
+  const raw = [pos(inM), ...by('PATH_').map(o => pos(o.matrixWorld)), pos(outMs[0])];
+  return { root, inM, outMs, localPath: raw.filter((p, i) => !i || p.distanceTo(raw[i - 1]) > EPS) };
+}
+function snapModule(prev, next, outIndex = 0) {
+  prev.root.updateMatrix();
+  const m = prev.root.matrix.clone().multiply(prev.outMs[outIndex]).multiply(next.inM.clone().invert());
+  m.decompose(next.root.position, next.root.quaternion, next.root.scale);
+  next.root.updateMatrix();
+}
+function buildPath(mods) {
+  const path = new THREE.CurvePath(); let last = null;
+  for (const m of mods) {
+    m.root.updateMatrix();
+    const pts = m.localPath.map(p => p.clone().applyMatrix4(m.root.matrix));
+    if (last && last.distanceTo(pts[0]) > EPS) path.add(new THREE.LineCurve3(last, pts[0]));
+    path.add(pts.length === 2 ? new THREE.LineCurve3(pts[0], pts[1]) : new THREE.CatmullRomCurve3(pts, false, 'centripetal'));
+    last = pts[pts.length - 1];
+  }
+  return path;
+}
+const _a = V(0, 0, 0), _b = V(0, 0, 0), _t = V(0, 0, 0), FWD = V(0, 0, 1);
+class ConveyorLine {
+  constructor(mods, { speed = .5, gap = .12 } = {}) {
+    this.path = buildPath(mods); this.length = this.path.getLength();
+    this.speed = speed; this.gap = gap; this.items = []; this.onEnd = null;
+  }
+  canAdd(size, s = 0) { const t = this.items[this.items.length - 1]; return !t || s + size / 2 + this.gap <= t.s - t.size / 2; }
+  add(object, { size = .5, s = 0 } = {}) {
+    if (!this.canAdd(size, s)) return false;
+    const it = { object, size, s }; this.items.push(it); this._place(it); return true;
+  }
+  update(dt) {
+    let limit = Infinity; const alive = [];
+    for (const it of this.items) {
+      it.s = Math.max(it.s, Math.min(it.s + this.speed * dt, limit - it.size / 2));
+      limit = it.s - it.size / 2 - this.gap;
+      if (it.s >= this.length) { this.onEnd && this.onEnd(it.object); continue; }
+      this._place(it); alive.push(it);
+    }
+    this.items = alive;
+  }
+  _place(it) {
+    const u = Math.min(Math.max(it.s / this.length, 0), 1), du = .02 / this.length;
+    this.path.getPoint(u, _a); this.path.getPoint(Math.max(0, u - du), _b); this.path.getPoint(Math.min(1, u + du), _t);
+    _t.sub(_b).normalize();
+    it.object.position.copy(_a); it.object.quaternion.setFromUnitVectors(FWD, _t);
+  }
+}
+
+// ── 앱 상태 / UI ────────────────────────────
+let mods = [], line = null, dbgLine = null, speed = .6, spawnEvery = 1.6, spawnT = 0;
+const boxGeo = new THREE.BoxGeometry(.45, .3, .4); boxGeo.translate(0, .15, 0);
+const $ = (id) => document.getElementById(id);
+
+function addMod(type) {
+  const m = parseModule(buildScene(type));
+  if (mods.length) snapModule(mods[mods.length - 1], m);
+  group.add(m.root); mods.push(m);
+}
+function clearBoxes() { if (line) line.items.forEach(it => { group.remove(it.object); it.object.material.dispose(); }); }
+function rebuild() {
+  clearBoxes();
+  line = new ConveyorLine(mods, { speed });
+  line.onEnd = (o) => { group.remove(o); o.material.dispose(); };
+  if (dbgLine) { scene.remove(dbgLine); dbgLine.geometry.dispose(); }
+  const pts = line.path.getPoints(24); pts.forEach(p => p.y += .03);
+  dbgLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffc83d }));
+  dbgLine.visible = $('dbg').checked; scene.add(dbgLine);
+  const c = new THREE.Box3().setFromPoints(pts).getCenter(new THREE.Vector3());
+  const d = c.clone().sub(controls.target); controls.target.copy(c); camera.position.add(d);
+  $('undo').disabled = mods.length <= 1;
+  document.querySelectorAll('[data-add]').forEach(b => b.disabled = mods.length >= MAX_MODS);
+}
+function resetChain() {
+  mods.forEach(m => { group.remove(m.root); m.root.traverse(o => o.geometry && o.geometry.dispose()); }); mods = [];
+  ['S', 'L', 'S', 'R', 'S', 'S'].forEach(addMod); rebuild();
+}
+document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { addMod(b.dataset.add); rebuild(); });
+$('undo').onclick = () => { const m = mods.pop(); group.remove(m.root); m.root.traverse(o => o.geometry && o.geometry.dispose()); rebuild(); };
+$('reset').onclick = resetChain;
+$('dbg').onchange = (e) => { if (dbgLine) dbgLine.visible = e.target.checked; };
+$('spd').oninput = (e) => { speed = +e.target.value; if (line) line.speed = speed; $('spdv').textContent = speed.toFixed(2) + ' m/s'; };
+$('spw').oninput = (e) => { spawnEvery = +e.target.value; $('spwv').textContent = spawnEvery.toFixed(1) + ' s'; };
+$('spd').oninput({ target: $('spd') }); $('spw').oninput({ target: $('spw') });
+
+function trySpawn() {
+  if (!line.canAdd(.4)) return false;
+  const box = new THREE.Mesh(boxGeo, new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(Math.random(), .55, .55), roughness: .6 }));
+  line.add(box, { size: .4 }); group.add(box); return true;
+}
+
+let last = performance.now(), infoT = 0;
+function tick(now) {
+  requestAnimationFrame(tick);
+  const dt = Math.min((now - last) / 1000, .05); last = now;
+  if (line) {
+    spawnT += dt;
+    if (spawnT >= spawnEvery && trySpawn()) spawnT = 0;
+    line.update(dt);
+    beltTex.offset.y -= line.speed * dt / TILE;
+    if ((infoT += dt) > .25) { infoT = 0;
+      $('info').textContent = `모듈 ${mods.length}개 · 경로 ${line.length.toFixed(1)} m · 박스 ${line.items.length}개 — 드래그로 회전, 휠로 확대`; }
+  }
+  controls.update(); renderer.render(scene, camera);
+}
+resetChain(); requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

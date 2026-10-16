@@ -1,26 +1,29 @@
-import type { StreamStats } from "../../types/conveyor";
-import type { JointAngleRef } from "../../types/robot";
-import { MOTION, PACKING, ROBOT_PICKING } from "../../constants/simulation";
+import type { StreamStats } from "@/types/conveyor";
+import type { JointAngleRef, RobotTransferMode } from "@/types/robot";
+import { PACKING, ROBOT_PICKING } from "@/constants/simulation";
 import { useGLTF, Line } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import type { Mesh, GridHelper } from "three";
-import Robot from "../Viewport/models/Robot";
-import { ConveyorWorld, STREAM_CONFIG } from "../conveyor/conveyor";
+import Robot from "@/features/Viewport/models/Robot";
+import { ConveyorSimulator, STREAM_CONFIG } from "@/features/conveyor/ConveyorSimulator";
 import boxUrl from "@/assets/models/box.glb?url";
 import palletUrl from "@/assets/models/pallet.glb?url";
-import type { PackingSnapshot } from "../../utils/packing/packingDiagnostics";
+import type { PackingSnapshot } from "@/utils/packing/packingDiagnostics";
+import { useSimulationStore } from "@/stores/useSimulationStore";
+import { simulationDelta } from "@/utils/simulation/simulationTime";
 
-export default function ConveyorDemo({running,onProgress,onStats,onDiagnostics,jointAnglesRef}:{jointAnglesRef?:JointAngleRef;running:boolean;onProgress:(n:number,s:string)=>void;onStats:(stats:StreamStats)=>void;onDiagnostics:(snapshot:PackingSnapshot)=>void}){
+export default function ConveyorDemo({running,onProgress,onStats,onDiagnostics,jointAnglesRef,transferMode}:{transferMode?:RobotTransferMode;jointAnglesRef?:JointAngleRef;running:boolean;onProgress:(n:number,s:string)=>void;onStats:(stats:StreamStats)=>void;onDiagnostics:(snapshot:PackingSnapshot)=>void}){
+  const speed=useSimulationStore(state=>state.speed);
   const box=useGLTF(boxUrl),pallet=useGLTF(palletUrl);
-  const scene=useMemo(()=>new ConveyorWorld(box.scene,pallet.scene),[box.scene,pallet.scene]);
+  const scene=useMemo(()=>new ConveyorSimulator(box.scene,pallet.scene),[box.scene,pallet.scene]);
   const runtime=useRef(scene),jobs=useRef(scene.jobs),report=useRef(0);
   const nextStackPoint=useRef<Mesh>(null);
   const palletGrid=useRef<GridHelper>(null);
   const exchangeStatus=useRef(scene.exchange);
   useFrame((_,delta)=>{
     if(!running)return;
-    const dt=Math.min(delta,MOTION.maxDelta);runtime.current.advance(dt);runtime.current.syncJobs();
+    const dt=simulationDelta(delta,speed);runtime.current.advance(dt);runtime.current.syncJobs();
     if(palletGrid.current)palletGrid.current.visible=!scene.exchange;
     if(exchangeStatus.current!==scene.exchange){
       exchangeStatus.current=scene.exchange;
@@ -47,7 +50,7 @@ export default function ConveyorDemo({running,onProgress,onStats,onDiagnostics,j
     <Line points={scene.curve.getPoints(100)} color="#f59e0b" lineWidth={4}/>
     <mesh position={[1.06875,0.2375,0]}><boxGeometry args={[0.35,0.025,2.625]}/><meshStandardMaterial color="#475569"/></mesh>
     <mesh position={[0,0.003125,0]}><boxGeometry args={[0.1875,0.00625,1.75]}/><meshStandardMaterial color="#334155"/></mesh>
-    <Robot jointAnglesRef={jointAnglesRef} jobs={jobs} geometryScale={STREAM_CONFIG.robotScale} running={running} onProgress={(_,status)=>onProgress(runtime.current.placed,status)}/>
+    <Robot transferMode={transferMode} jointAnglesRef={jointAnglesRef} jobs={jobs} geometryScale={STREAM_CONFIG.robotScale} running={running} onProgress={(_,status)=>onProgress(runtime.current.placed,status)}/>
   </>;
 }
 

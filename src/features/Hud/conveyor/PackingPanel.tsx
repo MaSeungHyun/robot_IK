@@ -1,6 +1,6 @@
-import { useSimulationStore } from "../../stores/useSimulationStore";
+import { useSimulationStore } from "@/stores/useSimulationStore";
 import { useEffect, useRef } from "react";
-import { PACKING, STREAM_CONFIG, BOX_SIZES } from "../../constants/simulation";
+import { PACKING, STREAM_CONFIG, BOX_SIZES } from "@/constants/simulation";
 
 export default function PackingPanel() {
   const snapshot = useSimulationStore((state) => state.diagnostics);

@@ -1,6 +1,6 @@
-import { useSimulationStore } from "../../stores/useSimulationStore";
-import { useJointAngleReadings } from "../../hooks/useJointAngleReadings";
-import type { JointAngleRef } from "../../types/robot";
+import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useJointAngleReadings } from "@/hooks/useJointAngleReadings";
+import type { JointAngleRef } from "@/types/robot";
 
 const format = (value: number) => (Math.abs(value) < 0.05 ? 0 : value).toFixed(1);
 export default function JointAnglesPanel({ readings, onManualChange }: { readings: JointAngleRef; onManualChange: () => void }) {
@@ -11,7 +11,7 @@ export default function JointAnglesPanel({ readings, onManualChange }: { reading
   return <section className="rounded-xl border border-slate-700 bg-slate-950/95 p-4 text-slate-100" aria-label="로봇 관절 각도 조정">
     <div className="font-semibold">관절 각도 조정</div>
     <div className="mt-1 text-xs text-slate-400">슬라이더: 블렌더 로컬 축 · 조정하면 자동 일시 정지</div>
-    <div className="mt-1 text-xs text-slate-400">수동 자세 확인용 · 관절 제한 적용 · 충돌 차단 없음</div>
+    <div className="mt-1 text-xs text-slate-400">수동 자세 확인용 · hand03 고정 · 충돌 차단 없음</div>
     <div className="mt-3 space-y-2">
       {angles ? angles.map(angle => <label key={angle.name} className="block text-sm">
         <span className="flex justify-between gap-3"><span>{angle.name} <span className="text-xs text-slate-400">{angle.axis}축{angle.locked ? " · 고정" : ""}</span></span><span className="font-mono tabular-nums">{format(angle.degrees)}°</span></span>
