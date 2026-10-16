@@ -2,7 +2,7 @@ import { Matrix4, Quaternion, Vector3, type Object3D } from "three";
 import { blenderWorldX, type JointControl } from "./joints";
 import { NUMERICAL_IK } from "../../constants/simulation";
 
-export type ToolPose = { position: Vector3; rotation: Quaternion; wristRotation: Quaternion; direction: Vector3 };
+export type ToolPose = { position: Vector3; rotation: Quaternion; wristPosition: Vector3; wristRotation: Quaternion; direction: Vector3 };
 
 // A separate FK model: numerical exploration never changes the displayed GLB.
 export function createKinematics(controls: JointControl[], tip: Object3D, wrist: Object3D) {
@@ -25,7 +25,7 @@ export function createKinematics(controls: JointControl[], tip: Object3D, wrist:
     }
     const position = new Vector3(), quaternion = new Quaternion();
     matrix.decompose(position, quaternion, scale);
-    return { position, rotation: quaternion.normalize(), wristRotation:wristRotation.clone().normalize(), direction: position.clone().sub(wristPosition).normalize() };
+    return { position, rotation: quaternion.normalize(), wristPosition:wristPosition.clone(), wristRotation:wristRotation.clone().normalize(), direction: position.clone().sub(wristPosition).normalize() };
   }
   return { forward };
 }

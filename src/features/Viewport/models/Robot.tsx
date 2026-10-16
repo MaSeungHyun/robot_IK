@@ -1,7 +1,7 @@
 import { useGLTF } from "@react-three/drei";
 import { useFrame, type ThreeElements } from "@react-three/fiber";
 import { useEffect, useId, useMemo, useRef, type RefObject } from "react";
-import type { Group, Mesh } from "three";
+import type { Mesh } from "three";
 import type { Transfer, JointAngleRef } from "../../../types/robot";
 import type { RobotController } from "../../../interface/RobotController";
 import { SuctionRobotController } from "../../robots/SuctionRobotController";
@@ -13,13 +13,13 @@ type Props = ThreeElements["group"] & {
   jobs: RefObject<Transfer[]>;
   onProgress: (completed: number, status: string) => void;
   geometryScale?: number;
+  pickupRadius?: number;
   jointAnglesRef?: JointAngleRef;
-  obstacles?: RefObject<Group[]>;
 };
 
 export default function Robot({
   robotId, jobs, running, onProgress, geometryScale = 1,
-  obstacles, jointAnglesRef, ...props
+  jointAnglesRef, pickupRadius, ...props
 }: Props) {
   const instanceId = useId();
   const { scene } = useGLTF(robot);
@@ -38,20 +38,19 @@ export default function Robot({
   }, [scene, geometryScale]);
 
   const controller = useRef<RobotController | null>(null);
-  const inputs = useRef({ jobs, obstacles, onProgress });
+  const inputs = useRef({ jobs, onProgress });
   useEffect(() => {
     const instance = new SuctionRobotController({
-      id: robotId ?? instanceId, model, geometryScale,
+      id: robotId ?? instanceId, model, geometryScale, pickupRadius,
       getJobs: () => inputs.current.jobs.current,
-      getObstacles: () => inputs.current.obstacles?.current ?? inputs.current.jobs.current.map(job => job.box),
       onProgress: (count, status) => inputs.current.onProgress(count, status),
     });
     controller.current = instance;
     return () => { instance.dispose(); controller.current = null; };
-  }, [model, geometryScale, robotId, instanceId]);
+  }, [model, geometryScale, robotId, instanceId, pickupRadius]);
 
   useFrame((_, delta) => {
-    inputs.current = { jobs, obstacles, onProgress };
+    inputs.current = { jobs, onProgress };
     const instance = controller.current;
     if (!instance) return;
     if (running) instance.start(); else instance.pause();

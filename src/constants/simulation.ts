@@ -54,6 +54,17 @@ export const MOTION = {
   angularSpeed: 1.8,
   baseAngularSpeed: 1.2,
 };
+// Radius is robot-local; waypoint clearances and speeds use world metres.
+export const ROBOT_PICKING = {
+  radius: 3,
+  preGraspHeight: 0.15,
+  prePlaceHeight: 0.15,
+  retreatHeight: 0.15,
+  verticalSpeed: 0.15,
+  graspHoldSeconds: 0.12,
+  releaseSeconds: 0.15,
+  loadedSpeedScale: 0.8,
+};
 export const COLLISION = {
   armBoxCollisions: false,
   carriedRobotCollisions: true,
@@ -74,11 +85,16 @@ export const IK_CONFIG = {
   angularSample: 0.01,
   pathSamplesPerSecond: 60,
   placementWorldTiltToleranceDegrees: 5,
+  // Locked hand03 limits orientation freedom; the wrist-above-cargo check remains mandatory.
+  lockedRollTiltToleranceDegrees: 60,
   releaseWorldXDegrees: [-100, 80] as const,
   settledAngle: 0.002,
   settledBaseAngle: 0.002,
+  oppositeWristSpreadDegrees: 60,
+  collisionRecoveryIterations: 2000,
+  collisionEscapeDegrees: [5, 10, 20, 40] as const,
 };
-export const JOINT_SETTINGS = { lockHand3: false } as const;
+export const JOINT_SETTINGS = { lockHand3: true } as const;
 export const NUMERICAL_IK = {
   iterations: 100,
   iterationsPerSlice: 4,

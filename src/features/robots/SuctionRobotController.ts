@@ -1,28 +1,34 @@
+import { minimumJerk } from "../../utils/robot/motionTiming";
 import { Euler, Group, Quaternion, Vector3 } from "three";
 import type { Object3D } from "three";
-import { MOTION, IK_CONFIG } from "../../constants/simulation";
+import { MOTION, IK_CONFIG, ROBOT_PICKING } from "../../constants/simulation";
 import type { RobotController, RobotControllerOptions } from "../../interface/RobotController";
-import type { JointAngleReading } from "../../types/robot";
+import type { JointAngleReading, RobotPhase, Transfer } from "../../types/robot";
 import { createRobotIK, type IKPose } from "../../utils/robot/robotIK";
-import { setJointAngle, blenderWorldX } from "../../utils/robot/joints";
+import { setJointAngle } from "../../utils/robot/joints";
+import { isPickupInRange, isWristAboveBox, setCargoWorldPose } from "../../utils/robot/picking";
 
 const createRuntime = () => ({
-    index: 0,
-    stage: 0,
-    target: new Vector3(),
-    point: new Vector3(),
-    parent: null as Group | null,
-    waypoints: [] as Vector3[],
-    waypoint: 0,
-    hold: 0,
-    pose: null as IKPose | null,
-    planning: null as ReturnType<ReturnType<typeof createRobotIK>["startPlan"]> | null,
-    tracking: 0,
-    carryRotation: new Quaternion(),
-  });
+  index: 0, phase: "HOME" as RobotPhase, elapsed: 0, duration: 0,
+  target: new Vector3(), command: new Vector3(), segmentStart: new Vector3(), segmentEnd: new Vector3(),
+  point: new Vector3(), gripOffset: new Vector3(),
+  parent: null as Object3D | null, transportBaseYaw: 0,
+  pose: null as IKPose | null, recovery: null as IKPose | null, alignment: null as IKPose | null, transit: null as IKPose | null,
+  planning: null as ReturnType<ReturnType<typeof createRobotIK>["startPlan"]> | null,
+  releasePosition: new Vector3(), releaseRotation: new Quaternion(), destinationRotation: new Quaternion(), rotation: new Quaternion(),
+});
+const PHASE_LABELS: Record<RobotPhase,string> = {
+  HOME:"다음 박스 대기", PRE_GRASP:"박스 위 경유점으로 접근", GRASP:"박스 위에서 수직 하강",
+  ATTACH:"집기 접촉 확인", LIFT:"hand00 고정 · 수직 상승",
+  SHOULDER_TRANSFER:"hand01으로 뒤로 넘기기 · hand00 고정", ALIGN_BASE:"hand00으로 팔레트 좌우 정렬",
+  TRANSIT:"슬롯 위 경유점으로 이동", PRE_PLACE:"놓기 전 자세 확인", PLACE:"슬롯 위에서 수직 하강",
+  RELEASE:"박스 놓기", RETREAT:"놓은 뒤 수직 후퇴",
+};
+const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
+const LINEAR_PHASES: readonly RobotPhase[] = ["GRASP","LIFT","PLACE","RETREAT"];
 type CargoPose = { parent: Object3D | null; position: Vector3; quaternion: Quaternion; scale: Vector3 };
 
-/** Existing GLB suction arm: collision-aware pickup, transport, release and retreat. */
+/** Waypoint picking with the original IK and held-box/hand03 avoidance. */
 export class SuctionRobotController implements RobotController {
   readonly id: string;
   readonly model: Group;
@@ -33,6 +39,8 @@ export class SuctionRobotController implements RobotController {
   private runtime = createRuntime();
   private manualAngle: { name: string; degrees: number } | null = null;
   private readonly cargo = new Map<Group, CargoPose>();
+  private readonly origin = new Vector3();
+  private readonly pickupRadius: number;
 
   private readonly options: RobotControllerOptions;
 
@@ -40,11 +48,14 @@ export class SuctionRobotController implements RobotController {
     this.options = options;
     this.id = options.id;
     this.model = options.model;
-    this.ik = createRobotIK(this.model, options.geometryScale ?? 1);
+    this.pickupRadius = options.pickupRadius ?? ROBOT_PICKING.radius * (options.geometryScale ?? 1);
+    if (!Number.isFinite(this.pickupRadius) || this.pickupRadius <= 0) throw new Error("Pickup radius must be positive");
+    this.ik = createRobotIK(this.model, options.geometryScale ?? 1, "held-box-hand03");
     this.initialAngles = [this.ik.baseControl, ...this.ik.controls].map(control => control.angle);
   }
 
   get running() { return this.active; }
+  get phase() { return this.runtime.phase; }
   start(): void { if (!this.disposed) this.active = true; }
   pause(): void { this.active = false; }
 
@@ -95,6 +106,8 @@ export class SuctionRobotController implements RobotController {
       box.scale.copy(pose.scale);
       box.updateWorldMatrix(true, true);
     }
+    this.ik.collisions.setHeld(null);
+    this.ik.setMinimumToolHeight(null);
     this.cargo.clear();
     [this.ik.baseControl, ...this.ik.controls].forEach((control, index) => setJointAngle(control, this.initialAngles[index]));
     this.runtime = createRuntime();
@@ -118,144 +131,199 @@ export class SuctionRobotController implements RobotController {
     }
     this.runtime = createRuntime();
     this.manualAngle = null;
+    this.ik.collisions.setHeld(null);
+    this.ik.setMinimumToolHeight(null);
     this.cargo.clear();
     this.disposed = true;
   }
 
-  update(delta: number): void {
-    if (this.disposed || !Number.isFinite(delta) || delta < 0) return;
-    const model = this.model;
-    const currentIK = this.ik;
-    const allControls = [currentIK.baseControl, ...currentIK.controls];
-    if (this.manualAngle) {
-      const request = this.manualAngle;
-      const control = allControls.find(c => c.node.name === request.name);
-      if (control) setJointAngle(control, request.degrees * Math.PI / 180);
-      model.updateWorldMatrix(true, true);
-      currentIK.collisions.syncHeld();
-      this.runtime.pose = null;
-      this.runtime.planning = null;
-      this.manualAngle = null;
-    }
 
-    if (!this.running) return;
-    const ik = this.ik, r = this.runtime;
-    const job = this.options.getJobs()[r.index];
-    if (!job) return;
-    const grip = ik.grip, dt = Math.min(delta, MOTION.maxDelta);
-    if (r.stage < 2 && job.available && !job.available()) {
-      this.cargo.delete(job.box);
-      job.onMiss?.(); r.index++; r.stage=0; r.pose=null; r.planning=null;
-      this.options.onProgress?.(r.index,"집기 범위를 지난 박스는 통과"); return;
+  private enter(phase: RobotPhase, job: Transfer): void {
+    const r=this.runtime, grip=this.ik.grip;
+    r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null;
+    grip.getWorldPosition(r.segmentStart);
+    r.segmentEnd.copy(r.segmentStart);
+    const carryPhase=["SHOULDER_TRANSFER","ALIGN_BASE","TRANSIT","PRE_PLACE"].includes(phase);
+    this.ik.setMinimumToolHeight(carryPhase?job.destination.y+ROBOT_PICKING.prePlaceHeight
+      :["LIFT","RETREAT"].includes(phase)?r.segmentStart.y-MOTION.contactTolerance:null);
+    if(phase==="GRASP") r.segmentEnd.y=job.pickup.y;
+    if(phase==="LIFT") r.segmentEnd.y=Math.max(r.segmentStart.y+ROBOT_PICKING.preGraspHeight,job.destination.y+ROBOT_PICKING.prePlaceHeight);
+    if(phase==="PLACE") {
+      job.box.getWorldPosition(r.point);
+      r.gripOffset.copy(r.segmentStart).sub(r.point);
+      r.segmentEnd.y=job.destination.y+r.gripOffset.y;
     }
-    this.rememberCargo(job.box);
-    if (r.stage===0) {
-      r.stage=1; r.waypoint=0; r.hold=0; r.tracking=0;
-      r.pose=null; r.planning=null;
-      this.options.onProgress?.(r.index,"박스 접근 중");
+    if(phase==="RETREAT") r.segmentEnd.y+=ROBOT_PICKING.retreatHeight;
+    const loaded=job.box.parent===grip;
+    r.duration=Math.max(0.1,Math.abs(r.segmentEnd.y-r.segmentStart.y)/ROBOT_PICKING.verticalSpeed*1.875/(loaded?ROBOT_PICKING.loadedSpeedScale:1));
+    if(phase==="RELEASE") {
+      job.box.getWorldPosition(r.releasePosition);
+      job.box.getWorldQuaternion(r.releaseRotation);
+      r.destinationRotation.setFromAxisAngle(new Vector3(0,1,0),job.yaw??0);
+      if(r.parent)r.parent.attach(job.box);
+      else {
+        const scale=job.box.getWorldScale(new Vector3());
+        job.box.removeFromParent(); job.box.position.copy(r.releasePosition);
+        job.box.quaternion.copy(r.releaseRotation); job.box.scale.copy(scale);
+      }
+      this.ik.collisions.setHeld(null);
     }
-    ik.collisions.setContext({
-      boxes:this.options.getObstacles?.()??this.options.getJobs().map(j=>j.box),active:job.box,
-      carrying:r.stage===2,grasping:r.stage===1,releasing:r.stage===3,
-      carryRotation:r.stage===2?r.carryRotation:undefined,
-    });
-    if (r.stage===1) {
-      r.target.copy(job.pickup);
-      if(r.waypoint===0)r.target.y+=MOTION.approachHeight;
-      r.tracking+=dt;
-      if(job.moving&&r.pose&&r.tracking>=MOTION.trackingInterval){r.pose=null;r.planning=null;r.tracking=0;}
-    } else r.target.copy(r.waypoints[r.waypoint]);
-    const downward=r.stage===1||r.stage===3;
+    this.options.onProgress?.(r.index,`${phase} · ${PHASE_LABELS[phase]}`);
+  }
+
+  private planFromCurrent(target: Vector3, job: Transfer, linear: boolean) {
+    const r=this.runtime,ik=this.ik;
+    if(r.phase==="SHOULDER_TRANSFER"){
+      const hover=job.destination.clone();hover.y+=ROBOT_PICKING.prePlaceHeight;
+      return ik.startShoulderTransfer(hover,job.destination);
+    }
+    if(r.phase==="ALIGN_BASE")return ik.startBaseAlignment(job.destination);
+    const fixedBase=r.phase==="LIFT"?r.transportBaseYaw
+      :["PRE_PLACE","PLACE","RETREAT"].includes(r.phase)?ik.baseControl.angle:undefined;
+    return (linear?ik.startCartesianPlan:ik.startConstrainedPlan)(target,{baseYaw:fixedBase,wristAbovePoint:BEFORE_PICK.includes(r.phase)});
+  }
+
+  private moveTo(target: Vector3, job: Transfer, delta: number, linear=false): boolean {
+    const r=this.runtime, ik=this.ik;
+    const tracking=job.moving&&BEFORE_PICK.includes(r.phase);
+    const settled=(pose:IKPose)=>linear||tracking?ik.isSettled(pose):ik.isEasedSettled(pose);
+    if(!["SHOULDER_TRANSFER","ALIGN_BASE"].includes(r.phase)&&r.pose&&settled(r.pose)&&r.target.distanceTo(target)>MOTION.contactTolerance/4){r.pose=null;r.planning=null;}
     if(!r.pose){
       if(!r.planning){
-        const predicted=r.target.clone();
-        if(job.moving&&r.stage===1&&job.velocity&&grip.getWorldPosition(new Vector3()).distanceTo(r.target)>.05)
-          predicted.addScaledVector(job.velocity,MOTION.predictionSeconds);
-        job.onPlanEvent?.({state:"searching",reason:"위치 → 하향 기울기 → 충돌 경로 검사",phase:"precise"});
-        r.planning=ik.startPlan(predicted,downward,Boolean(job.moving&&r.stage===1),true,false,(r.stage===2&&r.waypoint===2)||r.stage===3?grip.getWorldQuaternion(new Quaternion()):undefined,r.stage===2&&r.waypoint===2,r.stage===2&&r.waypoint===1?job.destination:undefined);
+        r.target.copy(target);
+        job.onPlanEvent?.({state:"searching",reason:`${r.phase} · 손목 상향 위치와 박스/hand03 간섭 검사`,phase:"precise"});
+        const goal=r.target.clone();
+        const replan=()=>this.planFromCurrent(goal,job,linear);
+        if(r.recovery){
+          const fixedBase=["LIFT","SHOULDER_TRANSFER"].includes(r.phase)?ik.baseControl.angle:undefined;
+          r.planning=ik.startCollisionRecovery(r.recovery,fixedBase,r.phase==="ALIGN_BASE",replan,r.phase==="SHOULDER_TRANSFER"?undefined:goal);
+        }else r.planning=replan();
       }
-      const pose=ik.advancePlan(r.planning,IK_CONFIG.planningBudgetMs,Infinity);
-      if(!pose)return;
+      const cached=r.recovery?null:r.phase==="ALIGN_BASE"?r.alignment:r.phase==="TRANSIT"?r.transit:null;
+      const pose=cached??ik.advancePlan(r.planning,IK_CONFIG.planningBudgetMs);
+      if(!pose)return false;
       r.planning=null;r.pose=pose;
+      if(pose.alignment)r.alignment=pose.alignment;
+      if(pose.transit)r.transit=pose.transit;
+      if(pose.target)r.target.copy(pose.target);
       if(!pose.reachable){
-        job.onPlanEvent?.({state:"rejected",reason:pose.blockedBy??"경로 미발견",phase:"precise"});
-        this.options.onProgress?.(r.index,pose.blockedBy??"안전한 경로 미발견");
-        return;
+        if(!r.recovery&&job.box.parent===ik.grip&&pose.blockedBy?.includes("hand03")){
+          r.recovery=pose;r.pose=null;r.alignment=null;r.transit=null;
+          this.options.onProgress?.(r.index,`${r.phase} · 박스/hand03 간섭 · 현재 각도에서 양방향 재계산`);
+          return false;
+        }
+        job.onPlanEvent?.({state:"rejected",reason:pose.blockedBy??"관절 경로 미발견",phase:"precise"});
+        this.options.onProgress?.(r.index,`${r.phase} · ${pose.blockedBy??"관절 경로 미발견"}`);
+        return false;
       }
-      job.onPlanEvent?.({state:"ready",reason:"위치·자세·전체 경로 검사 통과",phase:"precise"});
+      job.onPlanEvent?.({state:"ready",reason:`${r.phase} · 경유점 계산 완료`,phase:"precise"});
     }
-    if(!r.pose.reachable){
-      if(r.stage===1&&job.moving&&r.tracking>=MOTION.retryInterval){r.pose=null;r.tracking=0;}
+    if(!r.pose.reachable)return false;
+    const moved=(!r.recovery&&(linear||tracking))?ik.animate(r.pose,delta):ik.animateEased(r.pose,delta,
+      job.box.parent===ik.grip?ROBOT_PICKING.loadedSpeedScale:1);
+    if(!moved){
+      if(job.box.parent===ik.grip&&ik.lastMotionBlock?.includes("hand03")){
+        r.recovery={...r.pose,route:undefined,step:undefined};
+        r.alignment=null;r.transit=null;
+        this.options.onProgress?.(r.index,`${r.phase} · 박스/hand03 충돌 예상 · 현재 각도에서 반대 방향 재계산`);
+      }
+      r.pose=null;r.planning=null;return false;
+    }
+    const reached=(r.recovery?ik.isEasedSettled(r.pose):settled(r.pose))&&ik.grip.getWorldPosition(r.point).distanceTo(r.target)<MOTION.contactTolerance;
+    if(tracking&&reached&&r.point.distanceTo(target)>=MOTION.contactTolerance){r.pose=null;return false;}
+    if(reached)r.recovery=null;
+    return reached;
+  }
+
+  private moveVertical(job: Transfer, delta: number): boolean {
+    const r=this.runtime;
+    if(!r.recovery&&(!r.pose||this.ik.isSettled(r.pose)))r.elapsed=Math.min(r.duration,r.elapsed+delta);
+    const progress=minimumJerk(r.elapsed/r.duration);
+    r.command.copy(r.segmentStart).lerp(r.segmentEnd,progress);
+    if(r.phase==="GRASP"){
+      // X/Z track the moving belt; descent remains vertical in the box frame.
+      r.command.x=job.pickup.x;r.command.z=job.pickup.z;
+      r.command.y=job.pickup.y+(r.segmentStart.y-r.segmentEnd.y)*(1-progress);
+    }
+    const reached=this.moveTo(r.command,job,delta,true);
+    return reached&&r.elapsed>=r.duration;
+  }
+
+  private attach(job: Transfer): void {
+    const r=this.runtime, ik=this.ik;
+    r.parent=job.box.parent;
+    ik.grip.attach(job.box); // Preserve world position; no pickup snap.
+    job.box.quaternion.normalize();
+    ik.collisions.setHeld(job.box);
+    r.transportBaseYaw=ik.baseControl.angle;
+    job.onPick?.();
+    this.enter("LIFT",job);
+  }
+
+  private release(job: Transfer, delta: number): void {
+    const r=this.runtime;
+    r.elapsed=Math.min(ROBOT_PICKING.releaseSeconds,r.elapsed+delta);
+    const progress=minimumJerk(r.elapsed/ROBOT_PICKING.releaseSeconds);
+    r.command.copy(r.releasePosition).lerp(job.destination,progress);
+    const rotation=r.rotation.copy(r.releaseRotation).slerp(r.destinationRotation,progress);
+    setCargoWorldPose(job.box,r.parent,r.command,rotation);
+    if(r.elapsed<ROBOT_PICKING.releaseSeconds)return;
+    job.onPlace?.();this.cargo.delete(job.box);
+    this.enter("RETREAT",job);
+  }
+
+  update(delta: number): void {
+    if(this.disposed||!Number.isFinite(delta)||delta<0)return;
+    const r=this.runtime, ik=this.ik;
+    if(this.manualAngle){
+      const request=this.manualAngle;
+      const control=[ik.baseControl,...ik.controls].find(joint=>joint.node.name===request.name);
+      if(control)setJointAngle(control,request.degrees*Math.PI/180);
+      this.model.updateWorldMatrix(true,true);r.pose=null;r.planning=null;r.recovery=null;r.alignment=null;r.transit=null;this.manualAngle=null;
+    }
+    if(!this.running)return;
+    const job=this.options.getJobs()[r.index];if(!job)return;
+    const dt=Math.min(delta,MOTION.maxDelta);
+    if(r.phase==="HOME"){
+      if(job.available&&!job.available()){job.onMiss?.();r.index++;return;}
+      this.model.getWorldPosition(this.origin);
+      if(!isPickupInRange(this.origin,job.pickup,job.moving?job.velocity:undefined,this.pickupRadius,MOTION.predictionSeconds))return;
+      r.alignment=null;r.transit=null;
+      this.rememberCargo(job.box);this.enter("PRE_GRASP",job);
+    }
+    if(BEFORE_PICK.includes(r.phase)&&job.available&&!job.available()){
+      this.cargo.delete(job.box);job.onMiss?.();r.index++;r.phase="HOME";r.pose=null;r.planning=null;return;
+    }
+    if(r.phase==="RELEASE"){this.release(job,dt);return;}
+    if(r.phase==="ATTACH"){
+      if(this.moveTo(job.pickup,job,dt,true)&&isWristAboveBox(ik.controls[2].node,job.box))r.elapsed+=dt;
+      else r.elapsed=0;
+      if(r.elapsed>=ROBOT_PICKING.graspHoldSeconds)this.attach(job);
       return;
     }
-    if(!ik.animate(r.pose,dt)){
-      r.pose=null;r.planning=null;r.hold=0;
-      this.options.onProgress?.(r.index,"움직인 장애물에 맞춰 경로 재검사 · "+(ik.collisions.lastHit??"상태 변화"));return;
+    if(r.phase==="PRE_PLACE"){
+      r.elapsed+=dt;if(r.elapsed>=MOTION.contactHold)this.enter("PLACE",job);return;
     }
-    const distance=grip.getWorldPosition(r.point).distanceTo(r.target);
-    const arrived=distance<MOTION.contactTolerance&&(r.stage===1&&job.moving||ik.isSettled(r.pose));
-    if(!arrived){r.hold=0;return;}
-    r.hold+=dt;
-    if(r.hold<(r.stage===1&&job.moving?MOTION.movingContactHold:MOTION.contactHold))return;
-    r.hold=0;r.pose=null;r.planning=null;r.tracking=0;
-    if(r.stage===1){
-      if(r.waypoint===0){r.waypoint=1;return;}
-      r.parent=job.box.parent as Group;
-      grip.attach(job.box);
-      // Centre the contact within the millimetre pickup tolerance. The cargo
-      // then has no rotating positional offset during the final descent.
-      const attachedPosition=job.box.position.clone();
-      job.box.position.set(0,0,0);
-      ik.collisions.setContext({boxes:this.options.getObstacles?.()??this.options.getJobs().map(j=>j.box),active:job.box,carrying:true});
-      if(ik.collisions.collision()){
-        job.box.position.copy(attachedPosition);r.parent.attach(job.box);
-        r.pose=null;this.options.onProgress?.(r.index,"중앙 파지 자세 재검사");return;
+    let reached: boolean;
+    if(LINEAR_PHASES.includes(r.phase))reached=this.moveVertical(job,dt);
+    else {
+      r.command.copy(job.pickup);
+      if(r.phase==="PRE_GRASP")r.command.y+=ROBOT_PICKING.preGraspHeight;
+      else if(r.phase==="TRANSIT"){
+        r.command.copy(job.destination);r.command.y+=ROBOT_PICKING.prePlaceHeight;
       }
-      r.carryRotation.copy(job.box.quaternion).normalize();
-      job.box.quaternion.copy(r.carryRotation);
-      job.onPick?.();
-      const position=grip.getWorldPosition(new Vector3());
-      const clearance=Math.max(position.y+MOTION.liftClearance,ik.collisions.liftHeight(job.destination.y));
-      const offset=job.box.getWorldPosition(new Vector3()).sub(position);
-      const destination=job.destination.clone().sub(offset);
-      r.waypoints=[position.clone().setY(clearance),destination.clone().setY(Math.max(destination.y+MOTION.destinationHoverClearance,clearance)),destination];
-      r.stage=2;r.waypoint=0;
-      this.options.onProgress?.(r.index,"그리퍼에 고정 · 상승 후 운반");return;
+      reached=this.moveTo(r.command,job,dt);
     }
-    if(r.stage===2){
-      if(r.waypoint<r.waypoints.length-1){
-        r.waypoint++;
-        if(r.waypoint===2){
-          // The pickup offset rotates with the tool. Measure it at the upper
-          // pose instead of reusing an unrelated initial quaternion.
-          const offset=job.box.getWorldPosition(new Vector3()).sub(grip.getWorldPosition(new Vector3()));
-          r.waypoints[2]=job.destination.clone().sub(offset);
-          this.options.onProgress?.(r.index,"놓기 허용 자세로 수직 하강");
-        }
-        return;
-      }
-      // Check the exact release pose, then detach. Never teleport through a box.
-      const releaseAngle=blenderWorldX(ik.controls[2].node.getWorldQuaternion(new Quaternion()))*180/Math.PI;
-      if(releaseAngle<IK_CONFIG.releaseWorldXDegrees[0]-1e-4||releaseAngle>IK_CONFIG.releaseWorldXDegrees[1]+1e-4){
-        const reason="놓기 자세 범위 초과 · hand4 월드 X "+releaseAngle.toFixed(1)+"°";
-        r.pose={angles:ik.controls.map(c=>c.angle),baseYaw:ik.baseControl.angle,error:distance,reachable:false,blockedBy:reason};
-        this.options.onProgress?.(r.index,reason);return;
-      }
-      if(!ik.collisions.placementClear(job.destination,job.yaw??0,job.destination.y,new Quaternion())){
-        const reason="최종 적재 공간 간섭";
-        r.pose={angles:ik.controls.map(c=>c.angle),baseYaw:ik.baseControl.angle,error:distance,reachable:false,blockedBy:reason};
-        this.options.onProgress?.(r.index,reason);return;
-      }
-      // Finish the display alignment only after releasing the rigid attachment.
-      r.parent!.attach(job.box);
-      job.box.position.copy(r.parent!.worldToLocal(job.destination.clone()));
-      job.box.quaternion.setFromAxisAngle(new Vector3(0,1,0),job.yaw??0);
-      ik.collisions.setContext({boxes:this.options.getObstacles?.()??this.options.getJobs().map(j=>j.box),active:job.box,carrying:false,releasing:true});
-      r.stage=3;r.waypoint=0;
-      r.waypoints=[grip.getWorldPosition(new Vector3()).add(new Vector3(0,MOTION.retreatHeight,0))];
-      this.options.onProgress?.(r.index,"적재 후 수직으로 손 빼는 중");return;
+    if(!reached)return;
+    const next: Partial<Record<RobotPhase,RobotPhase>>={
+      PRE_GRASP:"GRASP",GRASP:"ATTACH",LIFT:"SHOULDER_TRANSFER",
+      SHOULDER_TRANSFER:"ALIGN_BASE",ALIGN_BASE:"TRANSIT",TRANSIT:"PRE_PLACE",PLACE:"RELEASE",
+    };
+    if(r.phase==="RETREAT"){
+      r.index++;r.phase="HOME";r.pose=null;r.planning=null;
+      this.options.onProgress?.(r.index,"RETREAT 완료 · 다음 박스 준비");
+    }else {
+      const phase=next[r.phase];if(phase)this.enter(phase,job);
     }
-    job.onPlace?.();this.cargo.delete(job.box);r.index++;r.stage=0;
-    this.options.onProgress?.(r.index,"적재 완료 · 다음 박스 준비 중");
   }
 }

@@ -1,11 +1,12 @@
 import type { Group } from "three";
-import type { JointAngleReading, Transfer } from "../types/robot";
+import type { JointAngleReading, RobotPhase, Transfer } from "../types/robot";
 
 /** Runtime control shared by robot models. Angles are expressed in degrees. */
 export interface RobotController {
   readonly id: string;
   readonly model: Group;
   readonly running: boolean;
+  readonly phase: RobotPhase;
   start(): void;
   pause(): void;
   /** Restore pose/active cargo. The owner must also reset its queue and conveyor counters. */
@@ -22,7 +23,8 @@ export interface RobotControllerOptions {
   id: string;
   model: Group;
   geometryScale?: number;
+  /** Horizontal pickup radius in world metres. */
+  pickupRadius?: number;
   getJobs: () => readonly Transfer[];
-  getObstacles?: () => Group[];
   onProgress?: (completed: number, status: string) => void;
 }

@@ -139,7 +139,7 @@ export default function Viewport() {
   );
   return (
     <div className="relative w-full h-full">
-      <div className="absolute left-5 top-5 z-10 rounded-xl bg-black/70 px-5 py-4">
+      <div className="absolute left-5 top-5 z-10 max-h-[42vh] overflow-y-auto rounded-xl bg-black/70 px-5 py-4">
         <div className="font-semibold">로봇 팔레타이징 데모</div>
         <div className="mt-2 text-sm">
           {progress.status} ·{" "}
@@ -180,8 +180,10 @@ export default function Viewport() {
           {continuous ? "기존 10개 데모" : "연속 공급 데모"}
         </button>
         <div className="mt-1 text-xs text-neutral-300">
-          hand00 로컬 Y 회전 · hand1 ±120° · hand3 자유 회전 · hand4 360° 자유
-          회전 · 놓기 월드 X −100°~80°
+          hand00 좌우 정렬 · hand1 뒤로 넘기기 ±120° · hand3 고정 · hand4 360° 자유
+          회전
+          <div>수직 집기 → 들어 올려 이송 → 노란 포인트에 내려놓기</div>
+          {continuous && <div>파란 원: 집기 반경 · 노랑 점: 다음 적재 중앙</div>}
         </div>
         <button
           className="mt-3 rounded bg-blue-600 px-3 py-1 text-sm"
