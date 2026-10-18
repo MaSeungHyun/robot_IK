@@ -15,6 +15,16 @@ export class SceneInstances {
   private inverse=new Matrix4();
   private matrix=new Matrix4();
   private dirty=true;
+  forEachSelected(id:string,visit:(mesh:Mesh)=>void){
+    for(const entry of this.sources.values()){
+      let selected=false,visible=true,identified=false;
+      for(let node:Object3D|null=entry.owner;node;node=node.parent){
+        if(!node.visible&&!this.sources.has(node)){visible=false;break;}
+        if(!identified&&node.userData.sceneId){identified=true;selected=node.userData.sceneId===id;}
+      }
+      if(selected&&visible)visit(entry.node);
+    }
+  }
   register(owner:Object3D){
     const existing=this.owners.get(owner);
     if(existing){existing.references++;return()=>this.unregister(owner);}

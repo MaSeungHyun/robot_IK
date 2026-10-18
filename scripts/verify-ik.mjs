@@ -45,6 +45,7 @@ const sourcePaths = {
   playback:'src/constants/playback.ts',
   simulationTime:'src/utils/simulation/simulationTime.ts',
   SceneInstances:'src/features/Viewport/instancing/SceneInstances.ts',
+  SelectionOutline:'src/features/Viewport/instancing/SelectionOutline.ts',
   conveyorTemplate:'src/features/conveyor/conveyorTemplate.ts',
   conveyorLayout:'src/utils/conveyor/conveyorLayout.ts',
   conveyorLayoutConfig:'src/constants/conveyorLayoutConfig.ts',
@@ -233,6 +234,22 @@ if(process.argv.includes('--instances')){
   arm.visible=false;attachment.sync();attachment.root.children.find(mesh=>mesh.userData.instanceOwners.includes(heldCargo)).getMatrixAt(0,matrix);
   if(Math.abs(matrix.determinant())>1e-8)throw Error('Explicitly hidden assembly still rendered');
   arm.visible=true;attachment.dispose();
+  const {SelectionOutline}=await import('../.tmp/ik-tests/SelectionOutline.mjs');
+  const selection=new SceneInstances(),outline=new SelectionOutline(),selectionRoot=new T.Group(),selectedModel=new T.Group();
+  selectionRoot.userData.sceneId='robot';selectedModel.add(new T.Mesh(new T.BoxGeometry(),new T.MeshBasicMaterial()));selectionRoot.add(selectedModel);
+  const selectedCargo=new T.Group();selectedCargo.userData.sceneId='cargo';selectedCargo.add(new T.Mesh(new T.BoxGeometry(.2,.2,.2),new T.MeshBasicMaterial()));
+  selection.register(selectedModel);selection.register(selectedCargo);selectedModel.children[0].add(selectedCargo);selection.sync();
+  let sourceDisposed=false;selectedModel.children[0].geometry.addEventListener('dispose',()=>{sourceDisposed=true;});
+  outline.sync(selection,'robot',new T.Vector2(800,600));
+  if(outline.root.children.length!==1)throw Error('Selection outline included cargo owned by another object');
+  selectionRoot.position.x=4;selection.sync();outline.sync(selection,'robot',new T.Vector2(800,600));
+  if(Math.abs(outline.root.children[0].matrix.elements[12]-4)>1e-8)throw Error('Selection outline did not follow movement');
+  selectionRoot.visible=false;selection.sync();outline.sync(selection,'robot',new T.Vector2(800,600));
+  if(outline.root.children.length)throw Error('Hidden selection still outlined');
+  selectionRoot.visible=true;selection.sync();outline.sync(selection,'cargo',new T.Vector2(800,600));
+  if(outline.root.children.length!==1)throw Error('Selection change lost the outline');
+  outline.sync(selection,null,new T.Vector2(800,600));if(outline.root.children.length)throw Error('Deselection left an outline');
+  outline.dispose();if(sourceDisposed)throw Error('Outline disposed shared model geometry');selection.dispose();
   const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
   const objects=[{id:'belt',name:'Belt',kind:'conveyor',x:0,z:0,yaw:0}],settings={belt:{speed:1,enabled:true,spawnInterval:1000}};
   const runtime=new SceneInstances(),world=new FactorySimulator(objects,load('box'),load('pallet'),()=>settings,runtime);
