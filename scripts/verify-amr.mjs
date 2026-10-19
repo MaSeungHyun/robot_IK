@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import ts from "typescript";
 
 const output=path.resolve('.tmp/amr-tests');fs.mkdirSync(output,{recursive:true});
-for(const [name,file] of Object.entries({amr:'src/constants/amr.ts',pathfinding:'src/utils/amr/pathfinding.ts',AMRSimulator:'src/features/amr/AMRSimulator.ts'})){
+for(const [name,file] of Object.entries({amr:'src/constants/amr.ts',pathfinding:'src/utils/amr/pathfinding.ts',AMRSimulator:'src/legacy/amr/AMRSimulator.ts'})){
   const source=fs.readFileSync(file,'utf8').replace(/from "(?:@\/|(?:\.\.?\/)+)[^"\n]+"/g,spec=>spec.replace(/"[^"\n]+"/,value=>`"./${path.basename(value.slice(1,-1))}.mjs"`));
   fs.writeFileSync(path.join(output,`${name}.mjs`),ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}));
 }

@@ -42,6 +42,13 @@ function load(name, nativeMeshNodes = false) {
 }
 const output = path.resolve('.tmp/ik-tests'); fs.mkdirSync(output,{recursive:true});
 const sourcePaths = {
+  sceneTemplates:'src/constants/sceneTemplates.ts',
+  applySceneTemplate:'src/features/simulator/templates/applySceneTemplate.ts',
+  useHudStore:'src/stores/useHudStore.ts',
+  useModeStore:'src/stores/useModeStore.ts',
+  applyEquipmentSettings:'src/utils/equipment/applyEquipmentSettings.ts',
+  telemetry:'src/constants/telemetry.ts',
+  equipmentTelemetry:'src/mock/equipmentTelemetry.ts',
   playback:'src/constants/playback.ts',
   simulationTime:'src/utils/simulation/simulationTime.ts',
   SceneInstances:'src/features/Viewport/instancing/SceneInstances.ts',
@@ -52,15 +59,20 @@ const sourcePaths = {
   useSceneStore:'src/stores/useSceneStore.ts',
   useSimulationStore:'src/stores/useSimulationStore.ts',
   sceneValidation:'src/utils/amr/sceneValidation.ts',
-  customize:'src/constants/customize.ts',
+  scanner: "src/constants/scanner.ts",
+  scannerModel: "src/utils/scanner/scannerModel.ts",
+  ScannerInspection: "src/features/scanner/ScannerInspection.ts",
+  simulatorLayout:'src/constants/simulatorLayout.ts',
   pathfinding:'src/utils/amr/pathfinding.ts',
   layoutNavigation:'src/utils/amr/layoutNavigation.ts',
   PalletDispatchController:'src/features/amr/PalletDispatchController.ts',
   AMRTrafficController:'src/features/amr/AMRTrafficController.ts',
-  FactorySimulator:'src/features/customize/FactorySimulator.ts',
+  FactorySimulator:'src/features/simulator/runtime/FactorySimulator.ts',
+  PalletController:'src/features/Viewport/models/Pallet/PalletController.ts',
+  palletModel:'src/features/Viewport/models/Pallet/palletModel.ts',
   stacking:'src/utils/packing/stacking.ts',
   constants: 'src/constants/simulation.ts',
-  ConveyorSimulator: 'src/features/conveyor/ConveyorSimulator.ts',
+  ConveyorSimulator: 'src/legacy/conveyor/ConveyorSimulator.ts',
   modelNormalization:'src/utils/three/modelNormalization.ts',
   ...Object.fromEntries(['joints','collisions','robotKinematics','closedChainKinematics','robotIK','heldBoxCollision','picking','motionTiming'].map(name => [name, `src/utils/robot/${name}.ts`])),
   ...Object.fromEntries(['packingDiagnostics','perfectTiling','tiling','onlinePacking','fixedLayerPacking'].map(name => [name, `src/utils/packing/${name}.ts`])),
@@ -68,6 +80,240 @@ const sourcePaths = {
 for (const name of Object.keys(sourcePaths)) {
   const source = fs.readFileSync(sourcePaths[name], "utf8").replace(/from "(?:@\/|(?:\.\.?\/)+)[^"\n]+"/g, spec => spec.replace(/"[^"\n]+"/, value => {const base=path.basename(value.slice(1,-1));return `"./${base==="simulation"?"constants":base}.mjs"`;}));
   fs.writeFileSync(path.join(output,`${name}.mjs`),ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}));
+}
+if(process.argv.includes('--templates')) {
+  const {SCENE_TEMPLATES:templates}=await import('../.tmp/ik-tests/sceneTemplates.mjs');
+  const {applySceneTemplate:apply}=await import('../.tmp/ik-tests/applySceneTemplate.mjs');
+  const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
+  const {useModeStore:mode}=await import('../.tmp/ik-tests/useModeStore.mjs');
+  const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
+  const {useHudStore:hud}=await import('../.tmp/ik-tests/useHudStore.mjs');
+  const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
+  const {beltConnections}=await import('../.tmp/ik-tests/conveyorLayout.mjs');
+  mode.getState().setMode('simulation');
+  scene.getState().clear();
+  scene.getState().add('robot',{x:9,z:9,yaw:0});
+  const previous=scene.getState().objects;
+  if(!apply(templates[0])||scene.getState().objects.length!==3)throw Error('Template did not replace scene');
+  scene.getState().undo();
+  if(scene.getState().objects!==previous)throw Error('Template replacement was not atomic undo');
+  scene.getState().redo();
+  if(scene.getState().objects.length!==3)throw Error('Template redo failed');
+  const unchanged=scene.getState().objects;
+  if(apply({...templates[0],equipment:[{kind:'robot',x:NaN,z:0,yaw:0}]})||scene.getState().objects!==unchanged)throw Error('Invalid template replaced scene');
+  mode.getState().setMode('monitoring');
+  if(apply(templates[0]))throw Error('Monitoring accepted a template');
+  mode.getState().setMode('simulation');
+  for(const template of templates){
+    if(!apply(template))throw Error(`Could not load ${template.id}`);
+    const state=scene.getState();
+    if(new Set(state.objects.map(o=>o.id)).size!==state.objects.length)throw Error('Duplicate equipment IDs');
+    const world=new FactorySimulator(state.objects,load('box'),load('pallet'),()=>scene.getState().settings);
+    for(let i=0;i<1800;i++)world.advance(1/30);
+    if(!world.robots.some(robot=>robot.jobs.length))throw Error(`No reachable robot job in ${template.id}`);
+    if(template.id==='inspection-line'&&beltConnections(state.objects).next.size!==2)throw Error('Template conveyors are disconnected');
+    world.dispose();
+  }
+  if(!apply(templates[0],true)||scene.getState().editing||!simulation.getState().running)throw Error('Run template did not start Play');
+  const run=simulation.getState().run;
+  hud.getState().closeWorkspacePanel();
+  if(!simulation.getState().running||simulation.getState().run!==run)throw Error('Closing Play stopped template');
+  if(apply(templates[1]))throw Error('Live scene was replaced outside Edit');
+  console.log('Templates: all layouts generate robot jobs; connected inspection line; atomic undo/redo; validation; mode guards; direct Play and independent panels passed');
+  process.exit(0);
+}
+if(process.argv.includes('--telemetry')) {
+  const assert = (await import('node:assert/strict')).default;
+  const {createMockTelemetry} = await import('../.tmp/ik-tests/equipmentTelemetry.mjs');
+  const {useSimulationStore: store} = await import('../.tmp/ik-tests/useSimulationStore.mjs');
+  const objects = [{id:'a',kind:'robot'}, {id:'b',kind:'robot'}];
+  const settings = {a:{enabled:true},b:{enabled:true}};
+  let values = createMockTelemetry(objects,settings,{},()=>0.5);
+  const program = values.a.program;
+  const count = values.a.operationCount;
+  for(let i=0;i<1000;i++) values = createMockTelemetry(objects,settings,values,()=>0.99);
+  assert.ok(values.a.motorTemperatureC <= 65);
+  assert.ok(values.a.controllerTemperatureC <= 58);
+  assert.ok(values.a.powerKw <= 4.5);
+  assert.equal(values.a.program,program);
+  assert.equal(values.a.operationCount,count+1000);
+  const frozen = createMockTelemetry(objects,{...settings,a:{enabled:false}},values,()=>0);
+  assert.equal(frozen.a,values.a);
+  assert.deepEqual(Object.keys(createMockTelemetry([objects[0]],settings,values)),['a']);
+  const joint = {name:'hand00',axis:'X',degrees:12,locked:false,min:-180,max:180};
+  store.getState().setRobotJointAngles('a',[joint]);
+  store.getState().setRobotJointAngles('b',[{...joint,degrees:35}]);
+  const before = store.getState();
+  store.getState().setRobotJointAngles('a',[{...joint}]);
+  assert.equal(store.getState(),before);
+  assert.equal(store.getState().robotJointAngles.b[0].degrees,35);
+  store.getState().removeRobotJointAngles('a');
+  assert.equal(store.getState().robotJointAngles.a,undefined);
+  assert.equal(store.getState().robotJointAngles.b[0].degrees,35);
+  store.getState().setMockTelemetry(values);
+  store.getState().reset();
+  assert.deepEqual(store.getState().robotJointAngles,{});
+  assert.deepEqual(store.getState().mockTelemetry,{});
+  console.log('Telemetry: bounded drift, stable program, disabled freeze, removal, per-robot isolation, unchanged-sample deduplication and reset passed');
+  process.exit(0);
+}
+if(process.argv.includes('--partial-layout')) {
+  const assert = (await import('node:assert/strict')).default;
+  const {FactorySimulator} = await import('../.tmp/ik-tests/FactorySimulator.mjs');
+  const {validateScene} = await import('../.tmp/ik-tests/sceneValidation.mjs');
+  const {useSceneStore: scene} = await import('../.tmp/ik-tests/useSceneStore.mjs');
+  const {DEFAULT_LAYOUT} = await import('../.tmp/ik-tests/simulatorLayout.mjs');
+  const kinds = ['robot','pallet','conveyor','amr','dock','scanner'];
+  const assets = {box:load('box'),pallet:load('pallet')};
+  const defaults = {speed:1,reach:1.8,capacity:20,spawnInterval:8,enabled:true};
+
+  for(let mask=0;mask<1<<kinds.length;mask++) {
+    scene.getState().clear();
+    for(let i=0;i<kinds.length;i++) {
+      if(mask & 1<<i) scene.getState().add(kinds[i],DEFAULT_LAYOUT[kinds[i]]);
+    }
+    scene.getState().complete();
+    const state=scene.getState();
+    assert.equal(state.editing,false,`Partial layout ${mask} blocked completion`);
+    assert.deepEqual(state.errors,[]);
+    const world=new FactorySimulator(state.objects,assets.box,assets.pallet,()=>state.settings);
+    for(let step=0;step<10;step++) world.advance(.25);
+    assert.ok(world.elapsed>0);
+    assert.equal(world.equipment.robots.length,mask&1?1:0);
+    if(!state.objects.some(o=>o.kind==='conveyor')) assert.equal(world.spawned,0);
+    world.dispose();
+  }
+
+  const robot={id:'robot',kind:'robot',name:'robot',x:100,z:100,yaw:0};
+  const pallet={id:'pallet',kind:'pallet',name:'pallet',x:-100,z:-100,yaw:0};
+  assert.deepEqual(validateScene([robot,pallet],{robot:defaults,pallet:defaults}),[]);
+  assert.ok(validateScene([{...robot,x:NaN}],{robot:defaults}).length);
+  assert.ok(validateScene([robot],{}).length);
+  assert.ok(validateScene([robot],{robot:{...defaults,speed:0}}).length);
+  assert.ok(validateScene([robot],{robot:{...defaults,defectRate:1.1}}).length);
+  console.log('Partial layouts: empty scene and all 64 equipment combinations complete and advance; independent conveyors run; missing dependencies and unreachable equipment do not block; invalid values still rejected');
+  process.exit(0);
+}
+if(process.argv.includes('--scanner')) {
+  const assert = (await import('node:assert/strict')).default;
+  const {ScannerInspection} = await import('../.tmp/ik-tests/ScannerInspection.mjs');
+  const {createScannerModel} = await import('../.tmp/ik-tests/scannerModel.mjs');
+  const {FactorySimulator} = await import('../.tmp/ik-tests/FactorySimulator.mjs');
+  let time = 0;
+  const config = {speed:1,enabled:true,defectRate:0,spawnInterval:1000,reach:1.8,capacity:20};
+  const settings = {scanner:{...config},second:{...config}};
+  const inspection = new ScannerInspection(()=>settings,()=>.5,()=>time);
+  const sensor = {point:new T.Vector3(0,.7,0),normal:new T.Vector3(0,0,1),halfWidth:.3,floor:0};
+  inspection.register('scanner',sensor);
+  const box = new T.Group(), from=new T.Vector3(0,.45,-2), to=new T.Vector3(0,.45,2);
+  inspection.inspectMovement(box,from,to);
+  assert.equal(inspection.getSignal('scanner'),'safe');
+  inspection.inspectMovement(box,to,from);
+  assert.equal(inspection.snapshots[0].scanned,1);
+  time=.999;assert.equal(inspection.getSignal('scanner'),'safe');
+  time=1;assert.equal(inspection.getSignal('scanner'),null);
+  settings.scanner.defectRate=1;
+  const faulty=new T.Group();inspection.inspectMovement(faulty,from,to);
+  assert.equal(inspection.getSignal('scanner'),'fault');
+  assert.equal(inspection.snapshots[0].faults,1);
+  inspection.register('second',sensor);
+  inspection.inspectMovement(box,from,to);
+  assert.equal(inspection.getSignal('second'),'safe');
+  settings.scanner.enabled=false;
+  inspection.inspectMovement(new T.Group(),from,to);
+  assert.equal(inspection.snapshots[0].scanned,2);
+  settings.scanner.enabled=true;
+  inspection.inspectMovement(new T.Group(),new T.Vector3(1,.45,-2),new T.Vector3(1,.45,2));
+  inspection.inspectMovement(new T.Group(),new T.Vector3(0,1,-2),new T.Vector3(0,1,2));
+  assert.equal(inspection.snapshots[0].scanned,2);
+  settings.rotated={...config};
+  inspection.register('rotated',{...sensor,point:new T.Vector3(4,.7,5),normal:new T.Vector3(1,0,0)});
+  inspection.inspectMovement(new T.Group(),new T.Vector3(2,.45,5),new T.Vector3(6,.45,5));
+  assert.equal(inspection.getSignal('rotated'),'safe');
+
+  const asset=load('scanner');
+  const raw=fs.readFileSync('src/assets/models/scanner.glb');
+  const metadata=JSON.parse(raw.subarray(20,20+raw.readUInt32LE(12)).toString());
+  let index=0;
+  asset.traverse(node=>{if(node instanceof T.Mesh){node.material=new T.MeshStandardMaterial({name:metadata.materials[index++].name});}});
+  const first=createScannerModel(asset),second=createScannerModel(asset);
+  assert.ok(first.localPoint.y>.45&&first.halfWidth>.175);
+  const signalMaterial=(model)=>{let material;model.traverse(node=>{if(node instanceof T.Mesh){const list=Array.isArray(node.material)?node.material:[node.material];material??=list.find(m=>m.name==='gradient');}});return material;};
+  const original=signalMaterial(first.model).color.clone();
+  const colors={safe:'#19de86',fault:'#f94258'};
+  first.setSignal('fault',colors);
+  assert.equal(signalMaterial(first.model).color.getHexString(),'f94258');
+  assert.ok(signalMaterial(second.model).color.equals(original));
+  first.setSignal(null,colors);
+  assert.ok(signalMaterial(first.model).color.equals(original));
+  first.dispose();second.dispose();
+
+  const objects=[{id:'belt',kind:'conveyor',name:'belt',x:0,z:0,yaw:0}];
+  const world=new FactorySimulator(objects,load('box'),load('pallet'),()=>({belt:config,scanner:config}));
+  world.inspection.register('scanner',sensor);
+  world.advance(30);
+  assert.ok(world.inspection.snapshots[0].scanned>=3,'High-speed travel missed the scan plane');
+  assert.equal(world.inspection.snapshots[0].lastResult,'safe');
+  world.dispose();inspection.dispose();
+  assert.equal(inspection.active,false);
+  console.log('Scanner: actual GLB ScanPoint/material, isolated colors and restoration, 0/100% defects, stable per-box result, deduplication, disabled/off-aperture exclusion, real-time one-second signal and fast conveyor crossings passed');
+  process.exit(0);
+}
+if(process.argv.includes('--hud-workspace')){
+  const {useHudStore:hud}=await import('../.tmp/ik-tests/useHudStore.mjs');
+  const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
+  const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
+  const {useModeStore:mode}=await import('../.tmp/ik-tests/useModeStore.mjs');
+  mode.getState().setMode('simulation');
+  scene.getState().example();
+  const initialRun=simulation.getState().run;
+  hud.getState().closeWorkspacePanel();
+  if(!scene.getState().editing||simulation.getState().run!==initialRun)throw Error('Closing Edit changed workspace');
+  hud.getState().selectWorkspaceMode('edit');
+  if(!hud.getState().workspacePanelOpen||!scene.getState().editing)throw Error('Edit panel did not reopen');
+  const id=scene.getState().objects[0].id;
+  scene.getState().updateSettings(id,{speed:0});
+  hud.getState().selectWorkspaceMode('play');
+  if(!scene.getState().editing||!scene.getState().errors.length)throw Error('Invalid layout entered Play');
+  scene.getState().updateSettings(id,{speed:1});
+  hud.getState().selectWorkspaceMode('play');
+  if(scene.getState().editing||hud.getState().inspectorTab!=='equipments')throw Error('Play transition failed');
+  simulation.getState().setRunning(true);
+  const run=simulation.getState().run;
+  const assertPlayback=()=>{if(scene.getState().editing||!simulation.getState().running||simulation.getState().run!==run)throw Error('Panel interaction changed playback');};
+  hud.getState().closeWorkspacePanel();assertPlayback();
+  hud.getState().toggleInspectorTab('details');assertPlayback();
+  if(hud.getState().inspectorTab!=='details')throw Error('Inspector selection failed');
+  hud.getState().toggleInspectorTab('details');assertPlayback();
+  if(hud.getState().inspectorTab!==null)throw Error('Inspector close failed');
+  hud.getState().selectWorkspaceMode('play');assertPlayback();
+  mode.getState().setMode('monitoring');
+  hud.getState().selectWorkspaceMode('edit');assertPlayback();
+  hud.getState().toggleInspectorTab('dashboard');assertPlayback();
+  mode.getState().setMode('simulation');
+  hud.getState().selectWorkspaceMode('edit');
+  if(!scene.getState().editing||simulation.getState().running)throw Error('Edit transition did not stop simulation');
+  console.log('HUD: Edit/Play transitions, validation, independent panel visibility, uninterrupted playback and monitoring guards passed');
+  process.exit(0);
+}
+if(process.argv.includes('--equipment-settings')){
+  const {useModeStore:mode}=await import('../.tmp/ik-tests/useModeStore.mjs');
+  const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
+  const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
+  const {applyEquipmentSettings:apply}=await import('../.tmp/ik-tests/applyEquipmentSettings.mjs');
+  scene.getState().example();
+  const id=scene.getState().objects.find(object=>object.kind==='robot').id;
+  simulation.setState({running:true});
+  const run=simulation.getState().run;
+  mode.getState().setMode('simulation');
+  if(!apply(id,{speed:2})||scene.getState().settings[id].speed!==2)throw Error('Simulation settings were not applied');
+  if(simulation.getState().run!==run||!simulation.getState().running)throw Error('Settings reset playback');
+  mode.getState().setMode('monitoring');
+  if(apply(id,{speed:3})||scene.getState().settings[id].speed!==2)throw Error('Monitoring settings were writable');
+  mode.getState().setMode('simulation');
+  if(apply('missing',{speed:2}))throw Error('Missing equipment accepted a command');
+  console.log('Equipment settings: simulation updates, uninterrupted playback, read-only monitoring and missing equipment passed');
+  process.exit(0);
 }
 if(process.argv.includes('--editor-history')){
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
@@ -93,8 +339,20 @@ if(process.argv.includes('--editor-history')){
 if(process.argv.includes('--fleet')){
   const {OBB}=await import('three/addons/math/OBB.js');
   const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
-  const {AMR_TRAFFIC}=await import('../.tmp/ik-tests/customize.mjs');
+  const {AMR_TRAFFIC}=await import('../.tmp/ik-tests/simulatorLayout.mjs');
   const assets={box:load('box'),pallet:load('pallet')};
+  const {PalletController}=await import('../.tmp/ik-tests/PalletController.mjs');
+  const ownPallet=new PalletController({id:'owned',name:'Owned pallet',kind:'pallet',x:3,z:-2,yaw:Math.PI/3},assets.pallet,2);
+  if(ownPallet.beginShipment()!==null||!ownPallet.reserve(0)||ownPallet.reserve(0))throw Error('Pallet accepted incomplete shipment or duplicate reservation');
+  ownPallet.release(0);if(ownPallet.states[0]!=='free')throw Error('Missed pickup did not release the pallet slot');
+  const ownBox=new T.Group();ownBox.position.copy(ownPallet.slots[0]);const placedWorld=ownBox.getWorldPosition(new T.Vector3());
+  ownPallet.reserve(0);ownPallet.place(0,ownBox,1);
+  if(ownBox.getWorldPosition(new T.Vector3()).distanceTo(placedWorld)>1e-8||ownPallet.full)throw Error('Pallet attachment moved the placed box or completed early');
+  ownPallet.reserve(1);ownPallet.place(1,new T.Group(),2);
+  const outgoing=ownPallet.beginShipment();
+  if(outgoing!==ownPallet.group||ownPallet.readyAt!==2||ownPallet.reserve(0))throw Error('Full pallet did not lock its shipment');
+  const replacement=ownPallet.replace();
+  if(replacement===outgoing||ownBox.parent!==outgoing||ownPallet.count||ownPallet.shipping||ownPallet.availableSlot!==0)throw Error('Pallet replacement damaged the outgoing cargo or did not reopen slots');
   const cell=(offset,index)=>[
     {id:`r${index}`,name:`Robot ${index}`,kind:'robot',x:offset,z:0,yaw:0},
     {id:`p${index}`,name:`Pallet ${index}`,kind:'pallet',x:offset-1.15,z:0,yaw:0},
@@ -163,7 +421,7 @@ if(process.argv.includes('--fleet')){
   const {AMRTrafficController}=await import('../.tmp/ik-tests/AMRTrafficController.mjs');
   const {PalletDispatchController}=await import('../.tmp/ik-tests/PalletDispatchController.mjs');
   const {layoutPath}=await import('../.tmp/ik-tests/layoutNavigation.mjs');
-  const {DEFAULT_LAYOUT}=await import('../.tmp/ik-tests/customize.mjs');
+  const {DEFAULT_LAYOUT}=await import('../.tmp/ik-tests/simulatorLayout.mjs');
   const openLayout={...DEFAULT_LAYOUT,robot:{x:50,z:50,yaw:0},conveyor:{x:55,z:50,yaw:0}};
   let headOnCompleted=0,headOnStops=0;
   const headOn=[-1,1].map((side,index)=>{
@@ -287,14 +545,27 @@ if(process.argv.includes('--flow-speed')){
   scene.getState().example();scene.getState().complete();simulation.getState().setRunning(true);
   const run=simulation.getState().run,belt=scene.getState().objects.find(o=>o.kind==='conveyor');scene.getState().updateSettings(belt.id,{spawnInterval:4});
   if(simulation.getState().run!==run||!simulation.getState().running)throw Error('Live feed interval reset boxes');
-  console.log('Flow/speed: populated connected paths, continuous inlet before first exit, independent segment speeds, global × local timing, live speed and feed interval without reset passed');
+  const isolated={...a,id:'isolated',x:100};
+  const configs=Object.fromEntries([a,b,c,isolated].map(o=>[o.id,{speed:1,enabled:true,spawnInterval:8}]));
+  scene.setState({objects:[a,b,c,isolated],settings:configs,editing:true,past:[],future:[]});
+  scene.getState().updateSettings('b',{speed:2,spawnInterval:4});
+  if(![a,b,c].every(o=>scene.getState().settings[o.id].speed===2)||scene.getState().settings.isolated.speed!==1)throw Error('Connected speed did not propagate both directions or changed isolated belt');
+  if(scene.getState().settings.a.spawnInterval!==8||scene.getState().settings.b.spawnInterval!==4)throw Error('Non-speed settings propagated');
+  scene.getState().undo();
+  if(![a,b,c].every(o=>scene.getState().settings[o.id].speed===1))throw Error('Connected speed undo was not atomic');
+  scene.getState().redo();
+  if(![a,b,c].every(o=>scene.getState().settings[o.id].speed===2))throw Error('Connected speed redo failed');
+  scene.setState({editing:false});
+  scene.getState().updateSettings('c',{speed:3});
+  if(![a,b,c].every(o=>scene.getState().settings[o.id].speed===3)||simulation.getState().run!==run||!simulation.getState().running)throw Error('Live connected speed failed or reset runtime');
+  console.log('Flow/speed: continuous flow, global timing, bidirectional connected speed, isolated belt preservation, settings isolation, undo/redo and live updates without reset passed');
   process.exit(0);
 }
 if(process.argv.includes('--unbounded-layout')){
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
   const {validateScene}=await import('../.tmp/ik-tests/sceneValidation.mjs');
   const {layoutPath,clearanceAt}=await import('../.tmp/ik-tests/layoutNavigation.mjs');
-  const {DEFAULT_LAYOUT}=await import('../.tmp/ik-tests/customize.mjs');
+  const {DEFAULT_LAYOUT}=await import('../.tmp/ik-tests/simulatorLayout.mjs');
   scene.getState().example();
   for(const object of scene.getState().objects)scene.getState().updatePose(object.id,{x:object.x+120,z:object.z-85});
   if(validateScene(scene.getState().objects,scene.getState().settings).length)throw Error('Distant scene rejected');
@@ -361,7 +632,7 @@ if(process.argv.includes('--conveyor-layout')){
 if(process.argv.includes('--scene-state')){
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
   const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
-  simulation.setState({run:10,demoMode:'customize',running:false});
+  simulation.setState({run:10,sceneMode:'simulator',running:false});
   let resets=0;
   const unsubscribe=simulation.subscribe(()=>resets++);
   scene.getState().example();
@@ -381,6 +652,13 @@ if(process.argv.includes('--scene-state')){
   if(simulation.getState().run!==10||resets!==0)throw Error('Editing reset the simulation or recreated the scene');
   scene.getState().complete();
   if(scene.getState().editing||simulation.getState().run!==11)throw Error('Completing the layout did not initialize exactly one runtime');
+  scene.getState().select(first.id);
+  if(scene.getState().inspected!==null||scene.getState().selected!==first.id)throw Error('Single click opened details');
+  scene.getState().inspect(first.id);
+  if(scene.getState().inspected!==first.id)throw Error('Double click did not open details');
+  scene.getState().select(second.id);
+  if(scene.getState().inspected!==null||scene.getState().selected!==second.id)throw Error('Selecting another card did not close details');
+
   scene.getState().updateSettings(first.id,{speed:2});
   if(simulation.getState().run!==11)throw Error('Live speed change restarted the runtime');
   scene.getState().updateSettings(pallet.id,{capacity:20});
@@ -399,7 +677,7 @@ const { createUnitBox, createUnitPallet }=await import('../.tmp/ik-tests/modelNo
 const { BOX_SIZES: PRODUCTION_BOX_SIZES, STREAM_CONFIG }=await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
 const strip = source => source.replace(/^import[\s\S]*?;\r?\n/gm,'').replaceAll('export ','');
 const compile = source => ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
-let demoSource = strip(fs.readFileSync('src/demo/robot/RobotDemo.tsx','utf8')).replace('default function RobotDemo','function Demo');
+let demoSource = strip(fs.readFileSync('src/legacy/robot/RobotDemo.tsx','utf8')).replace('default function RobotDemo','function Demo');
 if(process.env.IK_BATCH_COUNT)demoSource=demoSource.replace(/BOX_COUNT\s*=\s*\d+/,`BOX_COUNT = ${Number(process.env.IK_BATCH_COUNT)}`);
 demoSource = demoSource.slice(0,demoSource.lastIndexOf('  return ('))+'return demo;}';
 const stacking = compile(strip(fs.readFileSync('src/utils/packing/stacking.ts','utf8')));
@@ -576,7 +854,7 @@ if(process.env.IK_FACTORY==='1'||process.argv.includes('--scene')){
   const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
   const {SceneInstances}=await import('../.tmp/ik-tests/SceneInstances.mjs');
   const {simulationDelta}=await import('../.tmp/ik-tests/simulationTime.mjs');
-  const {DEFAULT_LAYOUT,CUSTOMIZE_CONFIG:C}=await import('../.tmp/ik-tests/customize.mjs');
+  const {DEFAULT_LAYOUT,SIMULATOR_CONFIG:C}=await import('../.tmp/ik-tests/simulatorLayout.mjs');
   const objects=[
     {id:'r1',name:'Robot 1',kind:'robot',x:0,z:-.85,yaw:0},
     {id:'r2',name:'Robot 2',kind:'robot',x:0,z:.85,yaw:Math.PI/6},
@@ -628,7 +906,7 @@ if(process.env.IK_FACTORY==='1'||process.argv.includes('--scene')){
   process.exit(0);
 }
 if(process.env.IK_CUSTOMIZE==='1'){
-  const {DEFAULT_LAYOUT,CUSTOMIZE_CONFIG:C}=await import('../.tmp/ik-tests/customize.mjs');
+  const {DEFAULT_LAYOUT,SIMULATOR_CONFIG:C}=await import('../.tmp/ik-tests/simulatorLayout.mjs');
   const {validateLayout,clearanceAt}=await import('../.tmp/ik-tests/layoutNavigation.mjs');
   const {PalletDispatchController}=await import('../.tmp/ik-tests/PalletDispatchController.mjs');
   const layouts=[structuredClone(DEFAULT_LAYOUT)];
@@ -658,13 +936,13 @@ if(process.env.IK_CUSTOMIZE==='1'){
   }
   const invalid=structuredClone(DEFAULT_LAYOUT);invalid.pallet.x=-4;
   if(!validateLayout(invalid).some(error=>error.includes('도달 범위')))throw Error('Invalid robot reach was accepted');
-  console.log('Customize: independent placements, reach validation, 20-box loading, full-pallet-only AMR dispatch and empty pallet reset passed');
+  console.log('Simulator: independent placements, reach validation, 20-box loading, full-pallet-only AMR dispatch and empty pallet reset passed');
   process.exit(0);
 }
 if(process.env.IK_BATCH_ONLY==='1'){
   const demo=makeDemo(url=>({scene:load(url)}),f=>f(),v=>({current:v}),()=>{},T.Box3,T.Group,T.Vector3,'box','pallet');
-  const expected=Number(process.env.IK_BATCH_COUNT??fs.readFileSync('src/demo/robot/RobotDemo.tsx','utf8').match(/BOX_COUNT\s*=\s*(\d+)/)[1]);
-  const robotScale=Number(fs.readFileSync('src/demo/robot/RobotDemo.tsx','utf8').match(/ROBOT_SCALE\s*=\s*([\d.]+)/)[1]);
+  const expected=Number(process.env.IK_BATCH_COUNT??fs.readFileSync('src/legacy/robot/RobotDemo.tsx','utf8').match(/BOX_COUNT\s*=\s*(\d+)/)[1]);
+  const robotScale=Number(fs.readFileSync('src/legacy/robot/RobotDemo.tsx','utf8').match(/ROBOT_SCALE\s*=\s*([\d.]+)/)[1]);
   if(!Number.isInteger(expected)||expected<=0||demo.transfers.length!==expected)throw Error('Robot demo does not contain the configured box count');
   for(const job of demo.transfers){
     if(new T.Box3().setFromObject(job.box).getSize(new T.Vector3()).distanceTo(PRODUCTION_BOX_SIZES[0])>1e-5)throw Error('Robot and conveyor box dimensions differ');
