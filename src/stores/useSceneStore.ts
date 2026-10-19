@@ -1,11 +1,13 @@
 import { create } from "zustand";
 import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn } from "../types/layout";
-import { DEFAULT_LAYOUT,CUSTOMIZE_CONFIG as C,EDITOR_HISTORY_LIMIT } from "../constants/customize";
+import { DEFAULT_LAYOUT,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT } from "../constants/simulatorLayout";
 import { useSimulationStore } from "./useSimulationStore";
 import { validateScene } from "../utils/amr/sceneValidation";
-import { beltConnections,extendBelt,snapBelt } from "@/utils/conveyor/conveyorLayout";
+import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/utils/conveyor/conveyorLayout";
+import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
+import type { SceneTemplate } from "@/types/sceneTemplate";
 
-export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역"};
+export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너"};
 const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:20,spawnInterval:8,enabled:true});
 interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
@@ -16,6 +18,7 @@ interface SceneState{
   extendConveyor:(id:string,turn:ConveyorTurn)=>void;
   updateSettings:(id:string,values:Partial<EquipmentSettings>)=>void;remove:(id:string)=>void;
   edit:()=>void;complete:()=>void;clear:()=>void;example:()=>void;
+  loadTemplate: (template: SceneTemplate) => boolean;
 }
 type SceneSnapshot=Pick<SceneState,"objects"|"settings"|"selected"|"nextId">;
 const snapshot=(state:SceneState):SceneSnapshot=>({objects:state.objects,settings:state.settings,selected:state.selected,nextId:state.nextId});
@@ -26,7 +29,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   undo:()=>{const state=get();if(!state.editing||!state.past.length)return;set({...state.past[state.past.length-1],past:state.past.slice(0,-1),future:[snapshot(state),...state.future],pending:null,errors:[]});},
   redo:()=>{const state=get();if(!state.editing||!state.future.length)return;set({...state.future[0],past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:state.future.slice(1),pending:null,errors:[]});},
   objects:[],settings:{},selected:null,pending:null,editing:true,tool:"translate",errors:[],nextId:1,
-  select:selected=>{if(get().selected!==selected||(!get().editing&&get().inspected!==selected))set({selected,inspected:get().editing?null:selected});},setPending:pending=>{if(get().pending!==pending)set({pending});},setTool:tool=>{if(get().tool!==tool)set({tool});},
+  select:selected=>{if(get().selected!==selected||get().inspected!==null)set({selected,inspected:null});},setPending:pending=>{if(get().pending!==pending)set({pending});},setTool:tool=>{if(get().tool!==tool)set({tool});},
   add:(kind,pose)=>{
     if(!get().editing)return;
     set(state=>{
@@ -49,23 +52,48 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     set(state=>({...history(state),objects:state.objects.map(object=>object.id===id?next:object),errors:[]}));
   },
   updateSettings:(id,values)=>{
-    const current=get().settings[id];
-    if(!current||Object.entries(values).every(([key,value])=>current[key as keyof EquipmentSettings]===value))return;
-    set(state=>({...history(state),settings:{...state.settings,[id]:{...state.settings[id],...values}},errors:[]}));
+    const state = get(), current = state.settings[id];
+    if (!current) return;
+    if (values.defectRate !== undefined && (!Number.isFinite(values.defectRate) || values.defectRate < 0 || values.defectRate > 1)) return;
+    const connected = values.speed !== undefined && state.objects.some(object => object.id === id && object.kind === "conveyor")
+      ? connectedBeltIds(state.objects, id) : new Set([id]);
+    const nextSettings = { ...state.settings };
+    let changed = false;
+    for (const target of connected) {
+      const config = state.settings[target];
+      if (!config) continue;
+      const updates = target === id ? values : { speed: values.speed };
+      if (Object.entries(updates).every(([key, value]) => config[key as keyof EquipmentSettings] === value)) continue;
+      nextSettings[target] = { ...config, ...updates };
+      changed = true;
+    }
+    if (!changed) return;
+    set({ ...history(state), settings: nextSettings, errors: [] });
     if(!get().editing&&values.capacity!==undefined)useSimulationStore.getState().reset();
   },
   remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const next={...state.settings};delete next[id];return {...history(state),objects:state.objects.filter(object=>object.id!==id),settings:next,selected:state.selected===id?null:state.selected,errors:[]};});},
   edit:()=>{if(get().editing)return;useSimulationStore.getState().reset();set({editing:true,errors:[],inspected:null});},
   complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
   clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),objects:[],settings:{},selected:null,pending:null,editing:true,errors:[]});},
+  loadTemplate: (template) => {
+    const state = get();
+    if (!state.editing) return false;
+    const objects = template.equipment.map((entry, index) => ({
+      kind: entry.kind, x: entry.x, z: entry.z, yaw: entry.yaw, conveyorTurn: entry.conveyorTurn,
+      id: `${entry.kind}-${index + 1}`, name: `${EQUIPMENT_NAMES[entry.kind]} ${index + 1}`,
+    }));
+    const configs = Object.fromEntries(objects.map((object, index) => [
+      object.id, { ...settings(), ...template.equipment[index].settings },
+    ]));
+    const errors = validateScene(objects, configs);
+    if (errors.length) { set({ errors }); return false; }
+    set({ ...history(state), objects, settings: configs, selected: null, inspected: null,
+      pending: null, errors: [], nextId: objects.length + 1 });
+    return true;
+  },
   example:()=>{
-    if(!get().editing)useSimulationStore.getState().reset();
-    const poses:({kind:EquipmentKind}&EquipmentPose)[]=[
-      {kind:"robot",x:0,z:-.85,yaw:0},{kind:"robot",x:0,z:.85,yaw:Math.PI/6},
-      {kind:"pallet",x:-1.15,z:-.85,yaw:0},{kind:"pallet",x:-1.15,z:.85,yaw:0},
-      {kind:"conveyor",...DEFAULT_LAYOUT.conveyor},{kind:"amr",x:-3,z:-2,yaw:0},{kind:"dock",x:-3,z:2,yaw:0},
-    ];
-    const objects=poses.map((pose,index)=>({...pose,id:`${pose.kind}-${index+1}`,name:`${EQUIPMENT_NAMES[pose.kind]} ${index+1}`}));
-    set({...history(get()),objects,settings:Object.fromEntries(objects.map(object=>[object.id,settings()])),selected:objects[0].id,pending:null,editing:true,errors:[],nextId:objects.length+1});
+    if (!get().editing) get().edit();
+    get().loadTemplate(SCENE_TEMPLATES[1]);
+    get().select(get().objects[0]?.id ?? null);
   },
 }));
