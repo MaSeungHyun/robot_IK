@@ -30,6 +30,19 @@ export function extendBelt(belt: BeltPose, turn: ConveyorTurn): BeltPose {
   const end = beltPoint(belt,beltLength(belt));
   return { x:end.x+Math.sin(end.yaw)*C.length/2, z:end.z+Math.cos(end.yaw)*C.length/2, yaw:end.yaw, conveyorTurn:turn };
 }
+export function connectedBeltIds(objects: SceneEquipment[], id: string) {
+  const { next } = beltConnections(objects);
+  const neighbors = new Map<string, string[]>();
+  for (const [source, target] of next) {
+    neighbors.set(source, [...(neighbors.get(source) ?? []), target.id]);
+    neighbors.set(target.id, [...(neighbors.get(target.id) ?? []), source]);
+  }
+  const connected = new Set([id]);
+  for (const current of connected) {
+    for (const neighbor of neighbors.get(current) ?? []) connected.add(neighbor);
+  }
+  return connected;
+}
 export function snapBelt(belt: SceneEquipment, objects: SceneEquipment[]): SceneEquipment {
   const others=objects.filter(o=>o.id!==belt.id&&o.kind==="conveyor"), {next,incoming}=beltConnections(others);
   let best=C.snapDistance, result=belt;

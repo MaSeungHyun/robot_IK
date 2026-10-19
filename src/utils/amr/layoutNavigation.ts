@@ -1,6 +1,6 @@
 import { Vector3 } from "three";
 import type { FactoryLayout,EquipmentKind,EquipmentPose,ConveyorTurn } from "../../types/layout";
-import { CUSTOMIZE_CONFIG as C,AMR_TRAFFIC } from "../../constants/customize";
+import { SIMULATOR_CONFIG as C,AMR_TRAFFIC } from "../../constants/simulatorLayout";
 import { findPathBetween } from "./pathfinding";
 import type { Cell } from "./pathfinding";
 import { STREAM_CONFIG } from "../../constants/simulation";
@@ -9,7 +9,7 @@ import { CONVEYOR_LAYOUT as BELT } from "../../constants/conveyorLayoutConfig";
 export function footprint(kind:EquipmentKind):[number,number]{
   return kind==="conveyor"?[.35,2.625]:kind==="pallet"?[STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth]:kind==="dock"?[1.3,1.3]:[.65,.65];
 }
-export function clearanceAt(x:number,z:number,kind:EquipmentKind,layout:FactoryLayout){
+export function clearanceAt(x:number,z:number,kind:keyof FactoryLayout,layout:FactoryLayout){
   return clearancePose(x,z,kind,layout[kind]);
 }
 export function clearancePose(x:number,z:number,kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn}){

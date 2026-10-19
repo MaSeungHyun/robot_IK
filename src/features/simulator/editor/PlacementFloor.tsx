@@ -2,14 +2,15 @@ import { Suspense, useEffect, useMemo, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { Plane, Raycaster, Vector2, Vector3 } from "three";
 import type { Group, Intersection, Mesh } from "three";
-import { useSceneStore } from "../../stores/useSceneStore";
+import { useSceneStore } from "@/stores/useSceneStore";
 import {
-  CUSTOMIZE_CONFIG as C,
+  SIMULATOR_CONFIG as C,
   DEFAULT_LAYOUT,
-} from "../../constants/customize";
-import type { EquipmentKind } from "../../types/layout";
+} from "@/constants/simulatorLayout";
+import type { EquipmentKind } from "@/types/layout";
 import { snapBelt } from "@/utils/conveyor/conveyorLayout";
 import PlacementGhost from "./PlacementGhost";
+import { isSelectionClick } from "@/utils/scene/isSelectionClick";
 
 const KINDS: readonly EquipmentKind[] = [
   "robot",
@@ -17,6 +18,7 @@ const KINDS: readonly EquipmentKind[] = [
   "conveyor",
   "amr",
   "dock",
+  "scanner",
 ];
 const snap = (value: number) => Math.round(value / C.snap) * C.snap;
 // Intersect the mathematical ground plane rather than a bounded mesh.
@@ -110,8 +112,8 @@ export default function PlacementFloor() {
     };
     const drop = (event: DragEvent) => {
       const value = event.dataTransfer?.getData(
-          "application/x-factory-equipment",
-        ),
+        "application/x-factory-equipment",
+      ),
         kind = KINDS.find((kind) => kind === value);
       if (!kind || !useSceneStore.getState().editing) return;
       event.preventDefault();
@@ -149,6 +151,7 @@ export default function PlacementFloor() {
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, -0.006, 0]}
         onClick={(event) => {
+          if (!isSelectionClick(event)) return;
           const state = useSceneStore.getState();
           if (state.pending && state.editing) {
             event.stopPropagation();
@@ -156,6 +159,9 @@ export default function PlacementFloor() {
               x: snap(event.point.x),
               z: snap(event.point.z),
             });
+          } else {
+            event.stopPropagation();
+            state.select(null);
           }
         }}
       >

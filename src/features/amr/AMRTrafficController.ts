@@ -1,5 +1,5 @@
 import { Vector3 } from "three";
-import { AMR_TRAFFIC } from "@/constants/customize";
+import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import type { PalletDispatchController } from "@/features/amr/PalletDispatchController";
 
 type Vehicle = {

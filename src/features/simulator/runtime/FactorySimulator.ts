@@ -1,3 +1,5 @@
+import { ScannerInspection } from "@/features/scanner/ScannerInspection";
+import { SCANNER_CONFIG } from "@/constants/scanner";
 import { Group, Vector3 } from "three";
 import type {
   SceneEquipment,
@@ -8,12 +10,9 @@ import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
 import type { EquipmentSnapshot } from "@/types/simulation";
 import { BOX_SIZES, STREAM_CONFIG, MOTION } from "@/constants/simulation";
-import { DEFAULT_LAYOUT, AMR_TRAFFIC } from "@/constants/customize";
-import {
-  createUnitBox,
-  createUnitPallet,
-} from "@/utils/three/modelNormalization";
-import { planStack } from "@/utils/packing/stacking";
+import { DEFAULT_LAYOUT, AMR_TRAFFIC } from "@/constants/simulatorLayout";
+import { createUnitBox } from "@/utils/three/modelNormalization";
+import { PalletController } from "@/features/Viewport/models/Pallet/PalletController";
 import { PalletDispatchController } from "@/features/amr/PalletDispatchController";
 import { AMRTrafficController } from "@/features/amr/AMRTrafficController";
 import type { DispatchRoutes } from "@/features/amr/PalletDispatchController";
@@ -44,15 +43,6 @@ export type FactoryRobot = {
   count: number;
   busySeconds: number;
 };
-type Pallet = {
-  object: SceneEquipment;
-  group: Group;
-  slots: Vector3[];
-  states: ("free" | "reserved" | "placed")[];
-  count: number;
-  shipping: boolean;
-  readyAt: number | null;
-};
 export type FactoryAgent = {
   object: SceneEquipment;
   dispatch: PalletDispatchController;
@@ -62,7 +52,7 @@ export type FactoryAgent = {
   target: string | null;
 };
 type Shipment = {
-  pallet: Pallet;
+  pallet: PalletController;
   group: Group;
   cargo: Set<Cargo>;
   agent: FactoryAgent;
@@ -70,12 +60,14 @@ type Shipment = {
 };
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }) =>
   Math.hypot(a.x - b.x, a.z - b.z);
-const Y = new Vector3(0, 1, 0);
 export class FactorySimulator {
   readonly root = new Group();
+  readonly inspection: ScannerInspection;
+  private scanFrom = new Vector3();
+  private scanTo = new Vector3();
   readonly robots: FactoryRobot[] = [];
   readonly agents: FactoryAgent[] = [];
-  readonly pallets: Pallet[] = [];
+  readonly pallets: PalletController[] = [];
   readonly belts: { object: SceneEquipment; elapsed: number }[] = [];
   boxes: Cargo[] = [];
   spawned = 0;
@@ -84,10 +76,9 @@ export class FactorySimulator {
   dispatched = 0;
   elapsed = 0;
   private boxAsset: Group;
-  private palletAsset: Group;
   private settings: () => Record<string, EquipmentSettings>;
   private point = new Vector3();
-  private palletOrder = new Map<string, Pallet[]>();
+  private palletOrder = new Map<string, PalletController[]>();
   private dispatchRetry = 0;
   private connections = new Map<string, SceneEquipment>();
   private incoming = new Set<string>();
@@ -116,10 +107,10 @@ export class FactorySimulator {
     random: () => number = Math.random,
   ) {
     this.random = random;
+    this.inspection = new ScannerInspection(getSettings, random);
     this.instances = instances;
     this.settings = getSettings;
     this.boxAsset = createUnitBox(box);
-    this.palletAsset = createUnitPallet(pallet);
     for (const object of objects) {
       if (object.kind === "robot")
         this.robots.push({
@@ -133,32 +124,10 @@ export class FactorySimulator {
         });
       if (object.kind === "conveyor") this.belts.push({ object, elapsed: 0 });
       if (object.kind === "pallet") {
-        const slots = planStack(
-          this.settings()[object.id].capacity,
-          new Vector3(
-            STREAM_CONFIG.palletWidth,
-            STREAM_CONFIG.palletHeight,
-            STREAM_CONFIG.palletDepth,
-          ),
-          BOX_SIZES[0],
-          0,
-        ).slots.map((slot) =>
-          slot.position
-            .clone()
-            .add(new Vector3(0, STREAM_CONFIG.palletHeight + BOX_SIZES[0].y, 0))
-            .applyAxisAngle(Y, object.yaw)
-            .add(new Vector3(object.x, 0, object.z)),
-        );
-        const group = this.palletGroup(object);
-        this.pallets.push({
-          object,
-          group,
-          slots,
-          states: slots.map(() => "free"),
-          count: 0,
-          shipping: false,
-          readyAt: null,
-        });
+        const state = new PalletController(object, pallet, this.settings()[object.id].capacity);
+        this.pallets.push(state);
+        this.root.add(state.group);
+        this.render(state.group);
       }
       if (object.kind === "amr")
         this.agents.push({
@@ -242,25 +211,10 @@ export class FactorySimulator {
     for (const object of this.rendered) this.instances?.register(object);
   }
   dispose() {
+    this.inspection.dispose();
     if (this.renderingActive)
       for (const object of this.rendered) this.instances?.unregister(object);
     this.renderingActive = false;
-  }
-  private palletGroup(object: SceneEquipment) {
-    const group = new Group(),
-      model = this.palletAsset.clone(true);
-    model.scale.set(
-      STREAM_CONFIG.palletWidth,
-      STREAM_CONFIG.palletHeight,
-      STREAM_CONFIG.palletDepth,
-    );
-    group.add(model);
-    group.position.set(object.x, 0, object.z);
-    group.rotation.y = object.yaw;
-    group.userData.sceneId = object.id;
-    this.root.add(group);
-    this.render(group);
-    return group;
   }
   private spawn(belt: SceneEquipment, offset = 0) {
     const node = new Group(),
@@ -301,6 +255,21 @@ export class FactorySimulator {
         );
     }
   }
+  private scanBeltTravel(box: Cargo, start: number, end: number) {
+    if (!this.inspection.active || end <= start) return;
+
+    const steps = Math.max(1, Math.ceil((end - start) / SCANNER_CONFIG.sampleDistance));
+    const origin = beltPoint(box.belt, start);
+    this.scanFrom.set(origin.x, box.node.position.y, origin.z);
+
+    for (let step = 1; step <= steps; step++) {
+      const point = beltPoint(box.belt, start + (end - start) * step / steps);
+      this.scanTo.set(point.x, box.node.position.y, point.z);
+      this.inspection.inspectMovement(box.node, this.scanFrom, this.scanTo);
+      this.scanFrom.copy(this.scanTo);
+    }
+  }
+
   advance(dt: number) {
     const settings = this.settings();
     this.elapsed += dt;
@@ -328,6 +297,7 @@ export class FactorySimulator {
     for (const box of this.boxes) {
       if (box.state !== "moving" && box.state !== "reserved") continue;
       const config = settings[box.belt.id];
+      let scanStart = box.distance;
       if (config.enabled)
         box.distance += dt * STREAM_CONFIG.speed * config.speed;
       // Reserved boxes stay on their segment until picked or released by the robot.
@@ -344,9 +314,12 @@ export class FactorySimulator {
           box.distance = beltLength(box.belt);
           break;
         }
+        this.scanBeltTravel(box, scanStart, beltLength(box.belt));
+        scanStart = 0;
         box.distance -= beltLength(box.belt);
         box.belt = next;
       }
+      this.scanBeltTravel(box, scanStart, Math.min(box.distance, beltLength(box.belt)));
       this.move(box);
       if (box.distance > beltLength(box.belt) && box.state === "moving") {
         box.state = "passed";
@@ -366,10 +339,10 @@ export class FactorySimulator {
         if (
           pallet.shipping ||
           !settings[pallet.object.id].enabled ||
-          !pallet.states.includes("free")
+          pallet.availableSlot < 0
         )
           continue;
-        const slot = pallet.states.indexOf("free"),
+        const slot = pallet.availableSlot,
           target = pallet.slots[slot];
         if (distance(robot.object, target) > config.reach) continue;
         for (const box of this.boxes) {
@@ -469,7 +442,7 @@ export class FactorySimulator {
       (pallet) =>
         !pallet.shipping &&
         settings[pallet.object.id].enabled &&
-        pallet.count === pallet.slots.length,
+        pallet.full,
     );
     for (const pallet of ready) pallet.readyAt ??= this.elapsed;
     ready.sort((a, b) => a.readyAt! - b.readyAt!);
@@ -493,12 +466,12 @@ export class FactorySimulator {
   }
   private assign(
     robot: FactoryRobot,
-    pallet: Pallet,
+    pallet: PalletController,
     slot: number,
     box: Cargo,
   ) {
+    if (!pallet.reserve(slot)) return;
     box.state = "reserved";
-    pallet.states[slot] = "reserved";
     robot.busy = true;
     robot.status = "집기 준비";
     const job: Transfer = {
@@ -516,17 +489,14 @@ export class FactorySimulator {
       onPlace: () => {
         box.state = "placed";
         box.pallet = pallet.object.id;
-        pallet.group.attach(box.node);
-        pallet.states[slot] = "placed";
-        pallet.count++;
-        if (pallet.count === pallet.slots.length) pallet.readyAt = this.elapsed;
+        pallet.place(slot, box.node, this.elapsed);
         this.placed++;
         robot.count++;
       },
       onMiss: () => {
         box.state = "moving";
         box.attempted.add(robot.object.id);
-        pallet.states[slot] = "free";
+        pallet.release(slot);
         robot.busy = false;
       },
     };
@@ -541,7 +511,7 @@ export class FactorySimulator {
       robot.busy = false;
     }
   }
-  private ship(pallet: Pallet, agent: FactoryAgent) {
+  private ship(pallet: PalletController, agent: FactoryAgent) {
     const robot = [...this.robots].sort(
       (a, b) =>
         distance(a.object, pallet.object) - distance(b.object, pallet.object),
@@ -638,11 +608,12 @@ export class FactorySimulator {
       break;
     }
     if (!routes) return false;
-    pallet.shipping = true;
+    const group = pallet.beginShipment();
+    if (!group) return false;
     const shipment: Shipment = {
       pallet,
       agent,
-      group: pallet.group,
+      group,
       cargo: new Set(
         this.boxes.filter(
           (box) => box.pallet === pallet.object.id && box.state === "placed",
@@ -679,11 +650,8 @@ export class FactorySimulator {
     if (shipment.replaced) return;
     shipment.replaced = true;
     const pallet = shipment.pallet;
-    pallet.group = this.palletGroup(pallet.object);
-    pallet.states.fill("free");
-    pallet.count = 0;
-    pallet.shipping = false;
-    pallet.readyAt = null;
+    this.root.add(pallet.replace());
+    this.render(pallet.group);
   }
   get status() {
     const active = this.agents.find((agent) => agent.dispatch.phase !== "idle");
@@ -698,6 +666,7 @@ export class FactorySimulator {
     const settings = this.settings();
     return {
       elapsed: this.elapsed,
+      scanners: this.inspection.snapshots,
       robots: this.robots.map((robot) => ({
         id: robot.object.id,
         name: robot.object.name,

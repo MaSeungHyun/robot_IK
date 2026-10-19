@@ -6,7 +6,7 @@ import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import type { Mesh, GridHelper } from "three";
 import Robot from "@/features/Viewport/models/Robot";
-import { ConveyorSimulator, STREAM_CONFIG } from "@/features/conveyor/ConveyorSimulator";
+import { ConveyorSimulator, STREAM_CONFIG } from "@/legacy/conveyor/ConveyorSimulator";
 import boxUrl from "@/assets/models/box.glb?url";
 import palletUrl from "@/assets/models/pallet.glb?url";
 import type { PackingSnapshot } from "@/utils/packing/packingDiagnostics";

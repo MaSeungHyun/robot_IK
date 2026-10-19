@@ -32,3 +32,5 @@ export type Transfer = {
 };
 export type JointAngleReading = { name: string; axis: string; degrees: number; locked: boolean; min: number; max: number; setDegrees: (value: number) => void; worldXYZ?: number[]; downwardTilt?: number };
 export type JointAngleRef = RefObject<JointAngleReading[] | null>;
+
+export type RobotJointSnapshot = Pick<JointAngleReading, "name" | "axis" | "degrees" | "locked" | "min" | "max">;

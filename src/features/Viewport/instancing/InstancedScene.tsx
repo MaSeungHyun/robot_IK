@@ -1,3 +1,6 @@
+import { inspectEquipment } from "@/utils/scene/inspectEquipment";
+import { isSelectionClick } from "@/utils/scene/isSelectionClick";
+import type { ThreeEvent } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useFrame } from "@react-three/fiber";
@@ -12,11 +15,15 @@ function InstanceRenderer({instances}:{instances:SceneInstances}){
   useEffect(()=>()=>outline.dispose(),[outline]);
   // Run after every robot/AMR update so attached cargo uses this frame's joint transforms.
   useFrame(state=>{instances.sync();outline.sync(instances,useSceneStore.getState().selected,state.gl.getDrawingBufferSize(resolution));state.gl.render(state.scene,state.camera);},1);
-  return <><primitive object={outline.root} dispose={null}/><primitive object={instances.root} dispose={null} onPointerDown={(event:{stopPropagation:()=>void;object:Object3D;instanceId?:number})=>{
+  return <><primitive object={outline.root} dispose={null}/><primitive object={instances.root} dispose={null} onClick={(event:ThreeEvent<MouseEvent>)=>{if(!isSelectionClick(event))return;
     if(useSceneStore.getState().pending)return;
     let object:Object3D|null=event.object.userData.instanceOwners?.[event.instanceId??-1]??null;
     while(object&&!object.userData.sceneId)object=object.parent;
     if(object){event.stopPropagation();useSceneStore.getState().select(object.userData.sceneId);}
+  }} onDoubleClick={(event:ThreeEvent<MouseEvent>)=>{
+    let object:Object3D|null=event.object.userData.instanceOwners?.[event.instanceId??-1]??null;
+    while(object&&!object.userData.sceneId)object=object.parent;
+    if(object)inspectEquipment(event,object.userData.sceneId);
   }}/></>;
 }
 export default function InstancedScene({children}:{children:ReactNode}){

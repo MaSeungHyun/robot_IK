@@ -1,6 +1,6 @@
 import { Group, Vector3 } from "three";
 import type { FactoryLayout } from "@/types/layout";
-import { CUSTOMIZE_CONFIG, AMR_TRAFFIC } from "@/constants/customize";
+import { SIMULATOR_CONFIG, AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { layoutPath } from "@/utils/amr/layoutNavigation";
 import type { NavigationObstacle } from "@/utils/amr/layoutNavigation";
 
@@ -47,7 +47,7 @@ export class PalletDispatchController {
   predict(delta: number, out: Vector3) {
     out.copy(this.carrier.position);
     if (!this.moving) return out;
-    let remaining = delta * CUSTOMIZE_CONFIG.amrSpeed;
+    let remaining = delta * SIMULATOR_CONFIG.amrSpeed;
     for (let i = this.cursor; i < this.path.length && remaining > 0; i++) {
       const point = this.path[i],
         length = out.distanceTo(point);
@@ -146,7 +146,7 @@ export class PalletDispatchController {
       }
       return;
     }
-    let distance = delta * CUSTOMIZE_CONFIG.amrSpeed;
+    let distance = delta * SIMULATOR_CONFIG.amrSpeed;
     while (distance > 0 && this.cursor < this.path.length) {
       const point = this.path[this.cursor],
         position = this.carrier.position;
