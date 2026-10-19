@@ -1,6 +1,36 @@
 @import "tailwindcss";
 
+@theme static {
+  --color-bg-primary: #071621;
+  --color-bg-secondary: #0b202d;
+  
+  --color-text-primary: #f0f0f0; 
+  --color-text-secondary: #9fb6d0;
+  
+  --color-brand-primary: #02dfef;
+  --color-brand-secondary: #19de86;
+
+  --color-safe: #19de86;
+
+  --color-operating: #19de86;
+  --color-fault: #f94258;
+  --color-warning: #f9c335;
+  --color-idle: #8ea9cf;
+  --color-offline: #536a84;
+  --color-info: #1886c2
+  
+}
+
+
 .simulation-panel {
   scrollbar-width: thin;
   scrollbar-color: #334155 transparent;
+}
+
+.equipment-image-grid {
+  background-color: color-mix(in srgb, var(--color-bg-secondary) 60%, transparent);
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-brand-primary) 10%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-brand-primary) 10%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
