@@ -89,6 +89,10 @@ export const IK_CONFIG = {
   // Planned motion only: the upper arm (hand01->hand02) must not pitch below horizontal toward the pallet/conveyor. Manual joint control stays unlimited.
   shoulderMinimumElevationDegrees: 0,
   planningBudgetMs: 4,
+  // Rendered app: one IK planning budget per frame shared round-robin by the robots with pending plans.
+  frameBudgetMs: 5,
+  // Below this per-robot share the planners take turns instead of all getting a sliver.
+  minRobotShareMs: 1,
   collisionSamplesPerSlice: 16,
   angularSample: 0.01,
   pathSamplesPerSecond: 60,

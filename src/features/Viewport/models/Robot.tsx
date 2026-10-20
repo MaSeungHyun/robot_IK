@@ -14,6 +14,7 @@ import robot from "@/assets/models/robot.glb?url";
 import { useInstanceModel } from "@/features/Viewport/instancing/useInstanceModel";
 import { useSimulationStore } from "../../../stores/useSimulationStore";
 import { simulationDelta } from "@/utils/simulation/simulationTime";
+import { planningScheduler } from "@/utils/robot/planningScheduler";
 
 const scaledGeometries = new WeakMap<
   BufferGeometry,
@@ -96,12 +97,14 @@ export default function Robot({
 
   useRobotJointReadings(robotId, controller);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     inputs.current = { jobs, onProgress };
     const instance = controller.current;
     if (!instance) return;
     if (running) instance.start();
     else instance.pause();
+    // Shared per-frame IK budget, consumed once across all sub-steps of this frame.
+    instance.setPlanningBudget?.(planningScheduler.budget(instance.id, state.clock.elapsedTime));
     let remaining = simulationDelta(delta, playbackSpeed, simulationSpeed);
     do {
       const step = Math.min(remaining, 0.05);

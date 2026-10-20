@@ -204,6 +204,8 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     const downward = wristAbove || constrainPlacementWrist || Boolean(payloadCollision?.holding);
     const start=read(), limits=limitsAround(start,constraints), {forward}=createKinematics(all,grip,wrist);
     const allowedTilt=tiltTolerance();
+    // Building the solver chain is a slice of its own; keeps the first planning slice small.
+    yield;
     const releaseRange=constrainPlacementWrist?IK_CONFIG.releaseWorldXDegrees.map(MathUtils.degToRad) as [number,number]:undefined;
     // Explicit lowering/retreat requests follow Cartesian waypoints first.
     if(toolRotation){
@@ -445,6 +447,7 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   function* startShoulderTransfer(destination: Vector3, placement: Vector3, prepared?: IKPose): Generator<void, IKPose, void> {
     destination=destination.clone();placement=placement.clone();
     const start=read(),{forward}=createKinematics(all,grip,wrist);
+    yield;
     if(prepared?.reachable&&!(yield* edge(start,unpack(prepared))))return prepared;
     const pivot=baseNode.getWorldPosition(new Vector3()),front=forward(start).position.clone().sub(pivot).setY(0).normalize();
     // Keep the search finite even when the shoulder has no mechanical stops.

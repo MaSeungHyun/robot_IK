@@ -6,6 +6,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import SimulatorScene from "@/features/simulator/SimulatorScene";
 import { useSceneStore } from "@/stores/useSceneStore";
+import ModelWarmup from "@/features/Viewport/ModelWarmup";
 
 const ConveyorDemo = lazy(() => import("@/legacy/conveyor/ConveyorDemo"));
 const RobotDemo = lazy(() => import("@/legacy/robot/RobotDemo"));
@@ -64,6 +65,10 @@ export default function Viewport() {
           camera={camera}
           gl={{ antialias: true }}
           dpr={[1, 1.5]}
+          onCreated={({ gl }) => {
+            // Synchronous shader error checks block on every compile; keep them for development.
+            if (import.meta.env.PROD) gl.debug.checkShaderErrors = false;
+          }}
           onPointerMissed={(event) => {
             if (simulator && event.button === 0 && event.detail <= 1 && !useSceneStore.getState().pending)
               useSceneStore.getState().select(null);
@@ -91,6 +96,9 @@ export default function Viewport() {
             enableDamping={false}
             maxPolarAngle={Math.PI / 2.05}
           />
+          <Suspense fallback={null}>
+            <ModelWarmup />
+          </Suspense>
           <Suspense fallback={null}>
             {simulator ? (
               <SimulatorScene

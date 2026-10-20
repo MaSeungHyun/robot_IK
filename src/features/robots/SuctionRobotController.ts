@@ -5,6 +5,7 @@ import { MOTION, IK_CONFIG, ROBOT_PICKING } from "../../constants/simulation";
 import type { RobotController, RobotControllerOptions } from "../../interface/RobotController";
 import type { JointAngleReading, RobotPhase, RobotTransferMode, Transfer } from "../../types/robot";
 import { createRobotIK, type IKPose } from "../../utils/robot/robotIK";
+import type { PlanningBudget } from "../../utils/robot/planningScheduler";
 import { setJointAngle } from "../../utils/robot/joints";
 import { isPickupInRange, isWristAboveBox, setCargoWorldPose } from "../../utils/robot/picking";
 
@@ -64,6 +65,29 @@ export class SuctionRobotController implements RobotController {
     if (!Number.isFinite(this.pickupRadius) || this.pickupRadius <= 0) throw new Error("Pickup radius must be positive");
     this.ik = createRobotIK(this.model, options.geometryScale ?? 1, "none");
     this.initialAngles = [this.ik.baseControl, ...this.ik.controls].map(control => control.angle);
+  }
+
+  /** Shared IK planning allowance for this frame; null = per-call default budgets (headless). */
+  private planningBudget: PlanningBudget | null = null;
+  /** Plans already advanced this frame (each advances at most once per frame). */
+  private readonly plannedThisFrame = new Set<"plan" | "transfer">();
+  setPlanningBudget(budget: PlanningBudget | null): void {
+    this.planningBudget = budget;
+    this.plannedThisFrame.clear();
+  }
+  /**
+   * Planning time (ms) for one advancePlan call of `kind`; 0 = wait for a later frame.
+   * `tracking` plans (PRE_GRASP/GRASP/ATTACH on a moving box) re-plan every sub-step, so they
+   * may advance in every sub-step and always get at least the minimum share: at 4x speed a frame
+   * holds 4 sub-steps and the box keeps moving in each of them.
+   */
+  private takePlanningBudget(kind: "plan" | "transfer", fallback: number, tracking = false) {
+    if (!this.planningBudget) return fallback;
+    if (tracking) return Math.max(this.planningBudget.take(fallback), Math.min(fallback, IK_CONFIG.minRobotShareMs));
+    if (this.plannedThisFrame.has(kind)) return 0;
+    const granted = this.planningBudget.take(fallback);
+    if (granted > 0) this.plannedThisFrame.add(kind);
+    return granted;
   }
 
   get running() { return this.active; }
@@ -245,7 +269,13 @@ export class SuctionRobotController implements RobotController {
         }else r.planning=replan();
       }
       const cached=r.recovery?null:r.phase==="ALIGN_BASE"?r.alignment:r.phase==="TRANSIT"?r.transit:null;
-      const pose=cached??ik.advancePlan(r.planning,IK_CONFIG.planningBudgetMs);
+      let pose=cached;
+      if(!pose){
+        const budget=this.takePlanningBudget("plan",IK_CONFIG.planningBudgetMs,tracking);
+        // No planning time left this frame (another robot's turn or a later sub-step): keep waiting.
+        if(budget<=0)return false;
+        pose=ik.advancePlan(r.planning,budget);
+      }
       if(!pose)return false;
       r.planning=null;r.pose=pose;
       if(pose.reachable&&r.phase==="PRE_GRASP"&&r.index===0&&!r.pickupWristRange){
@@ -383,7 +413,8 @@ export class SuctionRobotController implements RobotController {
     }
     if(r.phase==="RELEASE"){this.release(job,dt);return;}
     if(r.transferPlanning&&["LIFT","SHOULDER_TRANSFER"].includes(r.phase)){
-      const prepared=ik.advancePlan(r.transferPlanning,ROBOT_PICKING.transferPlanningBudgetMs);
+      const budget=this.takePlanningBudget("transfer",ROBOT_PICKING.transferPlanningBudgetMs);
+      const prepared=budget>0?ik.advancePlan(r.transferPlanning,budget):null;
       if(prepared){r.preparedShoulder=prepared;r.transferPlanning=null;}
     }
     if(r.phase==="SHOULDER_TRANSFER"&&r.transferPlanning)return;

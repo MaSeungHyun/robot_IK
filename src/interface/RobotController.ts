@@ -1,5 +1,6 @@
 import type { Group } from "three";
 import type { JointAngleReading, RobotPhase, RobotTransferMode, Transfer } from "../types/robot";
+import type { PlanningBudget } from "../utils/robot/planningScheduler";
 
 /** Runtime control shared by robot models. Angles are expressed in degrees. */
 export interface RobotController {
@@ -14,6 +15,12 @@ export interface RobotController {
   reset(): void;
   /** Called once per simulation frame, including while paused for manual control. */
   update(delta: number): void;
+  /**
+   * Shared IK planning allowance for this frame's update calls: each plan advances at most
+   * once per frame (across sub-steps) within what the allowance grants. null restores the
+   * per-call default budget (headless use).
+   */
+  setPlanningBudget?(budget: PlanningBudget | null): void;
   getJointAngles(): JointAngleReading[];
   setJointAngle(name: string, degrees: number): void;
   /** Stop control and detach held cargo without disposing shared model assets. */
