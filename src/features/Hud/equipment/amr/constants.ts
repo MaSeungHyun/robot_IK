@@ -6,7 +6,7 @@ export const AGENT_LABELS = {
   unloading: "하차",
   returning: "복귀 이동",
   blocked: "경로 막힘",
-  waiting: "경로 대기",
+  waiting: "대기",
   yielding: "양보 대기",
   charging: "충전 중",
   disabled: "중지",

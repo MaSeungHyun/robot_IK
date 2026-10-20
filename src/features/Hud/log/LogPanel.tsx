@@ -10,17 +10,25 @@ export default function LogPanel() {
     <section aria-label="로그" className="mb-3 shrink-0">
       <p
         role="status"
-        className={hasWarnings ? "flex items-center gap-1.5 text-xs text-warning" : "flex items-center gap-1.5 text-xs text-text-secondary"}
+        className={
+          hasWarnings
+            ? "flex items-center gap-1.5 text-xs text-warning"
+            : "flex items-center gap-1.5 text-xs text-text-secondary"
+        }
       >
         <Icon
           icon={hasWarnings ? "TriangleAlert" : "CircleCheck"}
           aria-hidden="true"
-          className={hasWarnings ? "size-4 shrink-0" : "size-4 shrink-0 text-safe"}
+          className={
+            hasWarnings ? "size-4 shrink-0" : "size-4 shrink-0 text-safe"
+          }
         />
-        {hasWarnings ? `설비 배치 문제 발생 가능 · ${warnings.length}건` : "충돌 위험 없음"}
+        {hasWarnings
+          ? `설비 배치 문제 발생 가능 · ${warnings.length}건`
+          : "충돌 위험 없음"}
       </p>
 
-      {hasWarnings && (
+      {/* {hasWarnings && (
         <ul className="mt-1.5 max-h-28 space-y-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
           {warnings.map((warning) => (
             <li
@@ -31,7 +39,7 @@ export default function LogPanel() {
             </li>
           ))}
         </ul>
-      )}
+      )} */}
     </section>
   );
 }

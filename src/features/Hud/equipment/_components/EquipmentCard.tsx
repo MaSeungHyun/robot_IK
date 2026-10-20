@@ -41,10 +41,10 @@ export default function EquipmentCard({
         }
       }}
       className={cn(
-        "block h-auto w-full rounded-xl border p-3 text-left font-normal",
+        "block h-auto w-full rounded-xl border p-3 text-left font-normal backdrop-blur-lg",
         selected
           ? "border-brand-primary bg-bg-primary"
-          : "border-white/5 bg-white/[.025]",
+          : "border-text-secondary/40 bg-bg-primary/35",
         className,
       )}
     >
