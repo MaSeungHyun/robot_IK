@@ -18,7 +18,7 @@ export default function AMRStatusSection({ agents }: Props) {
           배치된 AMR이 없습니다.
         </p>
       )}
-      <div className="space-y-2">
+      <div className="flex flex-col gap-1">
         {agents.map((agent) => (
           <AMRCard key={agent.id} agent={agent} />
         ))}

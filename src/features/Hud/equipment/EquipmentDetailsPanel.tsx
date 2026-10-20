@@ -8,7 +8,10 @@ export default function EquipmentDetailsPanel() {
   const selected = useSceneStore((state) => state.inspected ?? state.selected);
   const object = objects.find((candidate) => candidate.id === selected);
   return (
-    <Panel aria-label="설비 상세" className="min-h-0 shrink overflow-hidden">
+    <Panel
+      aria-label="설비 상세"
+      className="min-h-0 shrink overflow-hidden flex-1 h-full"
+    >
       {/* Panel is bounded by the column; only this area scrolls. */}
       <ScrollFade className="-mr-2 min-h-0 flex-auto pr-2">
         {object ? (

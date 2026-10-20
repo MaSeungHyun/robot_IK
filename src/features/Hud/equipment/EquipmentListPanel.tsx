@@ -7,7 +7,7 @@ export default function EquipmentListPanel() {
   return (
     <Panel
       aria-label="배치 장비 목록"
-      className="rounded-2xl bg-slate-950/95 shadow-xl backdrop-blur-xl"
+      className="rounded-2xl bg-slate-950/95 shadow-xl backdrop-blur-xl flex-1 h-full"
     >
       <h2 className="mb-3 text-sm font-semibold">
         장비 목록 · {objects.length}개

@@ -70,7 +70,12 @@ export default function Viewport() {
             if (import.meta.env.PROD) gl.debug.checkShaderErrors = false;
           }}
           onPointerMissed={(event) => {
-            if (simulator && event.button === 0 && event.detail <= 1 && !useSceneStore.getState().pending)
+            if (
+              simulator &&
+              event.button === 0 &&
+              event.detail <= 1 &&
+              !useSceneStore.getState().pending
+            )
               useSceneStore.getState().select(null);
           }}
         >
@@ -83,8 +88,10 @@ export default function Viewport() {
             followCamera
             cellSize={0.25}
             sectionSize={1}
-            cellColor="#23313e"
-            sectionColor="#344656"
+            // cellColor="#23313e"
+            // sectionColor="#344656"
+            cellColor="#666666"
+            sectionColor="#555555"
             fadeDistance={500}
             position={[0, -0.01, 0]}
           />

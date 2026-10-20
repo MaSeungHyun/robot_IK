@@ -17,7 +17,7 @@ export default function Panel({
         "flex flex-col",
         embedded
           ? "pt-4"
-          : "simulation-panel w-full shrink-0 rounded-md border border-white/10 bg-bg-white/70 p-4 shadow-xl backdrop-blur-md",
+          : "simulation-panel w-full shrink-0 rounded-md border border-white/10 bg-bg-primary/70 p-4 shadow-xl backdrop-blur-lg",
         className,
       )}
     />

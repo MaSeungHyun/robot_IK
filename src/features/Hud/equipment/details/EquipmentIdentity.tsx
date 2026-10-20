@@ -36,7 +36,7 @@ export default function EquipmentIdentity({ object, status }: Props) {
     <header className="flex min-w-0 items-start gap-3">
       <div
         className={cn(
-          "relative equipment-image-grid flex h-42 w-36 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-brand-primary/20 p-1",
+          "relative equipment-image-grid flex h-42 w-36 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-brand-primary/80 pointer-events-none",
         )}
       >
         <div className={cn("absolute w-full h-full", cyberImageStageClass)} />
@@ -44,7 +44,7 @@ export default function EquipmentIdentity({ object, status }: Props) {
           <img
             src={visual.image}
             alt={`${EQUIPMENT_NAMES[object.kind]} 이미지`}
-            className="absolute h-full w-full object-contain scale-115 z-2"
+            className="absolute h-full w-full object-contain z-2"
           />
         ) : (
           <Icon

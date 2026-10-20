@@ -108,7 +108,7 @@ export default function EquipmentStatusPanel() {
             aria-label="상태별 장비 수"
             className="mb-3 flex flex-wrap items-center gap-1.5"
           >
-            <span className="text-xs text-text-secondary flex items-center mt-1">
+            <span className="text-xs text-text-primary flex items-center mt-1 mr-1">
               전체 {entries.length}
             </span>
             {counts.map(({ tone, label, count }) => (
@@ -153,46 +153,42 @@ export default function EquipmentStatusPanel() {
       </div>
 
       {/* Only the equipment list scrolls, bounded by the panel height. */}
-      <ScrollFade
-        className="flex flex-col gap-2 -mr-2 min-h-0 flex-auto pr-2"
-        fade={10}
-      >
-        {!equipment ? (
-          <p className="text-xs text-text-secondary">
-            장비 상태를 준비하고 있습니다.
-          </p>
-        ) : (
-          <>
-            {(!filtered || show(equipment.robots).length > 0) && (
-              <RobotStatusSection robots={show(equipment.robots)} />
+
+      {!equipment ? (
+        <p className="text-xs text-text-secondary">
+          장비 상태를 준비하고 있습니다.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2 min-h-0 overflow-y-auto scroll">
+          {(!filtered || show(equipment.robots).length > 0) && (
+            <RobotStatusSection robots={show(equipment.robots)} />
+          )}
+
+          {(!filtered || show(equipment.agents).length > 0) && (
+            <AMRStatusSection agents={show(equipment.agents)} />
+          )}
+
+          <StaticEquipmentSection
+            title="컨베이어"
+            objects={show(
+              objects.filter((object) => object.kind === "conveyor"),
             )}
+          />
 
-            {(!filtered || show(equipment.agents).length > 0) && (
-              <AMRStatusSection agents={show(equipment.agents)} />
+          <StaticEquipmentSection
+            title="스캐너"
+            objects={show(
+              objects.filter((object) => object.kind === "scanner"),
             )}
+          />
 
-            <StaticEquipmentSection
-              title="컨베이어"
-              objects={show(
-                objects.filter((object) => object.kind === "conveyor"),
-              )}
-            />
-
-            <StaticEquipmentSection
-              title="스캐너"
-              objects={show(
-                objects.filter((object) => object.kind === "scanner"),
-              )}
-            />
-
-            {filtered && visible.size === 0 && (
-              <p className="mt-2 text-[11px] text-text-secondary">
-                조건에 맞는 장비가 없습니다.
-              </p>
-            )}
-          </>
-        )}
-      </ScrollFade>
+          {filtered && visible.size === 0 && (
+            <p className="mt-2 text-[11px] text-text-secondary">
+              조건에 맞는 장비가 없습니다.
+            </p>
+          )}
+        </div>
+      )}
     </Panel>
   );
 }

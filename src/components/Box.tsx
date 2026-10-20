@@ -16,7 +16,7 @@ export default function Box({
     <button
       type="button"
       className={cn(
-        "w-10 h-10 bg-bg-primary rounded-md flex items-center justify-center hover:bg-brand-primary/10 transition-colors outline-none",
+        "w-10 h-10 bg-bg-primary/10 rounded-md flex items-center justify-center hover:bg-brand-primary/10 transition-colors outline-none",
         active && "bg-brand-primary/0 text-brand-primary",
         className,
       )}
