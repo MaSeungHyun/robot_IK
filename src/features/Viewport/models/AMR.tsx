@@ -1,19 +1,16 @@
-import { useGLTF } from "@react-three/drei";
-import { useEffect, useMemo, useRef } from "react";
+import { Line, useGLTF } from "@react-three/drei";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, useFrame, useThree } from "@react-three/fiber";
-import {
-  Box3,
-  BufferGeometry,
-  Group,
-  Line,
-  LineBasicMaterial,
-  Vector3,
-} from "three";
+import { Box3, Group, Vector3 } from "three";
+import type { Line2 } from "three-stdlib";
 import amrUrl from "@/assets/models/amr.glb?url";
 import { AMR_CONFIG } from "@/constants/amr";
 import { useInstanceModel } from "@/features/Viewport/instancing/useInstanceModel";
 
 type AMRRoute = { readonly path: readonly Vector3[]; readonly version: number };
+
+const ROUTE_Y = 0.025;
+const FLOW_SPEED = 0.9;
 
 function AMRPath({ route }: { route: AMRRoute }) {
   const scene = useThree((state) => state.scene);
@@ -24,43 +21,68 @@ function AMRPath({ route }: { route: AMRRoute }) {
       scene.remove(worldRoot);
     };
   }, [scene, worldRoot]);
-  const line = useMemo(() => {
-    const line = new Line(
-      new BufferGeometry(),
-      new LineBasicMaterial({ color: 0x38bdf8 }),
-    );
-    line.visible = false;
-    line.raycast = () => {};
-    return line;
-  }, []);
+  const [points, setPoints] = useState<readonly Vector3[]>([]);
   const previous = useRef<{ route: AMRRoute; version: number } | null>(null);
-  const lineRef = useRef(line);
+  const flowLine = useRef<Line2 | null>(null);
 
-  useEffect(
-    () => () => {
-      line.geometry.dispose();
-      line.material.dispose();
-    },
-    [line],
-  );
-
-  useFrame(() => {
+  useFrame((state) => {
     if (
-      previous.current?.route === route &&
-      previous.current.version === route.version
-    )
-      return;
-    previous.current = { route, version: route.version };
-    const points = route.path;
-    const object = lineRef.current;
-    object.geometry.dispose();
-    object.geometry = new BufferGeometry().setFromPoints(
-      points.map((point) => new Vector3(point.x, 0.025, point.z)),
-    );
-    object.visible = points.length > 1;
+      previous.current?.route !== route ||
+      previous.current.version !== route.version
+    ) {
+      previous.current = { route, version: route.version };
+      setPoints(
+        route.path.map((point) => new Vector3(point.x, ROUTE_Y, point.z)),
+      );
+    }
+    const material = flowLine.current?.material;
+    if (material) material.dashOffset = -state.clock.elapsedTime * FLOW_SPEED;
   });
   // Route points are world coordinates, so they must not inherit the moving carrier's transform.
-  return createPortal(<primitive object={line} dispose={null} />, worldRoot);
+  if (points.length < 2) return null;
+  return createPortal(
+    <>
+      {/* Wide, faint layers fake a glow around the bright core (no bloom pass). */}
+      <Line
+        points={points}
+        color="#0284c7"
+        lineWidth={14}
+        transparent
+        opacity={0.14}
+        depthWrite={false}
+      />
+      <Line
+        points={points}
+        color="#38bdf8"
+        lineWidth={6}
+        transparent
+        opacity={0.45}
+        depthWrite={false}
+      />
+      <Line
+        points={points}
+        color="#f0f9ff"
+        lineWidth={2.5}
+        transparent
+        opacity={0.7}
+        depthWrite={false}
+      />
+      {/* Short pulses travelling along the route make the direction of travel readable. */}
+      <Line
+        ref={flowLine}
+        points={points}
+        color="#7dd3fc"
+        lineWidth={4}
+        transparent
+        opacity={0.9}
+        depthWrite={false}
+        dashed
+        dashSize={0.22}
+        gapSize={0.3}
+      />
+    </>,
+    worldRoot,
+  );
 }
 
 export default function AMR({ route }: { route?: AMRRoute }) {
