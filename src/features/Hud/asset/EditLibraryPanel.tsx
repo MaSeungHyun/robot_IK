@@ -15,7 +15,7 @@ export default function EditLibraryPanel() {
   const errors = useSceneStore((state) => state.errors);
 
   return (
-    <Panel aria-label="배치 라이브러리" className="min-h-0 overflow-hidden">
+    <Panel aria-label="배치 라이브러리" className="min-h-0 shrink overflow-hidden">
       {/* Fixed top: header, log status and placement errors never scroll. */}
       <div className="shrink-0">
         <div className="mb-3 flex items-center justify-between">

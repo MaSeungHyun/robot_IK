@@ -14,6 +14,7 @@ import {
   type KindFilter,
 } from "@/features/Hud/equipment/equipmentStatus";
 import Panel from "@/features/Hud/_components/Panel";
+import ScrollFade from "@/components/ScrollFade";
 import { cn } from "@/lib/style";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { useSceneStore } from "@/stores/useSceneStore";
@@ -91,7 +92,7 @@ export default function EquipmentStatusPanel() {
   return (
     <Panel
       aria-label="장비 현황"
-      className="min-h-0 overflow-hidden shadow-xl h-full"
+      className="min-h-0 shrink overflow-hidden shadow-xl h-full"
     >
       {/* Fixed header: title, status summary and kind filter never scroll. */}
       <div className="shrink-0">
@@ -152,7 +153,10 @@ export default function EquipmentStatusPanel() {
       </div>
 
       {/* Only the equipment list scrolls, bounded by the panel height. */}
-      <div className="flex flex-col gap-2 -mr-2 min-h-0 flex-1 overflow-y-auto pr-2 [scrollbar-color:#334155_transparent] [scrollbar-width:thin]">
+      <ScrollFade
+        className="flex flex-col gap-2 -mr-2 min-h-0 flex-auto pr-2"
+        fade={10}
+      >
         {!equipment ? (
           <p className="text-xs text-text-secondary">
             장비 상태를 준비하고 있습니다.
@@ -188,7 +192,7 @@ export default function EquipmentStatusPanel() {
             )}
           </>
         )}
-      </div>
+      </ScrollFade>
     </Panel>
   );
 }

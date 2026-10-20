@@ -34,3 +34,15 @@
     linear-gradient(to bottom, color-mix(in srgb, var(--color-brand-primary) 10%, transparent) 1px, transparent 1px);
   background-size: 24px 24px;
 }
+
+/* ScrollFade: registered so the eased edge fades can transition. */
+@property --fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
