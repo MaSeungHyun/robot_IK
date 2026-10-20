@@ -11,7 +11,12 @@ type Props = {
   className?: string;
 };
 
-export default function EquipmentCard({ id, name, children, className }: Props) {
+export default function EquipmentCard({
+  id,
+  name,
+  children,
+  className,
+}: Props) {
   const selected = useSceneStore((state) => state.selected === id);
   const select = useSceneStore((state) => state.select);
   const inspect = useSceneStore((state) => state.inspect);
@@ -37,7 +42,9 @@ export default function EquipmentCard({ id, name, children, className }: Props) 
       }}
       className={cn(
         "block h-auto w-full rounded-xl border p-3 text-left font-normal",
-        selected ? "border-brand-primary bg-brand-primary/8" : "border-white/5 bg-white/[.025]",
+        selected
+          ? "border-brand-primary bg-bg-primary"
+          : "border-white/5 bg-white/[.025]",
         className,
       )}
     >

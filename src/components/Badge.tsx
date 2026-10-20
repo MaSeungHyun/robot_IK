@@ -1,7 +1,14 @@
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/style";
 
-export type BadgeTone = "safe" | "operating" | "fault" | "warning" | "idle" | "offline" | "info";
+export type BadgeTone =
+  | "safe"
+  | "operating"
+  | "fault"
+  | "warning"
+  | "idle"
+  | "offline"
+  | "info";
 
 type Props = ComponentProps<"span"> & { tone?: BadgeTone };
 
@@ -15,12 +22,17 @@ const TONE_STYLES: Record<BadgeTone, string> = {
   info: "border-info/25 bg-info/10 text-info",
 };
 
-export default function Badge({ tone = "idle", className, children, ...props }: Props) {
+export default function Badge({
+  tone = "idle",
+  className,
+  children,
+  ...props
+}: Props) {
   return (
     <span
       {...props}
       className={cn(
-        "inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-4",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-xs font-medium leading-4",
         TONE_STYLES[tone],
         className,
       )}

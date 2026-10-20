@@ -1,32 +1,61 @@
+import Badge from "@/components/Badge";
 import EquipmentCard from "@/features/Hud/equipment/_components/EquipmentCard";
+import {
+  conveyorStatus,
+  scannerStatus,
+} from "@/features/Hud/equipment/equipmentStatus";
+import { useSceneStore } from "@/stores/useSceneStore";
+import { useSimulationStore } from "@/stores/useSimulationStore";
 import type { SceneEquipment } from "@/types/layout";
 
 type Props = {
   objects: SceneEquipment[];
+  title: string;
 };
 
-export default function StaticEquipmentSection({ objects }: Props) {
+export default function StaticEquipmentSection({ objects, title }: Props) {
+  const settings = useSceneStore((state) => state.settings);
+  const running = useSimulationStore((state) => state.running);
+  const scanners = useSimulationStore((state) => state.equipment?.scanners);
+
+  if (!objects.length) return null;
+
   return (
-    <section aria-label="기타 장비" className="mt-4">
-      <h3 className="mb-2 text-xs text-slate-400">
-        컨베이어 · 스캐너 · 출고 구역
+    <section aria-label={title} className="mt-4">
+      <h3 className="mb-2 text-xs text-text-secondary">
+        {title} · {objects.length}개
       </h3>
-      {objects
-        .filter(
-          (object) =>
-            object.kind === "conveyor" || object.kind === "dock" || object.kind === "scanner",
-        )
-        .map((object) => (
+      {objects.map((object) => {
+        const enabled = settings[object.id]?.enabled;
+        const scanner = scanners?.find((entry) => entry.id === object.id);
+        const status =
+          object.kind === "scanner"
+            ? scannerStatus(enabled, scanner)
+            : conveyorStatus(enabled, running);
+        const metric =
+          object.kind === "scanner"
+            ? scanner && scanner.scanned > 0
+              ? `검사 ${scanner.scanned}개 · 불량 ${((scanner.faults / scanner.scanned) * 100).toFixed(0)}%`
+              : "검사 0개"
+            : `속도 ×${settings[object.id]?.speed ?? 1}`;
+
+        return (
           <EquipmentCard
             key={object.id}
             id={object.id}
             name={object.name}
-            className="flex w-full justify-between rounded-md px-2 py-2 text-[11px] hover:bg-white/5"
+            className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-[11px] hover:bg-white/5"
           >
-            <span className="text-slate-400">{object.name}</span>
-            <span className="text-slate-500">더블클릭 →</span>
+            <span className="min-w-0 truncate text-text-secondary">
+              {object.name}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="tabular-nums text-text-secondary">{metric}</span>
+              <Badge tone={status.tone}>{status.label}</Badge>
+            </span>
           </EquipmentCard>
-        ))}
+        );
+      })}
     </section>
   );
 }

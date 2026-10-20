@@ -1,4 +1,5 @@
 import Badge from "@/components/Badge";
+import { palletStatus } from "@/features/Hud/equipment/equipmentStatus";
 import type { EquipmentSnapshot } from "@/types/simulation";
 
 type Props = Pick<
@@ -6,14 +7,7 @@ type Props = Pick<
   "shipping" | "count" | "capacity"
 >;
 
-export default function PalletStatusBadge({
-  shipping,
-  count,
-  capacity,
-}: Props) {
-  if (shipping) return <Badge tone="operating">운반 중</Badge>;
-  if (count >= capacity) return <Badge tone="info">적재 완료</Badge>;
-  if (count > 0) return <Badge tone="operating">적재 중</Badge>;
-
-  return <Badge tone="idle">대기</Badge>;
+export default function PalletStatusBadge(props: Props) {
+  const { label, tone } = palletStatus(props);
+  return <Badge tone={tone}>{label}</Badge>;
 }
