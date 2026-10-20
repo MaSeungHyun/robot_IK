@@ -1,3 +1,4 @@
+import FloorRoom from "@/features/Viewport/models/FloorRoom";
 import { inspectEquipment } from "@/utils/scene/inspectEquipment";
 import Scanner from "@/features/Viewport/models/Scanner";
 import type { ThreeEvent } from "@react-three/fiber";
@@ -30,7 +31,7 @@ function handleCargoSelect(event: ThreeEvent<MouseEvent>, inspect = false) {
 
 export default function FactoryRun(props: SimulatorRunProps) {
   const { world, objects, settings } = useFactoryRuntime(props);
-  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || object.kind === "scanner");
+  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || object.kind === "scanner" || object.kind === "floor");
 
   return (
     <>
@@ -62,7 +63,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
           onClick={(event) => handleEquipmentSelect(event, object.id)}
           onDoubleClick={(event) => inspectEquipment(event, object.id)}
         >
-          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : <Dock />}
+          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "floor" ? <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} /> : <Dock />}
         </group>
       ))}
     </>

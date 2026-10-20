@@ -1,8 +1,9 @@
-import type { ConveyorTurn, EquipmentKind, EquipmentPose, EquipmentSettings } from "@/types/layout";
+import type { ConveyorTurn, EquipmentKind, EquipmentPose, EquipmentSettings, FloorSize } from "@/types/layout";
 
 export type TemplateEquipment = EquipmentPose & {
   kind: EquipmentKind;
   conveyorTurn?: ConveyorTurn;
+  floor?: FloorSize;
   settings?: Partial<EquipmentSettings>;
 };
 

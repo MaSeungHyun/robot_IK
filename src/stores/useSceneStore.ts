@@ -1,20 +1,29 @@
 import { create } from "zustand";
-import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn } from "../types/layout";
-import { DEFAULT_LAYOUT,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT } from "../constants/simulatorLayout";
+import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn,FloorSize } from "../types/layout";
+import { DEFAULT_LAYOUT,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG } from "../constants/simulatorLayout";
 import { useSimulationStore } from "./useSimulationStore";
 import { validateScene } from "../utils/amr/sceneValidation";
 import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/utils/conveyor/conveyorLayout";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate } from "@/types/sceneTemplate";
 
-export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너"};
+export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽"};
+/** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
+export function snapFloorCenter(value:number,size:number){const cell=FLOOR_CONFIG.cell,offset=(size/cell)%2?cell/2:0;return Math.round((value-offset)/cell)*cell+offset;}
+export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSize={width:1,depth:1,wallHeight:0}):FloorSize|null{
+  const next={...current,...size};
+  const cells=(v:number)=>Number.isInteger(v)&&v>=1&&v<=FLOOR_CONFIG.maxSize;
+  if(!cells(next.width)||!cells(next.depth)||!Number.isFinite(next.wallHeight)||next.wallHeight<0||next.wallHeight>FLOOR_CONFIG.maxWallHeight)return null;
+  return next;
+}
+const snapFloor=(object:SceneEquipment):SceneEquipment=>object.kind==="floor"&&object.floor?{...object,x:snapFloorCenter(object.x,object.floor.width),z:snapFloorCenter(object.z,object.floor.depth)}:object;
 const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:20,spawnInterval:8,enabled:true});
 interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
   past:SceneSnapshot[];future:SceneSnapshot[];undo:()=>void;redo:()=>void;
   objects:SceneEquipment[];settings:Record<string,EquipmentSettings>;selected:string|null;pending:EquipmentKind|null;editing:boolean;tool:"translate"|"rotate";errors:string[];nextId:number;
   select:(id:string|null)=>void;setPending:(kind:EquipmentKind|null)=>void;setTool:(tool:"translate"|"rotate")=>void;
-  add:(kind:EquipmentKind,pose:Partial<EquipmentPose>)=>void;updatePose:(id:string,pose:Partial<EquipmentPose>)=>void;
+  add:(kind:EquipmentKind,pose:Partial<EquipmentPose>&{floor?:FloorSize})=>void;updateFloor:(id:string,size:Partial<FloorSize>)=>void;updatePose:(id:string,pose:Partial<EquipmentPose>)=>void;
   extendConveyor:(id:string,turn:ConveyorTurn)=>void;
   updateSettings:(id:string,values:Partial<EquipmentSettings>)=>void;remove:(id:string)=>void;
   edit:()=>void;complete:()=>void;clear:()=>void;example:()=>void;
@@ -33,7 +42,9 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   add:(kind,pose)=>{
     if(!get().editing)return;
     set(state=>{
-      const id=`${kind}-${state.nextId}`,initial={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`},object=kind==="conveyor"?snapBelt(initial,state.objects):initial;
+      const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
+      if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
+      const object=kind==="conveyor"?snapBelt(initial,state.objects):snapFloor(initial);
       return {...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:settings()},selected:id,pending:null,nextId:state.nextId+1,errors:[]};
     });
   },
@@ -48,8 +59,16 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(!get().editing)return;
     const object=get().objects.find(object=>object.id===id);
     if(!object||Object.entries(pose).every(([key,value])=>Math.abs(object[key as keyof EquipmentPose]-value)<1e-8))return;
-    const changed={...object,...pose},next=object.kind==="conveyor"?snapBelt(changed,get().objects):changed;
+    const changed={...object,...pose},next=object.kind==="conveyor"?snapBelt(changed,get().objects):snapFloor(changed);
     set(state=>({...history(state),objects:state.objects.map(object=>object.id===id?next:object),errors:[]}));
+  },
+  updateFloor:(id,size)=>{
+    const state=get(),object=state.objects.find(object=>object.id===id);
+    if(!state.editing||object?.kind!=="floor"||!object.floor)return;
+    const floor=normalizeFloor(size,object.floor);
+    if(!floor||(floor.width===object.floor.width&&floor.depth===object.floor.depth&&floor.wallHeight===object.floor.wallHeight))return;
+    const next=snapFloor({...object,floor});
+    set({...history(state),objects:state.objects.map(o=>o.id===id?next:o),errors:[]});
   },
   updateSettings:(id,values)=>{
     const state = get(), current = state.settings[id];
@@ -80,6 +99,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if (!state.editing) return false;
     const objects = template.equipment.map((entry, index) => ({
       kind: entry.kind, x: entry.x, z: entry.z, yaw: entry.yaw, conveyorTurn: entry.conveyorTurn,
+      ...(entry.floor ? { floor: { ...entry.floor } } : {}),
       id: `${entry.kind}-${index + 1}`, name: `${EQUIPMENT_NAMES[entry.kind]} ${index + 1}`,
     }));
     const configs = Object.fromEntries(objects.map((object, index) => [

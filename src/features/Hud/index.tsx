@@ -9,6 +9,7 @@ import SideBar from "@/features/Hud/SideBar";
 import WorkspacePanel from "@/features/Hud/workspace/WorkspacePanel";
 import InspectorPanel from "@/features/Hud/inspector/InspectorPanel";
 import PanelColumn from "@/features/Hud/_components/PanelColumn";
+import FloorDrawingGuide from "@/features/Hud/asset/FloorDrawingGuide";
 
 export default function Hud() {
   const mode = useModeStore((state) => state.mode);
@@ -45,6 +46,7 @@ export default function Hud() {
           )}
           <LoadingOverlay />
         </div>
+        {showEditor && <FloorDrawingGuide />}
       </div>
     </section>
   );

@@ -22,6 +22,7 @@ const EQUIPMENT_VISUALS: Record<EquipmentKind, EquipmentVisual> = {
   pallet: { image: palletImage, icon: "Package" },
   conveyor: { icon: "Boxes" },
   dock: { icon: "MapPin" },
+  floor: { icon: "BrickWall" },
 };
 
 const cyberImageStageClass =

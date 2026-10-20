@@ -649,8 +649,21 @@ if(process.argv.includes('--scene-state')){
   scene.getState().add('robot',{x:2,z:0});
   scene.getState().remove(scene.getState().selected);
   const pallet=scene.getState().objects.find(o=>o.kind==='pallet');scene.getState().updateSettings(pallet.id,{capacity:40});
+  // Floor/wall asset: grid snapping, size edits, undo/redo round trip and runtime coexistence.
+  scene.getState().add('floor',{x:2.3,z:-1.2,floor:{width:3,depth:2,wallHeight:2.5}});
+  const floorId=scene.getState().selected,floorAt=()=>scene.getState().objects.find(o=>o.id===floorId);
+  if(floorAt()?.kind!=='floor'||floorAt().x!==2.5||floorAt().z!==-1||floorAt().floor.width!==3||floorAt().floor.depth!==2||floorAt().floor.wallHeight!==2.5)throw Error('Floor was not snapped to the 1-unit grid with its size');
+  scene.getState().updateFloor(floorId,{wallHeight:0});
+  if(floorAt().floor.wallHeight!==0)throw Error('Floor wall height did not update');
+  scene.getState().undo();if(floorAt().floor.wallHeight!==2.5)throw Error('Floor undo did not restore the wall height');
+  scene.getState().redo();if(floorAt().floor.wallHeight!==0)throw Error('Floor redo did not reapply the wall height');
+  const floorState=scene.getState();scene.getState().updateFloor(floorId,{width:0});scene.getState().updateFloor(floorId,{depth:1.5});
+  if(scene.getState()!==floorState)throw Error('Invalid floor size changed the scene');
+  scene.getState().updateFloor(floorId,{width:4});if(floorAt().x!==3&&floorAt().x!==2)throw Error('Resized floor left the grid');
+  scene.getState().updatePose(floorId,{x:.2});if(floorAt().x!==0)throw Error('Moved floor was not grid-snapped');
   if(simulation.getState().run!==10||resets!==0)throw Error('Editing reset the simulation or recreated the scene');
   scene.getState().complete();
+  if(scene.getState().errors.length||!floorAt())throw Error('Floor blocked completing the layout');
   if(scene.getState().editing||simulation.getState().run!==11)throw Error('Completing the layout did not initialize exactly one runtime');
   scene.getState().select(first.id);
   if(scene.getState().inspected!==null||scene.getState().selected!==first.id)throw Error('Single click opened details');
@@ -668,7 +681,7 @@ if(process.argv.includes('--scene-state')){
   scene.getState().edit();const run=simulation.getState().run;scene.getState().edit();
   if(simulation.getState().run!==run)throw Error('Entering existing editor caused a reset');
   unsubscribe();
-  console.log('Scene state: editing never resets runtime; stable object identities; no-op updates; live speed; runtime-only initialization and reset passed');
+  console.log('Scene state: editing never resets runtime; stable object identities; no-op updates; live speed; runtime-only initialization and reset; floor/wall grid snap, size edits and undo/redo passed');
   process.exit(0);
 }
 const { createRobotIK } = await import(new URL('../.tmp/ik-tests/robotIK.mjs',import.meta.url));

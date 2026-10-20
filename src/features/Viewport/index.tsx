@@ -12,6 +12,7 @@ const RobotDemo = lazy(() => import("@/legacy/robot/RobotDemo"));
 const AMRDemo = lazy(() => import("@/legacy/amr/AMRDemo"));
 
 export default function Viewport() {
+  const drawingFloor = useSceneStore((state) => state.editing && state.pending === "floor");
   const {
     sceneMode,
     transferMode,
@@ -85,6 +86,7 @@ export default function Viewport() {
 
           <OrbitControls
             makeDefault
+            enableRotate={!drawingFloor}
             target={[0, amr ? 0 : batch ? 0.8 : 0.45, 0]}
             enableDamping={false}
             maxPolarAngle={Math.PI / 2.05}

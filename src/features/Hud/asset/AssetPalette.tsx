@@ -1,4 +1,4 @@
-import { Bot, Boxes, Truck, Package, MapPin, ScanLine } from "lucide-react";
+import { Bot, Boxes, Truck, Package, MapPin, ScanLine, BrickWall } from "lucide-react";
 import { useSceneStore, EQUIPMENT_NAMES } from "@/stores/useSceneStore";
 import type { EquipmentKind } from "@/types/layout";
 import { cn } from "@/lib/style";
@@ -12,6 +12,7 @@ const ASSETS = [
   { kind: "amr", icon: Truck },
   { kind: "dock", icon: MapPin },
   { kind: "scanner", icon: ScanLine },
+  { kind: "floor", icon: BrickWall },
 ] as const;
 
 export default function AssetPalette() {
@@ -37,7 +38,9 @@ export default function AssetPalette() {
         {ASSETS.map(({ kind, icon: Icon }) => (
           <button
             key={kind}
-            draggable
+            // Floor/wall is drawn by dragging on the ground after picking it, not dropped.
+            draggable={kind !== "floor"}
+            title={kind === "floor" ? "선택 후 바닥을 드래그해 영역 지정 → 마우스로 벽 높이 → 클릭 확정 (Esc: 벽 없이 확정 · 휠: 줌 · 오른쪽 드래그: 팬)" : undefined}
             aria-label={`${EQUIPMENT_NAMES[kind]} 에셋 추가`}
             onDragEnd={() => setPending(null)}
             onDragStart={(e) => {

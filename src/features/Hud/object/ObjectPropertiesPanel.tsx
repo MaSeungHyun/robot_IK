@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useSceneStore } from "@/stores/useSceneStore";
 import Select from "@/components/Select";
 import Button from "@/components/Button";
-import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
+import { SIMULATOR_CONFIG, FLOOR_CONFIG } from "@/constants/simulatorLayout";
 import { beltConnections } from "@/utils/conveyor/conveyorLayout";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import Panel from "@/features/Hud/_components/Panel";
@@ -25,6 +25,7 @@ export default function ObjectPropertiesPanel({
       setTool: state.setTool,
       updatePose: state.updatePose,
       updateSettings: state.updateSettings,
+      updateFloor: state.updateFloor,
       remove: state.remove,
     })),
   );
@@ -105,7 +106,43 @@ export default function ObjectPropertiesPanel({
           </label>
         ))}
       </div>
-      {object.kind !== "dock" && (
+      {object.kind === "floor" && object.floor && (
+        <section className="mt-5 border-t border-white/10 pt-4">
+          <h3 className="mb-3 text-xs text-text-primary">바닥 / 벽</h3>
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                ["width", "너비 m", 1],
+                ["depth", "깊이 m", 1],
+                ["wallHeight", "벽 높이 m", FLOOR_CONFIG.wallStep],
+              ] as const
+            ).map(([key, label, step]) => (
+              <label key={key} className="text-xs text-text-secondary">
+                {label}
+                <input
+                  aria-label={`바닥 ${label}`}
+                  className={input}
+                  type="number"
+                  disabled={!state.editing}
+                  min={key === "wallHeight" ? 0 : 1}
+                  max={key === "wallHeight" ? FLOOR_CONFIG.maxWallHeight : FLOOR_CONFIG.maxSize}
+                  step={step}
+                  value={object.floor![key]}
+                  onChange={(e) => {
+                    const value = e.currentTarget.valueAsNumber;
+                    if (Number.isFinite(value)) state.updateFloor(object.id, { [key]: value });
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-text-secondary">
+            벽 높이 0 = 바닥만. 벽을 올리면 기둥과 천장 트러스가 함께 생성됩니다.
+            위에서 보면 천장이 숨겨지고, 내부 시점에서는 표시됩니다.
+          </p>
+        </section>
+      )}
+      {object.kind !== "dock" && object.kind !== "floor" && (
         <section className="mt-5 border-t border-white/10 pt-4">
           <h3 className="mb-3 text-xs text-text-primary">시뮬레이션 설정</h3>
           {object.kind !== "pallet" && object.kind !== "scanner" && (

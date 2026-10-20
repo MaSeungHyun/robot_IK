@@ -4,6 +4,7 @@ import ConveyorBelt from "@/features/Viewport/models/ConveyorBelt";
 import Dock from "@/features/Viewport/models/Dock";
 import Pallet from "@/features/Viewport/models/Pallet";
 import RobotPreview from "@/features/Viewport/models/RobotPreview";
+import FloorRoom from "@/features/Viewport/models/FloorRoom";
 import type { SceneEquipment } from "@/types/layout";
 
 export default function EquipmentModel({ object }: { object: SceneEquipment }) {
@@ -25,6 +26,9 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
 
     case "dock":
       return <Dock />;
+
+    case "floor":
+      return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} />;
 
   }
 }

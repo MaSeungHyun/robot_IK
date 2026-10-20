@@ -3,9 +3,11 @@ import type { EquipmentKind, EquipmentPose } from "@/types/layout";
 export const SIMULATOR_CONFIG={robotScale:.7,reach:1.8,navigationPadding:3,grid:.2,snap:.1,amrSpeed:.8,amrTurnRate:Math.PI/2,palletCapacity:20};
 export const DEFAULT_LAYOUT:Record<EquipmentKind, EquipmentPose>={
   robot:{x:0,z:0,yaw:0},pallet:{x:-1.2,z:0,yaw:0},conveyor:{x:1.06875,z:0,yaw:0},
-  amr:{x:-2.3,z:-1.8,yaw:0},dock:{x:-3.2,z:1.8,yaw:0},scanner:{x:1.06875,z:0,yaw:0},
+  amr:{x:-2.3,z:-1.8,yaw:0},dock:{x:-3.2,z:1.8,yaw:0},scanner:{x:1.06875,z:0,yaw:0},floor:{x:.5,z:.5,yaw:0},
 };
 export const EDITOR_HISTORY_LIMIT=100;
+// Floor/wall asset: 1-unit grid cells; wall height snaps to wallStep.
+export const FLOOR_CONFIG={cell:1,wallStep:.5,maxWallHeight:10,maxSize:100,floorColor:"#1b2a3a",wallColor:"#8ea9cf"};
 export const AMR_TRAFFIC={emptyRadius:.45,loadedRadius:.82,safetyMargin:.1};
 // Simulated AMR battery, in % per simulated second (scaled by the AMR speed setting).
 export const AMR_BATTERY={initialMin:55,initialMax:95,movingDrain:.08,idleDrain:.005,chargeRate:1.5,chargeBelow:20,chargedAt:95};

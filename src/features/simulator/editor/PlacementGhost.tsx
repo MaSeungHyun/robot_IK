@@ -7,6 +7,20 @@ export default function PlacementGhost({ kind }: { kind: EquipmentKind }) {
     <group>
       {kind === "conveyor" ? (
         <ConveyorGhost />
+      ) : kind === "floor" ? (
+        <mesh
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[0, 0.008, 0]}
+          raycast={() => { }}
+        >
+          <planeGeometry args={[1, 1]} />
+          <meshBasicMaterial
+            color="#38bdf8"
+            transparent
+            opacity={0.3}
+            depthWrite={false}
+          />
+        </mesh>
       ) : kind === "dock" ? (
         <mesh
           rotation={[-Math.PI / 2, 0, 0]}
