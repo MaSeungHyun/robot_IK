@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
 import ts from "typescript";
+import { execFileSync } from "node:child_process";
 
 const output=path.resolve('.tmp/amr-tests');fs.mkdirSync(output,{recursive:true});
 for(const [name,file] of Object.entries({amr:'src/constants/amr.ts',pathfinding:'src/utils/amr/pathfinding.ts',AMRSimulator:'src/legacy/amr/AMRSimulator.ts'})){
@@ -44,3 +45,5 @@ for(let frame=0;frame<60*240;frame++){
 assert.ok(world.completed>=6);assert.ok(loaded&&detoured);
 assert.equal(world.stats.completedPallets,world.completed);assert.ok(world.spawned>world.completed);
 console.log(`AMR: obstacle detours, body clearance, pickup, dispatch and ${world.completed} completed jobs passed`);
+// Fleet traffic regressions (head-on corridor, shared dock, multi-fleet deadlock) run on the simulator modules built by verify-ik.
+execFileSync(process.execPath,['scripts/verify-ik.mjs','--amr-traffic'],{stdio:'inherit'});

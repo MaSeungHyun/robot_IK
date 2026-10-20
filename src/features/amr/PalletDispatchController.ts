@@ -22,6 +22,8 @@ export class PalletDispatchController {
     | "returning"
     | "blocked" = "idle";
   path: Vector3[] = [];
+  /** End of the current leg; a traffic side-step path can end elsewhere. */
+  goal: Vector3 | null = null;
   version = 0;
   yielding = false;
   get moving() {
@@ -39,7 +41,7 @@ export class PalletDispatchController {
   radiusAt(point: Vector3) {
     return this.phase === "pickup" &&
       point.distanceToSquared(
-        this.path[this.path.length - 1] ?? this.carrier.position,
+        this.goal ?? this.carrier.position,
       ) < 1e-10
       ? AMR_TRAFFIC.loadedRadius
       : this.radius;
@@ -61,8 +63,42 @@ export class PalletDispatchController {
     }
     return out;
   }
+  /** Parked at a traffic side cell, off its goal, waiting to resume. */
+  get holding() {
+    return (
+      this.moving &&
+      this.cursor >= this.path.length &&
+      !!this.goal &&
+      this.carrier.position.distanceToSquared(this.goal) > 1e-8
+    );
+  }
+  /** Remaining route from the current position, cut at `limit` metres. */
+  remaining(limit = Infinity) {
+    const points = [this.carrier.position.clone()];
+    let travelled = 0;
+    for (let i = this.cursor; i < this.path.length && travelled < limit; i++) {
+      const from = points[points.length - 1],
+        length = from.distanceTo(this.path[i]);
+      if (travelled + length > limit) {
+        points.push(from.clone().lerp(this.path[i], (limit - travelled) / length));
+        break;
+      }
+      points.push(this.path[i].clone());
+      travelled += length;
+    }
+    return points;
+  }
+  remainingLength() {
+    let length = 0,
+      from = this.carrier.position;
+    for (let i = this.cursor; i < this.path.length; i++) {
+      length += from.distanceTo(this.path[i]);
+      from = this.path[i];
+    }
+    return length;
+  }
   reroute(points: Vector3[]) {
-    if (!this.moving) return;
+    if (!this.moving || points.length < 2) return;
     this.path = points;
     this.cursor = 1;
     this.version++;
@@ -101,6 +137,7 @@ export class PalletDispatchController {
   ) {
     this.turnTarget = null;
     this.path = points;
+    this.goal = points[points.length - 1]?.clone() ?? null;
     this.cursor = 1;
     this.phase = phase;
     this.version++;
@@ -123,6 +160,7 @@ export class PalletDispatchController {
       return;
     }
     this.path = points;
+    this.goal = points[points.length - 1].clone();
     this.cursor = 1;
     this.phase = phase;
     this.version++;
@@ -171,6 +209,8 @@ export class PalletDispatchController {
           this.turnTarget = this.nearestHeading(0, Math.PI / 2);
           this.phase = "idle";
           this.path = [];
+      this.goal = null;
+          this.goal = null;
           this.version++;
         }
       }
@@ -201,7 +241,7 @@ export class PalletDispatchController {
         distance = 0;
       }
     }
-    if (this.cursor < this.path.length) return;
+    if (this.cursor < this.path.length || this.holding) return;
     // Under the pallet: align with it (square pallet, so any 90° equivalent) before lifting.
     if (this.phase === "pickup" && this.payload) {
       if (this.turnTarget === null && !this.aligned) {
@@ -220,6 +260,7 @@ export class PalletDispatchController {
       this.turnTarget = this.nearestHeading(this.layout.amr.yaw, Math.PI * 2);
       this.phase = "idle";
       this.path = [];
+      this.goal = null;
       this.routes = null;
       this.version++;
     } else if (this.phase === "pickup") {

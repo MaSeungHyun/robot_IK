@@ -336,6 +336,89 @@ if(process.argv.includes('--editor-history')){
   if(simulation.getState().run!==42)throw Error('Editor history reset the simulation');
   console.log('Editor history: add/move/settings/delete/extension/clear undo-redo, selection and settings restoration, branch truncation, identity, 100-entry limit and editing-only guards passed');process.exit(0);
 }
+if(process.argv.includes('--amr-traffic')){
+  // Regression: head-on / shared-goal AMR deadlocks must be detected and resolved by yielding.
+  const {AMRTrafficController}=await import('../.tmp/ik-tests/AMRTrafficController.mjs');
+  const {PalletDispatchController}=await import('../.tmp/ik-tests/PalletDispatchController.mjs');
+  const {layoutPath,obstacleClearance}=await import('../.tmp/ik-tests/layoutNavigation.mjs');
+  const {DEFAULT_LAYOUT,AMR_TRAFFIC}=await import('../.tmp/ik-tests/simulatorLayout.mjs');
+  const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
+  const V=(x,z)=>new T.Vector3(x,0,z),open={...DEFAULT_LAYOUT,robot:{x:50,z:50,yaw:0},conveyor:{x:55,z:50,yaw:0}};
+  // Same planner contract as the simulator: other AMRs are temporary discs, shrunk so the start is
+  // never occupied, and a peer parked on the goal is ignored (traffic waits behind it instead).
+  const planner=(vehicles,walls)=>(vehicle,target)=>{
+    const d=vehicle.dispatch,goal=target??d.goal,at=d.carrier.position;if(!goal)return null;
+    const extra=[...walls];
+    for(const other of vehicles){if(other===vehicle)continue;const p=other.dispatch.carrier.position;
+      const radius=Math.max(0,Math.min(other.dispatch.radius+AMR_TRAFFIC.safetyMargin,p.distanceTo(at)-d.radius-1e-3));
+      if(!target&&p.distanceTo(goal)<radius+d.radiusAt(goal))continue;
+      extra.push({kind:'amr',pose:{x:p.x,z:p.z,yaw:0},radius});}
+    return layoutPath(open,at,goal,d.radius===AMR_TRAFFIC.loadedRadius,extra);
+  };
+  const runPair=(label,specs,walls,seconds=120)=>{
+    let completed=0,held=false;
+    const vehicles=specs.map((spec,index)=>{const dispatch=new PalletDispatchController({...open,amr:{x:spec.pickup[0].x,z:spec.pickup[0].z,yaw:0}});
+      dispatch.request(new T.Group(),()=>completed++,spec);return {id:spec.id??`v${index}`,dispatch,speed:1,enabled:true};});
+    const traffic=new AMRTrafficController(),plan=planner(vehicles,walls);
+    let still=0,last=vehicles.map(v=>v.dispatch.carrier.position.clone());
+    for(let frame=0;frame<seconds*30;frame++){
+      traffic.advance(vehicles,1/30,plan);
+      held||=vehicles.some(v=>v.dispatch.holding);
+      for(let i=0;i<vehicles.length;i++){const a=vehicles[i].dispatch;
+        for(const wall of walls)if(obstacleClearance(a.carrier.position.x,a.carrier.position.z,wall)<a.radius-1e-6)throw Error(`${label}: AMR crossed a corridor wall at ${a.carrier.position.toArray()}`);
+        for(let j=i+1;j<vehicles.length;j++){const b=vehicles[j].dispatch;if(a.carrier.position.distanceTo(b.carrier.position)<a.radius+b.radius-1e-6)throw Error(`${label}: AMRs collided`);}}
+      const moved=vehicles.some((v,k)=>v.dispatch.carrier.position.distanceTo(last[k])>1e-5);last=vehicles.map(v=>v.dispatch.carrier.position.clone());
+      still=vehicles.some(v=>v.dispatch.moving)&&!moved?still+1/30:0;
+      if(still>5)throw Error(`${label}: traffic deadlock (no movement for 5 s with pending jobs): ${JSON.stringify(vehicles.map(v=>({id:v.id,phase:v.dispatch.phase,at:v.dispatch.carrier.position.toArray().map(n=>+n.toFixed(2)),goal:v.dispatch.goal?.toArray()})))}`);
+      if(completed===vehicles.length&&vehicles.every(v=>v.dispatch.phase==='idle'))return {held,time:frame/30};
+    }
+    throw Error(`${label}: jobs did not finish (${completed}/${vehicles.length})`);
+  };
+  // 1) Single-lane corridor with one side pocket. A loaded AMR leaves the pickup heading east while an
+  //    empty AMR enters from the east towards that same pickup: nose to nose, no room to pass.
+  const walls=[];
+  for(let x=-8.4;x<=8.4+1e-9;x+=.3){walls.push({kind:'amr',pose:{x,z:-1.3,yaw:0},radius:.3});if(Math.abs(x)>1.05)walls.push({kind:'amr',pose:{x,z:1.3,yaw:0},radius:.3});}
+  for(let z=-1;z<=1+1e-9;z+=.3)for(const x of [-8.4,8.4])walls.push({kind:'amr',pose:{x,z,yaw:0},radius:.3});
+  for(let x=-1.2;x<=1.2+1e-9;x+=.3)walls.push({kind:'amr',pose:{x,z:3.2,yaw:0},radius:.3});
+  for(let z=1.6;z<=2.9+1e-9;z+=.3)for(const x of [-1.35,1.35])walls.push({kind:'amr',pose:{x,z,yaw:0},radius:.3});
+  if(layoutPath(open,V(-5,0),V(0,2.2),false,walls)===null)throw Error('Test corridor pocket is unreachable');
+  const corridor=runPair('Head-on corridor',[
+    {id:'loaded',pickup:[V(-6,0),V(-5,0)],dispatch:[V(-5,0),V(7,0)],returning:[V(7,0),V(7.3,0)]},
+    {id:'empty',pickup:[V(5.5,0),V(-5,0)],dispatch:[V(-5,0),V(-7,0)],returning:[V(-7,0),V(-7.3,0)]},
+  ],walls);
+  if(!corridor.held)throw Error('Head-on corridor resolved without a side-step yield');
+  // 2) Two loaded AMRs converge on one dock; the one arriving second must not freeze the first.
+  runPair('Shared dock',[
+    {id:'a',pickup:[V(-3,-1),V(-3,0)],dispatch:[V(-3,0),V(0,3)],returning:[V(0,3),V(-3,5)]},
+    {id:'b',pickup:[V(3,-1),V(3,0)],dispatch:[V(3,0),V(0,3)],returning:[V(0,3),V(3,5)]},
+  ],[]);
+  // 3) Whole-simulator fleets: seeds/layouts that froze before (shared dock + crossing routes).
+  const fill=p=>{p.count=p.slots.length;p.states.fill('placed');};
+  const cell=(ox,oz,i,flip=1)=>[{id:`r${i}`,name:`Robot ${i}`,kind:'robot',x:ox,z:oz,yaw:0},{id:`p${i}`,name:`Pallet ${i}`,kind:'pallet',x:ox-1.15*flip,z:oz,yaw:0},{id:`b${i}`,name:`Belt ${i}`,kind:'conveyor',x:ox+1.06875*flip,z:oz,yaw:0}];
+  const layouts={
+    corridor:[...cell(0,0,0),...cell(0,4,1),{id:'d0',name:'D0',kind:'dock',x:-6,z:2,yaw:0},{id:'d1',name:'D1',kind:'dock',x:4,z:2,yaw:0},{id:'a0',name:'A0',kind:'amr',x:-6,z:-2,yaw:0},{id:'a1',name:'A1',kind:'amr',x:4,z:6,yaw:0}],
+    four:[...cell(0,0,0),...cell(0,3.5,1),...cell(-5,0,2,-1),...cell(-5,3.5,3,-1),{id:'d0',name:'D0',kind:'dock',x:-2.5,z:7,yaw:0},{id:'d1',name:'D1',kind:'dock',x:-2.5,z:-3.5,yaw:0},...[0,1,2,3].map(k=>({id:`a${k}`,name:`A${k}`,kind:'amr',x:-4+k*1.6,z:9,yaw:0}))],
+  };
+  const assets={box:load('box'),pallet:load('pallet')};let delivered=0;
+  for(const [name,seed] of [['corridor',87109],['four',15838],['four',23757],['four',95028]]){
+    let s=seed;const random=()=>((s=(s*16807)%2147483647)/2147483647);
+    const objects=layouts[name],settings=Object.fromEntries(objects.map(o=>[o.id,{speed:1,enabled:true,reach:1.8,capacity:2,spawnInterval:1e6}]));
+    const world=new FactorySimulator(objects,assets.box,assets.pallet,()=>settings,undefined,random);
+    const next=world.pallets.map(()=>random()*6);let still=0,last=world.agents.map(a=>a.dispatch.carrier.position.clone());
+    for(let frame=0;frame<240*30;frame++){
+      const t=frame/30;world.pallets.forEach((p,k)=>{if(!p.shipping&&!p.full&&t>=next[k]){fill(p);next[k]=t+3+random()*8;}});
+      world.advance(1/30);
+      const agents=world.agents.map(a=>a.dispatch);
+      for(let i=0;i<agents.length;i++)for(let j=i+1;j<agents.length;j++)if(agents[i].carrier.position.distanceTo(agents[j].carrier.position)<agents[i].radius+agents[j].radius-1e-6)throw Error(`Fleet ${name}/${seed}: AMRs collided at ${t.toFixed(1)} s`);
+      const moved=agents.some((a,k)=>a.carrier.position.distanceTo(last[k])>1e-4);last=agents.map(a=>a.carrier.position.clone());
+      still=agents.some(a=>a.moving)&&!moved?still+1/30:0;
+      if(still>8)throw Error(`Fleet ${name}/${seed}: AMRs stalled at ${t.toFixed(1)} s: ${JSON.stringify(world.agents.map(a=>({id:a.object.id,phase:a.dispatch.phase,at:a.dispatch.carrier.position.toArray().map(n=>+n.toFixed(2))})))}`);
+    }
+    if(world.dispatched<8)throw Error(`Fleet ${name}/${seed}: only ${world.dispatched} pallets delivered`);
+    delivered+=world.dispatched;
+  }
+  console.log(`AMR traffic: head-on corridor side-step (${corridor.time.toFixed(1)} s), shared dock, deadlock-free fleets (${delivered} deliveries) passed`);process.exit(0);
+}
 if(process.argv.includes('--fleet')){
   const {OBB}=await import('three/addons/math/OBB.js');
   const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
@@ -433,7 +516,7 @@ if(process.argv.includes('--fleet')){
   const traffic=new AMRTrafficController();
   for(let frame=0;frame<30*180;frame++){
     if(frame===40){headOn[0].speed=3;headOn[1].speed=.5;}
-    traffic.advance(headOn,frame%7===0?.2:1/30,vehicle=>layoutPath(openLayout,vehicle.dispatch.carrier.position,vehicle.dispatch.path.at(-1),vehicle.dispatch.radius===AMR_TRAFFIC.loadedRadius,headOn.filter(other=>other!==vehicle).map(other=>({kind:'amr',pose:{x:other.dispatch.carrier.position.x,z:other.dispatch.carrier.position.z,yaw:0},radius:other.dispatch.radius+AMR_TRAFFIC.safetyMargin}))));
+    traffic.advance(headOn,frame%7===0?.2:1/30,(vehicle,target)=>layoutPath(openLayout,vehicle.dispatch.carrier.position,target??vehicle.dispatch.goal,vehicle.dispatch.radius===AMR_TRAFFIC.loadedRadius,headOn.filter(other=>other!==vehicle).map(other=>({kind:'amr',pose:{x:other.dispatch.carrier.position.x,z:other.dispatch.carrier.position.z,yaw:0},radius:other.dispatch.radius+AMR_TRAFFIC.safetyMargin}))));
     headOnStops+=headOn.filter(vehicle=>vehicle.dispatch.yielding).length;
     if(headOn[0].dispatch.carrier.position.distanceTo(headOn[1].dispatch.carrier.position)<headOn[0].dispatch.radius+headOn[1].dispatch.radius-1e-6)throw Error('Head-on traffic collided');
     if(headOnCompleted===2&&headOn.every(vehicle=>vehicle.dispatch.phase==='idle'))break;

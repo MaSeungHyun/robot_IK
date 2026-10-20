@@ -385,26 +385,39 @@ export class FactorySimulator {
       vehicle.speed = settings[vehicle.id].speed;
       vehicle.enabled = settings[vehicle.id].enabled;
     }
-    this.traffic.advance(this.trafficVehicles, dt, (vehicle) => {
+    this.traffic.advance(this.trafficVehicles, dt, (vehicle, target) => {
       const navigation = this.navigation.get(vehicle.id);
       if (!navigation) return null;
       const dispatch = vehicle.dispatch,
-        goal = dispatch.path[dispatch.path.length - 1];
+        goal = target ?? dispatch.goal;
       if (!goal) return null;
-      const obstacles: NavigationObstacle[] = [
-        ...navigation.obstacles,
-        ...this.agents
-          .filter((other) => other.object.id !== vehicle.id)
-          .map((other) => ({
-            kind: other.object.kind,
-            pose: {
-              x: other.dispatch.carrier.position.x,
-              z: other.dispatch.carrier.position.z,
-              yaw: 0,
-            },
-            radius: other.dispatch.radius + AMR_TRAFFIC.safetyMargin,
-          })),
-      ];
+      const position = dispatch.carrier.position,
+        own = dispatch.radius;
+      // Other AMRs are temporary obstacles. Shrink a disc that already touches this
+      // vehicle so the start is never "occupied", and ignore one parked on the goal:
+      // traffic control then waits behind it instead of failing the route.
+      const obstacles: NavigationObstacle[] = [...navigation.obstacles];
+      for (const other of this.agents) {
+        if (other.object.id === vehicle.id) continue;
+        const at = other.dispatch.carrier.position,
+          radius = Math.max(
+            0,
+            Math.min(
+              other.dispatch.radius + AMR_TRAFFIC.safetyMargin,
+              Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3,
+            ),
+          );
+        if (
+          !target &&
+          Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)
+        )
+          continue;
+        obstacles.push({
+          kind: other.object.kind,
+          pose: { x: at.x, z: at.z, yaw: 0 },
+          radius,
+        });
+      }
       if (dispatch.phase === "returning")
         obstacles.push({ kind: "pallet", pose: navigation.layout.pallet });
       return layoutPath(
