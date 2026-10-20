@@ -12,21 +12,31 @@ export default function SideBar() {
   const activeMode = editing ? "edit" : "play";
 
   return (
-    <nav aria-label="시뮬레이션 작업 모드" className="pointer-events-auto flex h-full w-12 shrink-0 flex-col items-center gap-2 border-r border-brand-primary/20 bg-bg-primary/85 py-2">
-      {WORKSPACE_MODES.map(({ id, label, icon }) => (
-        <Box
-          key={id}
-          aria-label={label}
-          aria-pressed={activeMode === id}
-          aria-expanded={activeMode === id && panelOpen}
-          title={label}
-          active={activeMode === id}
-          className={cn("size-10 shrink-0 px-0 focus-visible:ring-2 focus-visible:ring-brand-primary", activeMode === id && "bg-brand-primary/10 text-brand-primary")}
-          onClick={() => selectMode(id)}
-        >
-          <Icon icon={icon} aria-hidden="true" />
-        </Box>
-      ))}
+    <nav
+      aria-label="시뮬레이션 작업 모드"
+      className="pointer-events-auto flex h-full w-12 shrink-0 flex-col items-center gap-2 border-r border-brand-primary/20 bg-bg-primary/85 py-2 backdrop-blur-md"
+    >
+      {WORKSPACE_MODES.map(({ id, label, icon }) => {
+        const active = activeMode === id;
+        const expanded = active && panelOpen;
+        return (
+          <Box
+            key={id}
+            aria-label={label}
+            aria-pressed={active}
+            aria-expanded={expanded}
+            title={label}
+            active={active}
+            className={cn(
+              "size-10 shrink-0 px-0 focus-visible:ring-2 focus-visible:ring-brand-primary",
+              active && "bg-brand-primary/10 text-brand-primary",
+            )}
+            onClick={() => selectMode(id)}
+          >
+            <Icon icon={icon} aria-hidden="true" />
+          </Box>
+        );
+      })}
     </nav>
   );
 }

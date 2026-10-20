@@ -13,7 +13,7 @@ export default function EquipmentListPanel() {
         장비 목록 · {objects.length}개
       </h2>
       {!objects.length && (
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-text-secondary">
           에셋 메뉴에서 장비를 배치하세요.
         </p>
       )}
@@ -26,7 +26,7 @@ export default function EquipmentListPanel() {
             className="h-auto min-h-10 justify-between rounded-lg px-3 py-2 text-xs"
           >
             <span>{object.name}</span>
-            <span className="text-[10px] text-slate-400">
+            <span className="text-xs text-text-secondary">
               {EQUIPMENT_NAMES[object.kind]}
             </span>
           </EquipmentCard>

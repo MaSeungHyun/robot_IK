@@ -178,7 +178,7 @@ export default function PackingPanel() {
         {snapshot?.rows ?? Math.round(STREAM_CONFIG.palletWidth / PACKING.cell)}{" "}
         격자
       </div>
-      <div className="mt-1 text-xs text-slate-400">
+      <div className="mt-1 text-xs text-text-secondary">
         좌상단 (1,1) · 한 칸 {(snapshot?.cell ?? PACKING.cell) * 1000}mm ·
         위에서 본 팔레트 · 팔레트 {snapshot?.palletNumber ?? 1}번
       </div>
@@ -243,10 +243,10 @@ export default function PackingPanel() {
             setCell({ x: cx, z: cz });
         }}
       />
-      <div className="text-xs text-slate-300">
+      <div className="text-xs text-text-primary">
         파랑: 적재 · 노랑: 선택/검사 · 빨강: 제외 · 초록: 완료
       </div>
-      <div className="mt-1 text-xs text-slate-400">
+      <div className="mt-1 text-xs text-text-secondary">
         #숫자: 적재 순번 · 먼 곳부터 한 층씩
       </div>
       {cell && (
@@ -281,7 +281,7 @@ export default function PackingPanel() {
           </div>
         ))}
       </div>
-      <div className="mt-3 text-xs text-slate-400">
+      <div className="mt-3 text-xs text-text-secondary">
         {snapshot?.sequence
           ? `${snapshot.sequence.layer}층 ${snapshot.sequence.placedInLayer}/${snapshot.sequence.perLayer}개 완료 · 다음 #${snapshot.sequence.nextOrder} · 경로 실패 시 순서 유지`
           : `${snapshot?.inspected ?? 0}/${snapshot?.candidateCount ?? 0}개 위치 검사 · 최적해 확률이 아닙니다.`}
@@ -291,7 +291,7 @@ export default function PackingPanel() {
           ? "팔레트 교체 중"
           : (snapshot?.phase ?? "시작 대기")}
       </div>
-      <div className="mt-1 text-xs text-slate-300">
+      <div className="mt-1 text-xs text-text-primary">
         {snapshot?.reason ?? "시작하면 후보 검사 과정이 표시됩니다."}
       </div>
       {snapshot?.selected && (
@@ -312,7 +312,7 @@ export default function PackingPanel() {
           {rejected.map((candidate) => (
             <div
               key={`${candidate.x}:${candidate.z}:${candidate.bottom}:${candidate.yaw}`}
-              className="text-slate-300"
+              className="text-text-primary"
             >
               #{candidate.rank} (
               {displayCell(

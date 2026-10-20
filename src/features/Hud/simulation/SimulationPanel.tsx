@@ -17,13 +17,14 @@ export default function SimulationPanel() {
   const isEditing = sceneMode === "simulator" && editing;
 
   return (
-    <Panel
-      aria-label="시뮬레이션 제어"
-      className="h-full flex-1 shadow-2xl"
-    >
+    <Panel aria-label="시뮬레이션 제어" className="shadow-2xl">
       <div className="flex items-start justify-between gap-2">
         <SimulationHeader />
-        <Button aria-label="Play 패널 닫기" className="size-6 shrink-0 px-0" onClick={closePanel}>
+        <Button
+          aria-label="Play 패널 닫기"
+          className="size-6 shrink-0 px-0"
+          onClick={closePanel}
+        >
           <Icon icon="X" />
         </Button>
       </div>

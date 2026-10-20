@@ -32,6 +32,7 @@ export default function AssetPalette() {
         aria-hidden
         className="pointer-events-none fixed -left-4 -top-4"
       />
+
       <div className="grid grid-cols-2 gap-2">
         {ASSETS.map(({ kind, icon: Icon }) => (
           <button
@@ -51,13 +52,13 @@ export default function AssetPalette() {
               "flex cursor-grab items-center gap-2 rounded-xl border p-3 text-left text-xs active:cursor-grabbing",
               pending === kind
                 ? "border-sky-400 bg-sky-400/10 text-sky-200"
-                : "border-white/10 bg-white/5 text-slate-200",
+                : "border-white/10 bg-white/5 text-text-primary",
             )}
           >
             <Icon size={17} />
             <span>
               {EQUIPMENT_NAMES[kind]}
-              <span className="mt-1 block text-[9px] text-slate-500">
+              <span className="mt-1 block text-[9px] text-text-secondary">
                 {objects.filter((o) => o.kind === kind).length}개 배치됨
               </span>
             </span>

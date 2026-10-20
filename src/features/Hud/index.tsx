@@ -19,7 +19,6 @@ export default function Hud() {
   const simulation = mode === "simulation";
   const showEditor = simulation && editing;
   const showInspector = !showEditor && inspectorTab !== null;
-
   useEditorShortcuts(showEditor);
 
   return (
@@ -31,10 +30,8 @@ export default function Hud() {
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {simulation && <SideBar />}
         <div className="flex min-h-0 min-w-0 flex-1 gap-4 overflow-hidden p-2 max-sm:flex-col max-sm:gap-3 max-sm:p-3">
-          {simulation && workspaceOpen && (
-            <PanelColumn>
-              <WorkspacePanel />
-            </PanelColumn>
+          {simulation && (
+            <PanelColumn>{workspaceOpen && <WorkspacePanel />}</PanelColumn>
           )}
           {showEditor && selected && (
             <PanelColumn right>

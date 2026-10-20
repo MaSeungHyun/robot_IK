@@ -8,10 +8,17 @@ const TRANSFERS: readonly { value: RobotTransferMode; label: string }[] = [
 ];
 
 export default function TransferModeSelect() {
-  const transferMode = useSimulationStore(state => state.transferMode);
-  const setTransferMode = useSimulationStore(state => state.setTransferMode);
-  return <div className="mt-5">
-    <p className="mb-2 text-xs text-slate-400">이송 방식</p>
-    <Select label="이송 방식" value={transferMode} options={TRANSFERS} onValueChange={setTransferMode} />
-  </div>;
+  const transferMode = useSimulationStore((state) => state.transferMode);
+  const setTransferMode = useSimulationStore((state) => state.setTransferMode);
+  return (
+    <div className="mt-5">
+      <p className="mb-2 text-xs text-text-secondary">이송 방식</p>
+      <Select
+        label="이송 방식"
+        value={transferMode}
+        options={TRANSFERS}
+        onValueChange={setTransferMode}
+      />
+    </div>
+  );
 }

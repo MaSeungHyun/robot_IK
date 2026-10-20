@@ -24,10 +24,10 @@ export default function JointAnglesPanel({
       aria-label="로봇 관절 각도 조정"
     >
       <div className="font-semibold">관절 각도 조정</div>
-      <div className="mt-1 text-xs text-slate-400">
+      <div className="mt-1 text-xs text-text-secondary">
         슬라이더: 블렌더 로컬 축 · 조정하면 자동 일시 정지
       </div>
-      <div className="mt-1 text-xs text-slate-400">
+      <div className="mt-1 text-xs text-text-secondary">
         수동 자세 확인용 · hand03 고정 · 충돌 차단 없음
       </div>
       <div className="mt-3 space-y-2">
@@ -37,7 +37,7 @@ export default function JointAnglesPanel({
               <span className="flex justify-between gap-3">
                 <span>
                   {angle.name}{" "}
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-text-secondary">
                     {angle.axis}축{angle.locked ? " · 고정" : ""}
                   </span>
                 </span>
@@ -69,7 +69,7 @@ export default function JointAnglesPanel({
             </label>
           ))
         ) : (
-          <div className="text-slate-400">로봇 불러오는 중…</div>
+          <div className="text-text-secondary">로봇 불러오는 중…</div>
         )}
       </div>
       {wrist?.worldXYZ && (
@@ -92,7 +92,7 @@ export default function JointAnglesPanel({
                 : format(wrist.downwardTilt) + "°"}
             </span>
           </div>
-          <div className="mt-1 text-slate-400">
+          <div className="mt-1 text-text-secondary">
             hand4 → GripPoint 방향 기준 · 0°면 수직 아래 · 5° 이내 초록 표시
           </div>
         </div>

@@ -8,7 +8,7 @@ export default function RobotJointValues({ id }: { id: string }) {
 
   return (
     <DetailSection title="실시간 관절 각도">
-      <p className="mb-2 text-[10px] text-text-secondary">
+      <p className="mb-2 text-xs text-text-secondary">
         실제 모델 값 · 0.1초 갱신
       </p>
 

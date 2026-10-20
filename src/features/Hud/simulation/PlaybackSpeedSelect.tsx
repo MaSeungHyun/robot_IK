@@ -12,7 +12,7 @@ export default function PlaybackSpeedSelect() {
   const setSpeed = useSimulationStore((state) => state.setSpeed);
   return (
     <div className="mt-4">
-      <p className="mb-2 text-xs text-slate-400">전체 속도</p>
+      <p className="mb-2 text-xs text-text-secondary">전체 속도</p>
       <Select
         label="전체 속도"
         value={String(speed)}

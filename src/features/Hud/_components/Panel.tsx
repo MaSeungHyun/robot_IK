@@ -14,7 +14,7 @@ export default function Panel({
     <aside
       {...props}
       className={cn(
-        "h-full flex-1 flex flex-col",
+        "flex flex-col",
         embedded
           ? "pt-4"
           : "simulation-panel w-full shrink-0 rounded-md border border-white/10 bg-bg-white/70 p-4 shadow-xl backdrop-blur-md",

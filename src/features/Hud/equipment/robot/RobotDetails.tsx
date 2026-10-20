@@ -60,6 +60,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
               value: formatMetric(telemetry?.operationCount, "회", 0),
             },
             { label: "처리 수량", value: formatMetric(robot?.count, "개", 0) },
+            { label: "현재 동작", value: robot?.status },
           ]}
         />
       }

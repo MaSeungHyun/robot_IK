@@ -24,20 +24,20 @@ export default function Select<T extends string>({
     >
       <RadixSelect.Trigger
         aria-label={label}
-        className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-3.5 text-sm text-slate-100 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400 data-[state=open]:border-sky-400/60"
+        className="flex h-8 w-full items-center justify-between gap-3 rounded-sm border border-white/10 bg-white/5 px-3.5 text-sm text-slate-100 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400 data-[state=open]:border-sky-400/60"
       >
         <RadixSelect.Value />
         <RadixSelect.Icon>
-          <ChevronDown size={16} className="text-slate-400" />
+          <ChevronDown size={16} className="text-text-secondary" />
         </RadixSelect.Icon>
       </RadixSelect.Trigger>
       <RadixSelect.Portal>
         <RadixSelect.Content
           position="popper"
           sideOffset={7}
-          className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-white/10 bg-slate-900 p-1.5 text-sm text-slate-100 shadow-2xl"
+          className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-sm border border-white/10 bg-slate-900 p-1.5 text-sm text-slate-100 shadow-2xl"
         >
-          <RadixSelect.ScrollUpButton className="flex justify-center py-1 text-slate-400">
+          <RadixSelect.ScrollUpButton className="flex justify-center py-1 text-text-primary">
             <ChevronUp size={14} />
           </RadixSelect.ScrollUpButton>
           <RadixSelect.Viewport className="max-h-[280px]">
@@ -50,11 +50,13 @@ export default function Select<T extends string>({
                 <RadixSelect.ItemIndicator className="absolute left-3">
                   <Check size={14} />
                 </RadixSelect.ItemIndicator>
-                <RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
+                <RadixSelect.ItemText className="text-text-secondary">
+                  {option.label}
+                </RadixSelect.ItemText>
               </RadixSelect.Item>
             ))}
           </RadixSelect.Viewport>
-          <RadixSelect.ScrollDownButton className="flex justify-center py-1 text-slate-400">
+          <RadixSelect.ScrollDownButton className="flex justify-center py-1 text-text-secondary">
             <ChevronDown size={14} />
           </RadixSelect.ScrollDownButton>
         </RadixSelect.Content>

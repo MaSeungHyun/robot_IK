@@ -52,7 +52,7 @@ export default function ObjectPropertiesPanel({
           <button
             aria-label="속성 패널 닫기"
             onClick={() => state.select(null)}
-            className="text-slate-400"
+            className="text-text-secondary"
           >
             ×
           </button>
@@ -64,7 +64,7 @@ export default function ObjectPropertiesPanel({
         options={state.objects.map((o) => ({ value: o.id, label: o.name }))}
         onValueChange={state.select}
       />
-      <p className="mt-4 text-xs text-slate-400">위치와 회전</p>
+      <p className="mt-4 text-xs text-text-secondary">위치와 회전</p>
       {state.editing && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {(["translate", "rotate"] as const).map((tool) => (
@@ -80,7 +80,7 @@ export default function ObjectPropertiesPanel({
       )}
       <div className="mt-3 grid grid-cols-3 gap-2">
         {(["x", "z", "yaw"] as const).map((axis) => (
-          <label key={axis} className="text-[10px] text-slate-400">
+          <label key={axis} className="text-xs text-text-secondary">
             {axis === "yaw" ? "회전 °" : `${axis.toUpperCase()} m`}
             <input
               aria-label={`오브젝트 ${axis}`}
@@ -107,9 +107,9 @@ export default function ObjectPropertiesPanel({
       </div>
       {object.kind !== "dock" && (
         <section className="mt-5 border-t border-white/10 pt-4">
-          <h3 className="mb-3 text-xs text-slate-300">시뮬레이션 설정</h3>
+          <h3 className="mb-3 text-xs text-text-primary">시뮬레이션 설정</h3>
           {object.kind !== "pallet" && object.kind !== "scanner" && (
-            <label className="block text-xs text-slate-400">
+            <label className="block text-xs text-text-secondary">
               {object.kind === "conveyor"
                 ? "연결 컨베이어 속도 ×"
                 : "작동 속도 ×"}
@@ -130,7 +130,7 @@ export default function ObjectPropertiesPanel({
             </label>
           )}
           {object.kind !== "pallet" && object.kind !== "scanner" && (
-            <p className="mt-1 text-[10px] text-slate-500">
+            <p className="mt-1 text-xs text-text-secondary">
               {object.kind === "conveyor" ? "연결 구간" : "개별"}{" "}
               {settings.speed}× · 전체 {playbackSpeed}× → 실제{" "}
               {Number((settings.speed * playbackSpeed).toFixed(2))}×
@@ -141,7 +141,7 @@ export default function ObjectPropertiesPanel({
           )}
 
           {object.kind === "robot" && (
-            <label className="mt-3 block text-xs text-slate-400">
+            <label className="mt-3 block text-xs text-text-secondary">
               집기 범위 m
               <input
                 aria-label="집기 범위"
@@ -160,7 +160,7 @@ export default function ObjectPropertiesPanel({
             </label>
           )}
           {object.kind === "pallet" && (
-            <label className="block text-xs text-slate-400">
+            <label className="block text-xs text-text-secondary">
               적재 개수
               <input
                 aria-label="적재 개수"
@@ -176,18 +176,15 @@ export default function ObjectPropertiesPanel({
                     state.updateSettings(object.id, { capacity: value });
                 }}
               />
-              <span className="mt-1 block text-[10px] text-slate-500">
-                변경하면 현재 적재가 초기화됩니다.
-              </span>
             </label>
           )}
           {object.kind === "conveyor" &&
             (connectedInput ? (
-              <p className="mt-3 text-xs text-slate-400">
+              <p className="mt-3 text-xs text-text-secondary">
                 앞 구간에서 넘어오는 박스를 이송합니다.
               </p>
             ) : (
-              <label className="mt-3 block text-xs text-slate-400">
+              <label className="mt-3 block text-xs text-text-secondary">
                 박스 생성 간격 s
                 <input
                   aria-label="박스 생성 간격"
@@ -205,7 +202,7 @@ export default function ObjectPropertiesPanel({
                 />
               </label>
             ))}
-          <label className="mt-4 flex items-center gap-2 text-xs text-slate-300">
+          <label className="mt-4 flex items-center gap-2 text-xs text-text-primary">
             <input
               type="checkbox"
               checked={settings.enabled}

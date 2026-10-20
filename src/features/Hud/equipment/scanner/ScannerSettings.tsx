@@ -7,16 +7,26 @@ import { useSimulationStore } from "@/stores/useSimulationStore";
 
 type Props = { id: string; inputClassName: string; showResults?: boolean };
 
-export default function ScannerSettings({ id, inputClassName, showResults = true }: Props) {
-  const rate = useSceneStore((state) => state.settings[id]?.defectRate ?? SCANNER_CONFIG.defaultDefectRate);
+export default function ScannerSettings({
+  id,
+  inputClassName,
+  showResults = true,
+}: Props) {
+  const rate = useSceneStore(
+    (state) =>
+      state.settings[id]?.defectRate ?? SCANNER_CONFIG.defaultDefectRate,
+  );
   const readOnly = useModeStore((state) => state.mode !== "simulation");
-  const snapshot = useSimulationStore((state) => state.equipment?.scanners?.find((scanner) => scanner.id === id));
+  const snapshot = useSimulationStore((state) =>
+    state.equipment?.scanners?.find((scanner) => scanner.id === id),
+  );
 
   return (
     <div className="mt-3">
-      <label className="block text-xs text-slate-400">
+      <label className="block text-xs text-text-secondary">
         불량률 %
-        <input disabled={readOnly}
+        <input
+          disabled={readOnly}
           aria-label="불량률"
           className={inputClassName}
           type="number"
@@ -33,15 +43,22 @@ export default function ScannerSettings({ id, inputClassName, showResults = true
         />
       </label>
 
-      <p className="mt-2 text-[10px] text-slate-500">ScanPoint를 지난 박스를 랜덤 판정합니다. 표시 시간은 1초입니다.</p>
+      <p className="mt-2 text-xs text-text-secondary">
+        ScanPoint를 지난 박스를 랜덤 판정합니다. 표시 시간은 1초입니다.
+      </p>
 
       {showResults && snapshot && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-text-secondary">
-            검사 {snapshot.scanned}개 · 통과 {snapshot.scanned - snapshot.faults}개 · 불량 {snapshot.faults}개
+            검사 {snapshot.scanned}개 · 통과{" "}
+            {snapshot.scanned - snapshot.faults}개 · 불량 {snapshot.faults}개
           </p>
           <Badge tone={snapshot.lastResult ?? "idle"}>
-            {snapshot.lastResult === "safe" ? "최근 통과" : snapshot.lastResult === "fault" ? "최근 불량" : "검사 대기"}
+            {snapshot.lastResult === "safe"
+              ? "통과"
+              : snapshot.lastResult === "fault"
+                ? "불량"
+                : "검사 대기"}
           </Badge>
         </div>
       )}
