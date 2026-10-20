@@ -36,7 +36,7 @@ export default function EquipmentIdentity({ object, status }: Props) {
     <header className="flex min-w-0 items-start gap-3">
       <div
         className={cn(
-          "relative equipment-image-grid flex h-42 w-36 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-brand-primary/80 pointer-events-none",
+          "relative equipment-image-grid flex h-42 w-36 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-brand-primary/50 pointer-events-none",
         )}
       >
         <div className={cn("absolute w-full h-full", cyberImageStageClass)} />
