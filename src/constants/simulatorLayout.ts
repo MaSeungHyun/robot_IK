@@ -12,7 +12,7 @@ export const AMR_BATTERY={initialMin:55,initialMax:95,movingDrain:.08,idleDrain:
 
 export const ROBOT_RANGE_STYLE = {
   color: "#38bdf8",
-  overlapColor: "#ef4444",
+  overlapColor: "#f9c335", // var(--color-warning) warning token
   height: 0.005,
   segments: 80,
   width: 0.01,
