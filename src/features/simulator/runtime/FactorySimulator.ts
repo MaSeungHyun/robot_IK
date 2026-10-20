@@ -10,7 +10,7 @@ import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
 import type { EquipmentSnapshot } from "@/types/simulation";
 import { BOX_SIZES, STREAM_CONFIG, MOTION } from "@/constants/simulation";
-import { DEFAULT_LAYOUT, AMR_TRAFFIC } from "@/constants/simulatorLayout";
+import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/utils/three/modelNormalization";
 import { PalletController } from "@/features/Viewport/models/Pallet/PalletController";
 import { PalletDispatchController } from "@/features/amr/PalletDispatchController";
@@ -50,6 +50,9 @@ export type FactoryAgent = {
   waiting: boolean;
   waitingReason: string | null;
   target: string | null;
+  /** Simulated battery level, 0-100 %. */
+  battery: number;
+  charging: boolean;
 };
 type Shipment = {
   pallet: PalletController;
@@ -57,6 +60,12 @@ type Shipment = {
   cargo: Set<Cargo>;
   agent: FactoryAgent;
   replaced: boolean;
+};
+// Deterministic per-id starting charge so AMR cards differ but runs repeat.
+const initialBattery = (id: string) => {
+  let hash = 0;
+  for (const char of id) hash = (Math.imul(hash, 31) + char.charCodeAt(0)) >>> 0;
+  return AMR_BATTERY.initialMin + (hash % 1000) / 999 * (AMR_BATTERY.initialMax - AMR_BATTERY.initialMin);
 };
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }) =>
   Math.hypot(a.x - b.x, a.z - b.z);
@@ -140,6 +149,8 @@ export class FactorySimulator {
           waiting: false,
           waitingReason: null,
           target: null,
+          battery: initialBattery(object.id),
+          charging: false,
         });
     }
     this.trafficVehicles = this.agents.map((agent) => ({
@@ -404,6 +415,7 @@ export class FactorySimulator {
         obstacles,
       );
     });
+    this.advanceBatteries(dt, settings);
     for (const shipment of this.shipments) {
       if (shipment.replaced || shipment.agent.dispatch.phase !== "dispatch")
         continue;
@@ -448,7 +460,7 @@ export class FactorySimulator {
     ready.sort((a, b) => a.readyAt! - b.readyAt!);
     for (const pallet of ready) {
       const agents = this.agents.filter(
-        (a) => settings[a.object.id].enabled && a.dispatch.phase === "idle",
+        (a) => settings[a.object.id].enabled && a.dispatch.phase === "idle" && !a.charging,
       );
       if (!agents.length) break;
       // Prefer vehicles with fewer deliveries; randomize ties rather than reusing one vehicle forever.
@@ -462,6 +474,23 @@ export class FactorySimulator {
         if (this.ship(pallet, agent)) break;
         agent.waiting = true;
       }
+    }
+  }
+  /** Drain while moving, trickle while idle; an idle AMR below the threshold charges in place. */
+  private advanceBatteries(dt: number, settings: Record<string, EquipmentSettings>) {
+    for (const agent of this.agents) {
+      const config = settings[agent.object.id];
+      if (!config.enabled) continue;
+      const scaled = dt * config.speed;
+      const idle = agent.dispatch.phase === "idle";
+      if (agent.charging) {
+        agent.battery = Math.min(100, agent.battery + AMR_BATTERY.chargeRate * scaled);
+        if (agent.battery >= AMR_BATTERY.chargedAt) agent.charging = false;
+        continue;
+      }
+      agent.battery = Math.max(0, agent.battery - (idle ? AMR_BATTERY.idleDrain : AMR_BATTERY.movingDrain) * scaled);
+      // A transfer in progress always finishes; charging starts once the AMR is idle again.
+      if (idle && agent.battery < AMR_BATTERY.chargeBelow) agent.charging = true;
     }
   }
   private assign(
@@ -686,17 +715,21 @@ export class FactorySimulator {
         name: agent.object.name,
         state: !settings[agent.object.id].enabled
           ? "disabled"
+          : agent.charging
+            ? "charging"
           : agent.dispatch.yielding
             ? "yielding"
             : agent.waiting && agent.dispatch.phase === "idle"
               ? "waiting"
               : agent.dispatch.phase,
-        status:
-          agent.waiting && agent.dispatch.phase === "idle"
+        status: agent.charging
+          ? `제자리 충전 중 · ${AMR_BATTERY.chargedAt}%까지 출고 배정 제외`
+          : agent.waiting && agent.dispatch.phase === "idle"
             ? (agent.waitingReason ?? "운반 가능한 안전 경로를 기다립니다.")
             : agent.dispatch.status,
         target: agent.target,
         completed: agent.completed,
+        battery: Math.round(agent.battery * 10) / 10,
       })),
       pallets: this.pallets.map((pallet) => ({
         id: pallet.object.id,

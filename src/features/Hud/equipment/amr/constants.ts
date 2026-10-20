@@ -8,5 +8,6 @@ export const AGENT_LABELS = {
   blocked: "경로 막힘",
   waiting: "경로 대기",
   yielding: "양보 대기",
+  charging: "충전 중",
   disabled: "중지",
 };

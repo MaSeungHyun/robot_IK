@@ -16,4 +16,6 @@ export type EquipmentTelemetry = {
   program?: string;
   currentPart?: string;
   operationCount?: number;
+  /** AMR battery level 0-100 %, reported by a connected device. The simulator has no battery model. */
+  batteryPercent?: number;
 };

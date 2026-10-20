@@ -7,6 +7,6 @@ export type EquipmentSnapshot={
   scanners?: ScannerSnapshot[];
   telemetry?: Record<string, EquipmentTelemetry>;
   robots:{id:string;name:string;utilization:number;count:number;state:"working"|"idle"|"disabled";status:string}[];
-  agents:{id:string;name:string;state:"idle"|"pickup"|"loading"|"dispatch"|"unloading"|"returning"|"blocked"|"waiting"|"yielding"|"disabled";status:string;target:string|null;completed:number}[];
+  agents:{id:string;name:string;state:"idle"|"pickup"|"loading"|"dispatch"|"unloading"|"returning"|"blocked"|"waiting"|"yielding"|"charging"|"disabled";status:string;target:string|null;completed:number;battery:number}[];
   pallets:{id:string;name:string;count:number;capacity:number;shipping:boolean}[];
 };

@@ -7,6 +7,8 @@ export const DEFAULT_LAYOUT:Record<EquipmentKind, EquipmentPose>={
 };
 export const EDITOR_HISTORY_LIMIT=100;
 export const AMR_TRAFFIC={emptyRadius:.45,loadedRadius:.82,safetyMargin:.1};
+// Simulated AMR battery, in % per simulated second (scaled by the AMR speed setting).
+export const AMR_BATTERY={initialMin:55,initialMax:95,movingDrain:.08,idleDrain:.005,chargeRate:1.5,chargeBelow:20,chargedAt:95};
 
 export const ROBOT_RANGE_STYLE = {
   color: "#38bdf8",
