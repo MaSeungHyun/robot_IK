@@ -86,6 +86,8 @@ export const COLLISION = {
 };
 export const IK_CONFIG = {
   wristTravelDegrees: [-180, 180] as const,
+  // Planned motion only: the upper arm (hand01->hand02) must not pitch below horizontal toward the pallet/conveyor. Manual joint control stays unlimited.
+  shoulderMinimumElevationDegrees: 0,
   planningBudgetMs: 4,
   collisionSamplesPerSlice: 16,
   angularSample: 0.01,

@@ -27,6 +27,12 @@ const PHASE_LABELS: Record<RobotPhase,string> = {
   TRANSIT:"슬롯 위 경유점으로 이동", PRE_PLACE:"슬롯 위에서 박스 방향 정렬", PLACE:"정렬 자세 유지 · 수직 하강",
   RELEASE:"박스 놓기", RETREAT:"놓은 뒤 수직 후퇴",
 };
+/** Equivalent of the initial yaw nearest the current angle; on a near tie, unwind toward it. */
+function homeHeading(current:number,initial:number){
+  const turn=2*Math.PI,nearestYaw=initial+turn*Math.round((current-initial)/turn);
+  const unwound=initial+turn*Math.trunc((current-initial)/turn);
+  return Math.abs(unwound-current)<=Math.PI+Math.PI/6?unwound:nearestYaw;
+}
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
 const LINEAR_PHASES: readonly RobotPhase[] = ["GRASP","LIFT","PLACE","RETREAT"];
 type CargoPose = { parent: Object3D | null; position: Vector3; quaternion: Quaternion; scale: Vector3 };
@@ -318,6 +324,23 @@ export class SuctionRobotController implements RobotController {
     this.enter("RETREAT",job);
   }
 
+  /**
+   * hand00 is continuous. Only while the automatic controller is at rest (HOME, no
+   * plan/route/recovery, nothing held) subtract whole turns so the angle stays in
+   * [-pi, pi]. The world pose is identical, so nothing visibly moves.
+   */
+  private wrapBaseAtRest(): boolean {
+    const r=this.runtime,base=this.ik.baseControl;
+    if(r.phase!=="HOME"||r.pose||r.planning||r.recovery||r.transferPlanning||this.manualAngle)return false;
+    if(Number.isFinite(base.min)||Number.isFinite(base.max))return false;
+    const turns=Math.round(base.angle/(2*Math.PI));
+    if(!turns)return false;
+    setJointAngle(base,base.angle-turns*2*Math.PI);
+    this.model.updateWorldMatrix(true,true);
+    r.alignment=null;r.transit=null;r.preparedShoulder=null;
+    return true;
+  }
+
   update(delta: number): void {
     if(this.disposed||!Number.isFinite(delta)||delta<0)return;
     const r=this.runtime, ik=this.ik;
@@ -332,9 +355,16 @@ export class SuctionRobotController implements RobotController {
     const job=this.options.getJobs()[r.index];
     if(!job){
       if(r.phase==="HOME"){
-        this.homePose??={baseYaw:this.initialAngles[0],angles:this.initialAngles.slice(1),error:0,reachable:true};
+        // hand00 is continuous: return to the initial heading by the nearest equivalent
+        // angle instead of unwinding every turn accumulated by earlier jobs.
+        const base=ik.baseControl,initialYaw=this.initialAngles[0];
+        const homeYaw=Number.isFinite(base.min)||Number.isFinite(base.max)?initialYaw
+          :homeHeading(base.angle,initialYaw);
+        this.homePose??={baseYaw:homeYaw,angles:this.initialAngles.slice(1),error:0,reachable:true};
         ik.setMinimumToolHeight(null);
         ik.animateEased(this.homePose,dt);
+        // At rest at home: fold accumulated hand00 turns back into [-pi, pi].
+        if(ik.isEasedSettled(this.homePose)&&this.wrapBaseAtRest())this.homePose=null;
       }
       return;
     }
@@ -344,6 +374,8 @@ export class SuctionRobotController implements RobotController {
       this.model.getWorldPosition(this.origin);
       if(!isPickupInRange(this.origin,job.pickup,job.moving?job.velocity:undefined,this.pickupRadius,MOTION.predictionSeconds))return;
       r.alignment=null;r.transit=null;
+      // No plan or route is active yet, so wrapping cannot alter a planned detour.
+      this.wrapBaseAtRest();
       this.rememberCargo(job.box);this.enter("PRE_GRASP",job);
     }
     if(BEFORE_PICK.includes(r.phase)&&job.available&&!job.available()){

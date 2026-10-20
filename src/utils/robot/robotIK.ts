@@ -31,6 +31,11 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   const upright = downRotation.multiply(grip.getWorldQuaternion(new Quaternion()));
   const carryRotation = upright.clone().invert();
   const collisionDisabled = collisionMode === "none";
+  const WRIST_FULL_TURN = "hand04 한 바퀴 우회 회전 금지";
+  const BASE_FULL_TURN = "hand00 한 바퀴 이상 회전 금지";
+  // hand00 has no stops. The opposite (long) base turn is only worth trying when the
+  // short turn is substantial; otherwise it is a near-full spin in place.
+  const MIN_SHORT_BASE_TURN = Math.PI / 4;
   if (collisionDisabled) {
     const control=controls[2];
     control.min=control.initialX+MathUtils.degToRad(IK_CONFIG.wristTravelDegrees[0]);
@@ -50,6 +55,8 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   });
   const bounds = new Box3();
   const toolPoint = new Vector3();
+  const shoulderPoint = new Vector3();
+  const elbowPoint = new Vector3();
   let minimumToolHeight: number | null = null;
   let lastMotionBlock: string | null = null;
   let blockedWristDirection = 0;
@@ -66,6 +73,9 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   }
   function violation(values: number[], planning = false) {
     if (values.some((value, i) => !Number.isFinite(value) || value < all[i].min - 1e-9 || value > all[i].max + 1e-9)) return "관절 각도 제한 초과";
+    controls[0].node.getWorldPosition(shoulderPoint); controls[1].node.getWorldPosition(elbowPoint);
+    const shoulderElevation = Math.atan2(elbowPoint.y - shoulderPoint.y, Math.hypot(elbowPoint.x - shoulderPoint.x, elbowPoint.z - shoulderPoint.z));
+    if (shoulderElevation < MathUtils.degToRad(IK_CONFIG.shoulderMinimumElevationDegrees) - 1e-9) return "hand01 상완 하향 자세 · 팔레트/컨베이어 간섭 위험";
     if (minimumToolHeight!==null && grip.getWorldPosition(toolPoint).y<minimumToolHeight-MOTION.contactTolerance) return "이송 경유 높이 미만";
     if (payloadCollision && !payloadCollision.isWristAboveHeld()) return "들어 올리는 동안 hand04가 박스 위에 있어야 합니다.";
     const collision = collisionDisabled ? null : heldBoxOnly ? collisions.collision() : collisions.collision(planning ? NUMERICAL_IK.planningArmClearance : 0);
@@ -75,7 +85,9 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   }
   // Every sampled pose is restored before yielding; planning is invisible.
   function* edge(from: number[], to: number[], limits?: [number,number][]): Generator<void, string | null, void> {
-    if (collisionDisabled && Math.abs(to[3]-from[3])>Math.PI+1e-8) return "hand04 한 바퀴 우회 회전 금지";
+    if (collisionDisabled && Math.abs(to[3]-from[3])>Math.PI+1e-8) return WRIST_FULL_TURN;
+    // Never plan a base move of a full turn or more (multi-turn spin in place).
+    if (Math.abs(to[0]-from[0]) >= 2*Math.PI-1e-8) return BASE_FULL_TURN;
     const saved = read();
     const duration = Math.max(...to.map((value, i) => Math.abs(value - from[i]) / (i === 0 ? MOTION.baseAngularSpeed : MOTION.angularSpeed)));
     const samples = Math.max(1, Math.ceil(duration * IK_CONFIG.pathSamplesPerSecond), ...to.map((value, i) => Math.ceil(Math.abs(value - from[i]) / NUMERICAL_IK.planningAngularSample)));
@@ -91,6 +103,17 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
       }
       return null;
     } finally { apply(saved); }
+  }
+  // Collision-free robots bound hand04 to one turn of travel and refuse any move
+  // longer than half a turn. Keep IK solutions inside that half turn so the
+  // planner returns the short rotation instead of a long one that edge() rejects.
+  function withinHalfTurn(limits: [number, number][], reference: number[]): [number, number][] {
+    if (!collisionDisabled) return limits;
+    const [min, max] = limits[3];
+    if (min === max) return limits;
+    const low = Math.max(min, reference[3] - Math.PI), high = Math.min(max, reference[3] + Math.PI);
+    if (low > high) return limits;
+    return limits.map((range, i) => i === 3 ? [low, high] : range);
   }
   function limitsAround(start: number[], constraints?: IKConstraints): [number, number][] {
     return all.map((control, i) => i === 3 && constraints?.wristRange ? constraints.wristRange : i === 0 && constraints?.baseYaw !== undefined ? [constraints.baseYaw,constraints.baseYaw] : control.locked ? [control.angle, control.angle] : [
@@ -127,9 +150,10 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     let before = start;
     const route: IKStep[] = [];
     for (let i = 1; i <= count; i++) {
-      let result = yield* solvePosition(forward, before, limits, origin.clone().lerp(target,i/count), downward,
+      const stepLimits = withinHalfTurn(limits, before);
+      let result = yield* solvePosition(forward, before, stepLimits, origin.clone().lerp(target,i/count), downward,
         NUMERICAL_IK.positionTolerance, tiltTolerance(), i===count?releaseRange:undefined);
-      if(!result.converged && i<count) result=yield* solvePosition(forward,before,limits,origin.clone().lerp(target,i/count),false,NUMERICAL_IK.positionTolerance,0);
+      if(!result.converged && i<count) result=yield* solvePosition(forward,before,stepLimits,origin.clone().lerp(target,i/count),false,NUMERICAL_IK.positionTolerance,0);
       if (!result.converged) return {route:null,blockedBy:"직선 경로의 자세 해 미발견 · 오차 "+(result.error*1000).toFixed(1)+"mm"};
       const hit=yield* edge(before,result.angles,limits);
       if(hit)return {route:null,blockedBy:hit};
@@ -185,7 +209,10 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     if(toolRotation){
       const checked=yield* cartesianRoute(start,worldTarget,downward,forward,limits,releaseRange);
       if(checked.route){const route=checked.route,end=route.at(-1)!;return {...end,error:forward(unpack(end)).position.distanceTo(worldTarget),reachable:true,route,step:0};}
-      return {...pack(start),error:forward(start).position.distanceTo(worldTarget),reachable:false,blockedBy:"수직 하강·후퇴 경로 미발견 · "+checked.blockedBy};
+      // The straight descent can be blocked by a posture rule (e.g. the upper arm
+      // pitching down) even when another joint configuration reaches the same
+      // point safely. Fall through to the seeded search below instead of
+      // declaring the target unreachable and stalling the phase forever.
     }
     const seeds=makeSeeds(start,worldTarget,forward);
     let best:NumericResult={angles:start,error:Infinity,tilt:Infinity,converged:false};
@@ -212,13 +239,24 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
       const hit=yield* edge(start,result.angles,limits);
       if(!hit)return {...pack(result.angles),error:result.error,reachable:true};
       firstHit??=hit;
+      if(hit===WRIST_FULL_TURN){
+        // The solver wandered more than half a turn on hand04; solve the same
+        // seed again inside the half turn so the short rotation is used.
+        const short=yield* solvePosition(forward,seed,withinHalfTurn(limits,start),worldTarget,downward,NUMERICAL_IK.positionTolerance,allowedTilt,releaseRange);
+        const wristOK=!constraints?.wristAbovePoint || forward(short.angles).wristPosition.y>=worldTarget.y+MOTION.contactTolerance;
+        if(short.converged&&wristOK&&!(yield* edge(short.angles,short.angles,limits))){
+          const descentOK=!descentTarget||(yield* descentRoute(short.angles,descentTarget,downward,forward,limits,releaseRange)).route;
+          if(descentOK&&!(yield* edge(start,short.angles,limits)))return {...pack(short.angles),error:short.error,reachable:true};
+        }
+      }
       // A continuous joint's shortest turn can cross the pallet/body. Check
       // the equivalent long turn explicitly instead of hoping RRT finds it.
       const oppositeTurns = heldBoxOnly ? [[3],[4],[3,4],[0],[2],[0,2],[0,3],[0,4],[2,3],[2,4]] : [[0],[2],[3],[4],[0,2],[0,3],[0,4],[2,3],[2,4],[3,4]];
       for (const indices of oppositeTurns) {
         const reverse=[...result.angles];
-        for(const i of indices)if(!Number.isFinite(all[i].min)&&!all[i].locked)
+        for(const i of indices)if(!Number.isFinite(all[i].min)&&!all[i].locked&&!(i===0&&Math.abs(reverse[0]-start[0])<MIN_SHORT_BASE_TURN))
           reverse[i]-=Math.sign(reverse[i]-start[i]||1)*Math.PI*2;
+        if(indices.every(i=>reverse[i]===result.angles[i]))continue;
         if(!(yield* edge(start,reverse,limits)))return {...pack(reverse),error:result.error,reachable:true};
       }
       if(candidates.length>=NUMERICAL_IK.endpointCandidates)break;
@@ -313,9 +351,12 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     const destinations=[...new Set([direction,-direction])].map(sign=>{
       const values=[...goal];
       const turn=values[axis]-start[axis];
-      if(Math.sign(turn)!==sign)values[axis]+=sign*Math.PI*2;
+      if(Math.sign(turn)!==sign){
+        if(axis===0&&Math.abs(turn)<MIN_SHORT_BASE_TURN)return null;
+        values[axis]+=sign*Math.PI*2;
+      }
       return values;
-    });
+    }).filter((values):values is number[]=>values!==null);
     // Try the reverse sweep first, then the other direction from these same current angles.
     for(const values of blocked.reachable?destinations:[]){
       if(!(yield* edge(start,values,limits)))return {...pack(values),error:blocked.error,reachable:true,target:blocked.target};

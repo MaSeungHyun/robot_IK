@@ -800,6 +800,22 @@ const makeRobot = (useGLTF, useMemo, useRef, useFrame, Group, Quaternion, Vector
   controller.dispose();console.log('Idle home: smooth initial-pose return and pause/resume passed');
 }
 {
+  // hand00 is continuous: turns accumulated by earlier jobs must not be unwound in place.
+  const Controller=controllerClass(),controller=new Controller({id:'base-turns',model:load('robot'),getJobs:()=>[]});
+  const base=controller.ik.baseControl,initial=base.angle;
+  controller.setJointAngle('hand00',initial*180/Math.PI+5*360+30);controller.update(0);
+  const wound=base.angle;let farthest=0;
+  // Measure physical travel: wrapping at rest shifts the reading by whole turns, not the pose.
+  let previous=wound,travel=0;
+  controller.start();for(let i=0;i<1200;i++){controller.update(1/60);travel+=Math.atan2(Math.sin(base.angle-previous),Math.cos(base.angle-previous));previous=base.angle;farthest=Math.max(farthest,Math.abs(travel));}
+  const residual=Math.atan2(Math.sin(base.angle-initial),Math.cos(base.angle-initial));
+  if(farthest>Math.PI+1e-6)throw Error(`Idle home spun hand00 ${(farthest/Math.PI/2).toFixed(2)} turns instead of the nearest heading`);
+  if(Math.abs(residual)>1e-5)throw Error('Idle home did not restore the initial hand00 heading');
+  const reported=controller.getJointAngles().find(joint=>joint.name==='hand00').degrees;
+  if(Math.abs(base.angle)>Math.PI+1e-9||Math.abs(reported)>180+1e-6)throw Error(`Idle hand00 was not wrapped into ±180° (${reported.toFixed(1)}°)`);
+  controller.dispose();console.log('Base turns: idle home returns by the nearest hand00 heading without multi-turn spin and wraps hand00 into ±180° at rest passed');
+}
+{
   const ik=createRobotIK(load('robot'),1,'none');
   const target=ik.grip.getWorldPosition(new T.Vector3()).add(new T.Vector3(0,.05,0));
   const search=ik.prepareShoulderTransfer(target,target.clone().add(new T.Vector3(-.2,0,0)),target.clone().add(new T.Vector3(-.2,-.1,0)));
