@@ -1,4 +1,4 @@
-import { Group, Vector3 } from "three";
+import { Euler, Group, Quaternion, Vector3 } from "three";
 import type { FactoryLayout } from "@/types/layout";
 import { SIMULATOR_CONFIG, AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { layoutPath } from "@/utils/amr/layoutNavigation";
@@ -74,6 +74,9 @@ export class PalletDispatchController {
   private cursor = 1;
   private elapsed = 0;
   private routes: DispatchRoutes | null = null;
+  /** In-place turn target (rad); null when not turning. */
+  private turnTarget: number | null = null;
+  private aligned = false;
   constructor(layout: FactoryLayout) {
     this.layout = layout;
     this.home = new Vector3(layout.amr.x, 0, layout.amr.z);
@@ -96,6 +99,7 @@ export class PalletDispatchController {
     points: Vector3[],
     phase: "pickup" | "dispatch" | "returning",
   ) {
+    this.turnTarget = null;
     this.path = points;
     this.cursor = 1;
     this.phase = phase;
@@ -106,6 +110,7 @@ export class PalletDispatchController {
     loaded: boolean,
     phase: "pickup" | "dispatch",
   ) {
+    this.turnTarget = null;
     const points = layoutPath(
       this.layout,
       this.carrier.position,
@@ -122,8 +127,31 @@ export class PalletDispatchController {
     this.phase = phase;
     this.version++;
   }
+  /** Nearest equivalent of `yaw + k·step` to the current heading. */
+  private nearestHeading(yaw: number, step: number) {
+    const current = this.carrier.rotation.y;
+    return yaw + step * Math.round((current - yaw) / step);
+  }
+  /** Rotates in place toward turnTarget; true once aligned. */
+  private turn(delta: number) {
+    if (this.turnTarget === null) return true;
+    const diff = this.turnTarget - this.carrier.rotation.y,
+      step = SIMULATOR_CONFIG.amrTurnRate * delta;
+    if (Math.abs(diff) <= step) {
+      this.carrier.rotation.y = this.turnTarget;
+      this.turnTarget = null;
+      return true;
+    }
+    this.carrier.rotation.y += Math.sign(diff) * step;
+    return false;
+  }
   advance(delta: number) {
-    if (this.phase === "idle" || this.phase === "blocked") return;
+    // Settling to the canonical home heading never blocks a new request.
+    if (this.phase === "idle") {
+      this.turn(delta);
+      return;
+    }
+    if (this.phase === "blocked") return;
     if (this.phase === "loading" || this.phase === "unloading") {
       this.elapsed += delta;
       if (this.phase === "loading" && this.payload)
@@ -139,6 +167,8 @@ export class PalletDispatchController {
         this.payload = null;
         if (this.routes) this.follow(this.routes.returning, "returning");
         else {
+          // Wait at the dock axis-aligned.
+          this.turnTarget = this.nearestHeading(0, Math.PI / 2);
           this.phase = "idle";
           this.path = [];
           this.version++;
@@ -157,9 +187,9 @@ export class PalletDispatchController {
         this.cursor++;
         continue;
       }
-      // Keep the loaded pallet's world orientation constant through grid turns.
-      if (!this.payload || this.payload.parent !== this.carrier)
-        this.carrier.rotation.y = Math.atan2(dx, dz);
+      // A carried pallet is parented to the carrier (attached at pickup with its
+      // relative pose preserved), so it and its boxes turn with the AMR.
+      this.carrier.rotation.y = Math.atan2(dx, dz);
       if (distance >= length) {
         position.x = point.x;
         position.z = point.z;
@@ -172,8 +202,22 @@ export class PalletDispatchController {
       }
     }
     if (this.cursor < this.path.length) return;
+    // Under the pallet: align with it (square pallet, so any 90° equivalent) before lifting.
+    if (this.phase === "pickup" && this.payload) {
+      if (this.turnTarget === null && !this.aligned) {
+        const yaw = new Euler().setFromQuaternion(
+          this.payload.getWorldQuaternion(new Quaternion()),
+          "YXZ",
+        ).y;
+        this.turnTarget = this.nearestHeading(yaw, Math.PI / 2);
+      }
+      if (!this.turn(delta)) return;
+      this.aligned = true;
+    }
     this.elapsed = 0;
     if (this.phase === "returning") {
+      // Settle to the home heading in place (handled while idle).
+      this.turnTarget = this.nearestHeading(this.layout.amr.yaw, Math.PI * 2);
       this.phase = "idle";
       this.path = [];
       this.routes = null;
@@ -181,6 +225,10 @@ export class PalletDispatchController {
     } else if (this.phase === "pickup") {
       this.carrier.updateWorldMatrix(true, true);
       this.carrier.attach(this.payload!);
+      // Remove residual skew: the relative yaw is an exact multiple of 90°.
+      const payload = this.payload!;
+      payload.rotation.y = (Math.PI / 2) * Math.round(payload.rotation.y / (Math.PI / 2));
+      this.aligned = false;
       this.phase = "loading";
     } else this.phase = "unloading";
   }
