@@ -1,5 +1,5 @@
 import { Canvas } from "@react-three/fiber";
-import { Grid, OrbitControls } from "@react-three/drei";
+import { Grid } from "@react-three/drei";
 import { Suspense, useCallback, useMemo, useRef } from "react";
 import { Selection } from "@react-three/postprocessing";
 import type { AmbientLight } from "three";
@@ -12,6 +12,7 @@ import ModelWarmup from "@/viewport/ModelWarmup";
 import ModelLoader from "@/viewport/models/ModelLoader";
 import ThumbnailBaker from "@/viewport/thumbnails/ThumbnailBaker";
 import CameraTracker from "@/viewport/camera/CameraTracker";
+import CameraRig from "@/viewport/camera/CameraRig";
 import ShadowLight from "@/viewport/shadows/ShadowLight";
 
 import PostProcessing from "./PostProcessing";
@@ -21,9 +22,6 @@ const CAMERA = { position: [5, 4.5, 6] as [number, number, number], fov: 45 };
 export default function Viewport() {
   const ambientLight = useRef<AmbientLight>(null);
   const bloomLights = useMemo(() => [ambientLight], []);
-  const drawingFloor = useSceneStore(
-    (state) => state.editing && state.pending === "floor",
-  );
   const { transferMode, run, running, setStats, setProgress } =
     useSimulationStore(
       useShallow((s) => ({
@@ -70,17 +68,11 @@ export default function Viewport() {
             // sectionColor="#344656"
             cellColor="#666666"
             sectionColor="#555555"
-            fadeDistance={500}
+            fadeDistance={1100}
             position={[0, -0.01, 0]}
           />
 
-          <OrbitControls
-            makeDefault
-            enableRotate={!drawingFloor}
-            target={[0, 0.45, 0]}
-            enableDamping={false}
-            maxPolarAngle={Math.PI / 2.05}
-          />
+          <CameraRig />
           <CameraTracker />
 
           <Selection>
