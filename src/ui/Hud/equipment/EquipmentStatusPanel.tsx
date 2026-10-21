@@ -66,27 +66,47 @@ export default function EquipmentStatusPanel() {
     return list;
   }, [equipment, objects, settings, running]);
 
-  const kinds = KIND_FILTERS.filter(
-    ({ value }) =>
-      value === "all" || entries.some((entry) => entry.kind === value),
+  const kinds = useMemo(
+    () =>
+      KIND_FILTERS.filter(
+        ({ value }) =>
+          value === "all" || entries.some((entry) => entry.kind === value),
+      ),
+    [entries],
   );
   const activeKind = kinds.some(({ value }) => value === kind) ? kind : "all";
-  const visible = new Set(
-    entries
-      .filter(
-        (entry) =>
-          (activeKind === "all" || entry.kind === activeKind) &&
-          (!status || entry.tone === status),
-      )
-      .map((entry) => entry.id),
+  const visible = useMemo(
+    () =>
+      new Set(
+        entries
+          .filter(
+            (entry) =>
+              (activeKind === "all" || entry.kind === activeKind) &&
+              (!status || entry.tone === status),
+          )
+          .map((entry) => entry.id),
+      ),
+    [entries, activeKind, status],
   );
   const filtered = activeKind !== "all" || status !== null;
-  const counts = STATUS_SUMMARY.map((item) => ({
-    ...item,
-    count: entries.filter((entry) => entry.tone === item.tone).length,
-  })).filter((item) => item.count > 0);
-  const show = <T extends { id: string }>(items: T[]) =>
-    items.filter((item) => visible.has(item.id));
+  const counts = useMemo(
+    () =>
+      STATUS_SUMMARY.map((item) => ({
+        ...item,
+        count: entries.filter((entry) => entry.tone === item.tone).length,
+      })).filter((item) => item.count > 0),
+    [entries],
+  );
+  const lists = useMemo(() => {
+    const show = <T extends { id: string }>(items: T[]) =>
+      items.filter((item) => visible.has(item.id));
+    return {
+      robots: show(equipment?.robots ?? []),
+      agents: show(equipment?.agents ?? []),
+      conveyors: show(objects.filter((object) => object.kind === "conveyor")),
+      scanners: show(objects.filter((object) => object.kind === "scanner")),
+    };
+  }, [equipment, objects, visible]);
 
   return (
     <Panel
@@ -163,27 +183,17 @@ export default function EquipmentStatusPanel() {
         </p>
       ) : (
         <div className="flex flex-col gap-2 min-h-0 overflow-y-auto scroll">
-          {(!filtered || show(equipment.robots).length > 0) && (
-            <RobotStatusSection robots={show(equipment.robots)} />
+          {(!filtered || lists.robots.length > 0) && (
+            <RobotStatusSection robots={lists.robots} />
           )}
 
-          {(!filtered || show(equipment.agents).length > 0) && (
-            <AMRStatusSection agents={show(equipment.agents)} />
+          {(!filtered || lists.agents.length > 0) && (
+            <AMRStatusSection agents={lists.agents} />
           )}
 
-          <StaticEquipmentSection
-            title="컨베이어"
-            objects={show(
-              objects.filter((object) => object.kind === "conveyor"),
-            )}
-          />
+          <StaticEquipmentSection title="컨베이어" objects={lists.conveyors} />
 
-          <StaticEquipmentSection
-            title="스캐너"
-            objects={show(
-              objects.filter((object) => object.kind === "scanner"),
-            )}
-          />
+          <StaticEquipmentSection title="스캐너" objects={lists.scanners} />
 
           {filtered && visible.size === 0 && (
             <p className="mt-2 text-[11px] text-text-secondary">

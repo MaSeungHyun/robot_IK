@@ -5,7 +5,9 @@ import type { EquipmentSnapshot } from "@/types/simulation";
 
 type Props = { robot: EquipmentSnapshot["robots"][number] };
 
-export default function RobotCard({ robot }: Props) {
+import { memo } from "react";
+
+export default memo(function RobotCard({ robot }: Props) {
   return (
     <EquipmentCard id={robot.id} name={robot.name}>
       <div className="flex items-center justify-between text-xs">
@@ -32,4 +34,4 @@ export default function RobotCard({ robot }: Props) {
       </p>
     </EquipmentCard>
   );
-}
+});

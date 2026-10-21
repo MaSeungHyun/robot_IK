@@ -7,7 +7,9 @@ import type { EquipmentSnapshot } from "@/types/simulation";
 
 type Props = { agent: EquipmentSnapshot["agents"][number] };
 
-export default function AMRCard({ agent }: Props) {
+import { memo } from "react";
+
+export default memo(function AMRCard({ agent }: Props) {
   const battery =
     useEquipmentTelemetry(agent.id)?.batteryPercent ?? agent.battery;
   const charging = agent.state === "charging";
@@ -44,4 +46,4 @@ export default function AMRCard({ agent }: Props) {
       </p>
     </EquipmentCard>
   );
-}
+});
