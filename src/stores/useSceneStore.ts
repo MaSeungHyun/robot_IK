@@ -7,7 +7,7 @@ import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/c
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate } from "@/types/sceneTemplate";
 
-export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽"};
+export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙"};
 /** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
 export function snapFloorCenter(value:number,size:number){const cell=FLOOR_CONFIG.cell,offset=(size/cell)%2?cell/2:0;return Math.round((value-offset)/cell)*cell+offset;}
 export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSize={width:1,depth:1,wallHeight:0}):FloorSize|null{

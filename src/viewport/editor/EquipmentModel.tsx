@@ -2,6 +2,7 @@ import Scanner from "@/objects/scanner/Scanner";
 import AMR from "@/objects/amr/AMR";
 import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
+import Rack from "@/objects/rack/Rack";
 import Pallet from "@/objects/pallet/index";
 import RobotPreview from "@/objects/robot/RobotPreview";
 import FloorRoom from "@/objects/room/FloorRoom";
@@ -32,6 +33,9 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
 
     case "dock":
       return <Dock id={object.id} />;
+
+    case "rack":
+      return <Rack />;
 
     case "floor":
       return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} />;

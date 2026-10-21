@@ -5,9 +5,10 @@ import { findPathBetween } from "@/domain/amr/navigation/pathfinding";
 import type { Cell } from "@/domain/amr/navigation/pathfinding";
 import { STREAM_CONFIG } from "@/constants/simulation";
 import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
+import { RACK_CONFIG } from "@/constants/rack";
 
 export function footprint(kind:EquipmentKind):[number,number]{
-  return kind==="conveyor"?[.35,2.625]:kind==="pallet"?[STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth]:kind==="dock"?[1.3,1.3]:[.65,.65];
+  return kind==="conveyor"?[.35,2.625]:kind==="pallet"?[STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth]:kind==="dock"?[1.3,1.3]:kind==="rack"?RACK_CONFIG.footprint:[.65,.65];
 }
 export function clearanceAt(x:number,z:number,kind:keyof FactoryLayout,layout:FactoryLayout){
   return clearancePose(x,z,kind,layout[kind]);

@@ -16,6 +16,7 @@ export const AGENT_TONES = {
   loading: "operating",
   dispatch: "operating",
   unloading: "operating",
+  storing: "operating",
   returning: "info",
   blocked: "warning",
   waiting: "idle",

@@ -156,7 +156,7 @@ export default function ObjectPropertiesPanel({
             </p>
           </section>
         )}
-        {object.kind !== "dock" && object.kind !== "floor" && (
+        {object.kind !== "dock" && object.kind !== "rack" && object.kind !== "floor" && (
           <section className="mt-5 border-t border-white/10 pt-4">
             <h3 className="mb-3 text-xs text-text-primary">시뮬레이션 설정</h3>
             {object.kind !== "pallet" && object.kind !== "scanner" && (

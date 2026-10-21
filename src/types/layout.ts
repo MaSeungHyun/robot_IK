@@ -1,8 +1,8 @@
 import type { EquipmentMetadata } from "@/types/equipment";
 
-export type EquipmentKind="robot"|"pallet"|"conveyor"|"amr"|"dock"|"scanner"|"floor";
+export type EquipmentKind="robot"|"pallet"|"conveyor"|"amr"|"dock"|"scanner"|"floor"|"rack";
 export type EquipmentPose={x:number;z:number;yaw:number};
-export type FactoryLayout=Record<Exclude<EquipmentKind,"scanner"|"floor">,EquipmentPose>;
+export type FactoryLayout=Record<Exclude<EquipmentKind,"scanner"|"floor"|"rack">,EquipmentPose>;
 /** Floor/wall room: integer grid cells, centered on the object pose; wallHeight 0 = floor only. */
 export type FloorSize={width:number;depth:number;wallHeight:number};
 export type ConveyorTurn="straight"|"left"|"right";
@@ -18,5 +18,5 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;spawnIn
   pickFilter?:PickFilter;
   /** Pallet only; default "normal". */
   grade?:CargoGrade;
-  /** Dock only; default "any". */
+  /** Dock and rack; default "any". */
   acceptGrade?:DockAcceptGrade};

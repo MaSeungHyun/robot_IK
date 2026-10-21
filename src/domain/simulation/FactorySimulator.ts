@@ -13,6 +13,7 @@ import type { EquipmentSnapshot } from "@/types/simulation";
 import { BOX_SIZES, STREAM_CONFIG, MOTION } from "@/constants/simulation";
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
+import { RACK_CONFIG, rackApproachPoint, rackSlotPoint } from "@/constants/rack";
 import { PalletController } from "@/domain/pallet/PalletController";
 import { PalletDispatchController } from "@/domain/amr/PalletDispatchController";
 import { AMRTrafficController } from "@/domain/amr/AMRTrafficController";
@@ -65,6 +66,10 @@ type Shipment = {
   dock: SceneEquipment;
   /** Set once the pallet has been lowered onto the dock and released. */
   dropped: boolean;
+  /** Rack deliveries: the booked PalletPoint index (`dock` is the rack). */
+  slot?: number;
+  /** Set once the pallet sits in its rack slot; it stays there. */
+  stored?: boolean;
 };
 // Deterministic per-id starting charge so AMR cards differ but runs repeat.
 const initialBattery = (id: string) => {
@@ -207,6 +212,9 @@ export class FactorySimulator {
     for (const belt of this.belts)
       if (!visited.has(belt.object.id)) seed(belt.object);
     this.docks = objects.filter((o) => o.kind === "dock");
+    this.racks = objects.filter((o) => o.kind === "rack");
+    for (const rack of this.racks)
+      this.rackStored.set(rack.id, RACK_CONFIG.slots.map(() => false));
     for (const robot of this.robots)
       this.palletOrder.set(
         robot.object.id,
@@ -217,6 +225,17 @@ export class FactorySimulator {
       );
   }
   private docks: SceneEquipment[] = [];
+  private racks: SceneEquipment[] = [];
+  /** Filled PalletPoints per rack; stored pallets stay for the rest of the run. */
+  private rackStored = new Map<string, boolean[]>();
+  /** First PalletPoint that is neither filled nor booked by a delivery in progress. */
+  private freeSlot(rack: SceneEquipment) {
+    const stored = this.rackStored.get(rack.id) ?? [];
+    return stored.findIndex(
+      (filled, slot) =>
+        !filled && !this.shipments.some((s) => s.dock.id === rack.id && s.slot === slot),
+    );
+  }
   private render(object: Group) {
     this.rendered.add(object);
     if (this.renderingActive) this.instances?.register(object);
@@ -485,6 +504,10 @@ export class FactorySimulator {
     }
     // A dropped pallet stays on its dock until the delivering AMR has driven clear.
     for (const shipment of [...this.shipments]) {
+      if (shipment.stored) {
+        this.finishStorage(shipment);
+        continue;
+      }
       if (!shipment.dropped) continue;
       const at = shipment.agent.dispatch.carrier.position;
       if (
@@ -609,22 +632,29 @@ export class FactorySimulator {
     )[0];
     const settings = this.settings(),
       grade = palletGrade(settings[pallet.object.id]);
-    const accepting = this.docks.filter((dock) => {
+    // Docks and racks are both outbound destinations.
+    const accepting = [...this.docks, ...this.racks].filter((dock) => {
       const config = settings[dock.id],
         accepts = config.acceptGrade ?? "any";
       return config.enabled && (accepts === "any" || accepts === grade);
     });
     // One pallet per dock: skip docks booked by another delivery or still holding a drop.
     const docks = accepting
-      .filter((dock) => !this.shipments.some((s) => s.dock.id === dock.id))
+      .filter((dock) =>
+        dock.kind === "rack"
+          ? this.freeSlot(dock) >= 0
+          : !this.shipments.some((s) => s.dock.id === dock.id),
+      )
       .sort((a, b) => distance(a, pallet.object) - distance(b, pallet.object));
     if (robot && belt && accepting.length && !docks.length) {
-      agent.waitingReason = "출고 구역에 내려놓은 팔레트를 비우는 중입니다.";
+      agent.waitingReason = accepting.every((dock) => dock.kind === "rack")
+        ? "랙이 가득 찼습니다."
+        : "출고 구역에 내려놓은 팔레트를 비우는 중입니다.";
       return false;
     }
     if (!robot || !belt || !docks.length) {
       agent.waitingReason =
-        robot && belt && this.docks.length
+        robot && belt && this.docks.length + this.racks.length
           ? `${grade === "defect" ? "불량" : "정상"} 팔레트를 받을 출고 구역이 없습니다.`
           : "운반할 로봇·컨베이어·출고 구역을 확인해 주세요.";
       return false;
@@ -650,6 +680,7 @@ export class FactorySimulator {
       ...this.pallets
         .filter((p) => p !== pallet && !p.shipping)
         .map((p) => ({ kind: p.object.kind, pose: p.object })),
+      ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
     ];
     const pickup = layoutPath(
       layout,
@@ -670,7 +701,15 @@ export class FactorySimulator {
       return false;
     }
     let routes: DispatchRoutes | null = null;
-    for (const dock of docks) {
+    let target: SceneEquipment | null = null,
+      targetSlot: number | undefined;
+    for (const destination of docks) {
+      // A rack is reached at the floor point in front of its first free slot.
+      const slot = destination.kind === "rack" ? this.freeSlot(destination) : undefined;
+      const approach = slot === undefined ? null : rackApproachPoint(destination, slot);
+      const dock = approach
+        ? { ...destination, x: approach.x, z: approach.z }
+        : destination;
       layout.dock = dock;
       const outbound = layoutPath(layout, layout.pallet, dock, true, obstacles);
       if (!outbound) {
@@ -707,10 +746,18 @@ export class FactorySimulator {
         continue;
       }
       routes = { pickup, dispatch: outbound, returning };
+      if (slot !== undefined)
+        routes.store = {
+          slot: rackSlotPoint(destination, slot),
+          // Face into the rack: its loading face looks along local +Z.
+          heading: destination.yaw + Math.PI,
+        };
       layout.dock = dock;
+      target = destination;
+      targetSlot = slot;
       break;
     }
-    if (!routes) return false;
+    if (!routes || !target) return false;
     const group = pallet.beginShipment();
     if (!group) return false;
     const shipment: Shipment = {
@@ -723,8 +770,9 @@ export class FactorySimulator {
         ),
       ),
       replaced: false,
-      dock: layout.dock as SceneEquipment,
+      dock: target,
       dropped: false,
+      slot: targetSlot,
     };
     this.shipments.push(shipment);
     agent.waiting = false;
@@ -737,12 +785,17 @@ export class FactorySimulator {
       shipment.group,
       () => {
         // Release the lowered pallet onto the dock, square to it; removed once the AMR clears.
+        // In a rack it is placed exactly on its PalletPoint and stays.
         const group = shipment.group,
           dock = shipment.dock;
         group.parent?.updateWorldMatrix(true, false);
         this.root.updateWorldMatrix(true, false);
         this.root.attach(group);
-        group.position.y = 0;
+        if (shipment.slot !== undefined) {
+          group.position.copy(rackSlotPoint(dock, shipment.slot));
+          this.rackStored.get(dock.id)![shipment.slot] = true;
+          shipment.stored = true;
+        } else group.position.y = 0;
         // Read yaw in YXZ so headings past ±90° don't decompose into X/Z flips.
         const yaw = new Euler().setFromQuaternion(group.quaternion, "YXZ").y;
         group.rotation.set(
@@ -750,7 +803,7 @@ export class FactorySimulator {
           dock.yaw + (Math.PI / 2) * Math.round((yaw - dock.yaw) / (Math.PI / 2)),
           0,
         );
-        shipment.dropped = true;
+        shipment.dropped = shipment.slot === undefined;
         this.dispatched++;
         agent.completed++;
         agent.target = null;
@@ -758,6 +811,12 @@ export class FactorySimulator {
       routes,
     );
     return true;
+  }
+  /** A racked pallet keeps rendering with its boxes; it only leaves the live box list. */
+  private finishStorage(shipment: Shipment) {
+    this.boxes = this.boxes.filter((box) => !shipment.cargo.has(box));
+    this.replacePallet(shipment);
+    this.shipments.splice(this.shipments.indexOf(shipment), 1);
   }
   private clearDock(shipment: Shipment) {
     this.unrender(shipment.group);

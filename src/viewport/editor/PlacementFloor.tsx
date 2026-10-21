@@ -22,6 +22,7 @@ const KINDS: readonly EquipmentKind[] = [
   "conveyor",
   "amr",
   "dock",
+  "rack",
   "scanner",
 ];
 const snap = (value: number) => Math.round(value / C.snap) * C.snap;

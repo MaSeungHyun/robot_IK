@@ -1,4 +1,4 @@
-import { Bot, Boxes, Truck, Package, MapPin, ScanLine, BrickWall } from "lucide-react";
+import { Bot, Boxes, Truck, Package, MapPin, ScanLine, BrickWall, Warehouse } from "lucide-react";
 import { useSceneStore, EQUIPMENT_NAMES } from "@/stores/useSceneStore";
 import type { EquipmentKind } from "@/types/layout";
 import { cn } from "@/lib/style";
@@ -11,6 +11,7 @@ const ASSETS = [
   { kind: "conveyor", icon: Boxes },
   { kind: "amr", icon: Truck },
   { kind: "dock", icon: MapPin },
+  { kind: "rack", icon: Warehouse },
   { kind: "scanner", icon: ScanLine },
   { kind: "floor", icon: BrickWall },
 ] as const;

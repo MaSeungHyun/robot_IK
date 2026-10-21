@@ -10,6 +10,7 @@ import type { SimulatorRunProps } from "@/viewport/simulation/types";
 import AMR from "@/objects/amr/AMR";
 import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
+import Rack from "@/objects/rack/Rack";
 
 // Play mode: a click opens the object's Details (see clickEquipment).
 const handleEquipmentSelect = clickEquipment;
@@ -27,7 +28,7 @@ function handleCargoSelect(event: ThreeEvent<MouseEvent>, inspect = false) {
 export default function FactoryRun(props: SimulatorRunProps) {
   const { world, objects, settings } = useFactoryRuntime(props);
   useEffect(() => resetCursor, []);
-  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || object.kind === "scanner" || object.kind === "floor");
+  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || object.kind === "rack" || object.kind === "scanner" || object.kind === "floor");
 
   return (
     <>
@@ -60,7 +61,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
           onClick={(event) => handleEquipmentSelect(event, object.id)}
           onDoubleClick={(event) => inspectEquipment(event, object.id)}
         >
-          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "floor" ? <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} /> : <Dock id={object.id} />}
+          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "floor" ? <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} /> : object.kind === "rack" ? <Rack /> : <Dock id={object.id} />}
         </group>
       ))}
     </>

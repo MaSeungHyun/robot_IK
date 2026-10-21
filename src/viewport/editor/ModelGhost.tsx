@@ -12,10 +12,11 @@ import { AMR_CONFIG } from "@/constants/amr";
 import robotUrl from "@/assets/models/robot.glb?url";
 import palletUrl from "@/assets/models/pallet.glb?url";
 import amrUrl from "@/assets/models/amr.glb?url";
+import rackUrl from "@/assets/models/rack.glb?url";
 
-export default function ModelGhost({ kind }: { kind: "robot" | "pallet" | "amr" | "scanner" }) {
+export default function ModelGhost({ kind }: { kind: "robot" | "pallet" | "amr" | "scanner" | "rack" }) {
   const { scene } = useGLTF(
-    kind === "robot" ? robotUrl : kind === "pallet" ? palletUrl : kind === "scanner" ? scannerUrl : amrUrl,
+    kind === "robot" ? robotUrl : kind === "pallet" ? palletUrl : kind === "scanner" ? scannerUrl : kind === "rack" ? rackUrl : amrUrl,
   );
   const ghost = useMemo(() => {
     let model: Group;
@@ -36,6 +37,7 @@ export default function ModelGhost({ kind }: { kind: "robot" | "pallet" | "amr" 
     } else {
       model = scene.clone(true);
       if (kind === "robot") model.scale.multiplyScalar(C.robotScale);
+      else if (kind === "rack") return translucentClone(model);
       else {
         const bounds = new Box3().setFromObject(model),
           size = bounds.getSize(new Vector3());

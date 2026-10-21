@@ -4,6 +4,7 @@ export const SIMULATOR_CONFIG={robotScale:.7,reach:1.8,navigationPadding:3,grid:
 export const DEFAULT_LAYOUT:Record<EquipmentKind, EquipmentPose>={
   robot:{x:0,z:0,yaw:0},pallet:{x:-1.2,z:0,yaw:0},conveyor:{x:1.06875,z:0,yaw:0},
   amr:{x:-2.3,z:-1.8,yaw:0},dock:{x:-3.2,z:1.8,yaw:0},scanner:{x:1.06875,z:0,yaw:0},floor:{x:.5,z:.5,yaw:0},
+  rack:{x:-3.2,z:-3.2,yaw:0},
 };
 export const EDITOR_HISTORY_LIMIT=100;
 // Floor/wall asset: 1-unit grid cells; wall height snaps to wallStep.

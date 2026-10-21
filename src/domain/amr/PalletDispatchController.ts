@@ -2,12 +2,15 @@ import { Euler, Group, Quaternion, Vector3 } from "three";
 import type { FactoryLayout } from "@/types/layout";
 import { SIMULATOR_CONFIG, AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { layoutPath } from "@/domain/amr/navigation/layoutNavigation";
+import { RACK_CONFIG } from "@/constants/rack";
 import type { NavigationObstacle } from "@/domain/amr/navigation/layoutNavigation";
 
 export type DispatchRoutes = {
   pickup: Vector3[];
   dispatch: Vector3[];
   returning: Vector3[];
+  /** Rack delivery: `dispatch` ends in front of the slot; the AMR faces `heading`, lifts, drives in to `slot` (y = shelf), sets the pallet down and backs out. */
+  store?: { slot: Vector3; heading: number };
 };
 
 export class PalletDispatchController {
@@ -19,6 +22,7 @@ export class PalletDispatchController {
     | "loading"
     | "dispatch"
     | "unloading"
+    | "storing"
     | "returning"
     | "blocked" = "idle";
   path: Vector3[] = [];
@@ -34,7 +38,7 @@ export class PalletDispatchController {
     );
   }
   get radius() {
-    return ["loading", "dispatch", "unloading"].includes(this.phase)
+    return ["loading", "dispatch", "unloading", "storing"].includes(this.phase)
       ? AMR_TRAFFIC.loadedRadius
       : AMR_TRAFFIC.emptyRadius;
   }
@@ -117,6 +121,9 @@ export class PalletDispatchController {
   /** In-place turn target (rad); null when not turning. */
   private turnTarget: number | null = null;
   private aligned = false;
+  /** Rack storing: where the AMR stopped in front of the slot, and the current sub-step. */
+  private storeFrom = new Vector3();
+  private storeStage: "lift" | "insert" | "lower" | "retreat" = "lift";
   constructor(layout: FactoryLayout) {
     this.layout = layout;
     this.home = new Vector3(layout.amr.x, 0, layout.amr.z);
@@ -194,6 +201,10 @@ export class PalletDispatchController {
       return;
     }
     if (this.phase === "blocked") return;
+    if (this.phase === "storing") {
+      this.store(delta);
+      return;
+    }
     if (this.phase === "loading" || this.phase === "unloading") {
       this.elapsed += delta;
       // Lift on loading; the same curve reversed lowers the pallet onto the dock.
@@ -265,7 +276,11 @@ export class PalletDispatchController {
     // At the dock: turn in place to the nearest 90° of the dock's heading before
     // releasing, so the pallet (held at a 90° multiple) lands square to the dock.
     if (this.phase === "dispatch") {
-      this.turnTarget ??= this.nearestHeading(this.layout.dock.yaw, Math.PI / 2);
+      const store = this.routes?.store;
+      // A rack slot is entered head-on; a dock accepts any 90° heading.
+      this.turnTarget ??= store
+        ? this.nearestHeading(store.heading, Math.PI * 2)
+        : this.nearestHeading(this.layout.dock.yaw, Math.PI / 2);
       if (!this.turn(delta)) return;
     }
     this.elapsed = 0;
@@ -285,7 +300,54 @@ export class PalletDispatchController {
       payload.rotation.y = (Math.PI / 2) * Math.round(payload.rotation.y / (Math.PI / 2));
       this.aligned = false;
       this.phase = "loading";
+    } else if (this.routes?.store) {
+      this.storeFrom.copy(this.carrier.position);
+      this.storeStage = "lift";
+      this.phase = "storing";
     } else this.phase = "unloading";
+  }
+  /** Lift to the shelf, drive in, set the pallet down (complete), back out, then return home. */
+  private store(delta: number) {
+    const store = this.routes!.store!,
+      payload = this.payload,
+      position = this.carrier.position;
+    const toward = (value: number, target: number, step: number) =>
+      Math.abs(target - value) <= step ? target : value + Math.sign(target - value) * step;
+    if (this.storeStage === "lift") {
+      if (payload) {
+        const height = store.slot.y + RACK_CONFIG.liftClearance;
+        payload.position.y = toward(payload.position.y, height, RACK_CONFIG.liftSpeed * delta);
+        if (payload.position.y !== height) return;
+      }
+      this.storeStage = "insert";
+      return;
+    }
+    if (this.storeStage === "insert" || this.storeStage === "retreat") {
+      const goal = this.storeStage === "insert" ? store.slot : this.storeFrom;
+      const dx = goal.x - position.x,
+        dz = goal.z - position.z,
+        length = Math.hypot(dx, dz),
+        step = RACK_CONFIG.insertSpeed * delta;
+      if (length > step) {
+        position.x += (dx / length) * step;
+        position.z += (dz / length) * step;
+        return;
+      }
+      position.x = goal.x;
+      position.z = goal.z;
+      if (this.storeStage === "insert") this.storeStage = "lower";
+      else this.follow(this.routes!.returning, "returning");
+      return;
+    }
+    if (payload) {
+      payload.position.y = toward(payload.position.y, store.slot.y, RACK_CONFIG.liftSpeed * delta);
+      if (payload.position.y !== store.slot.y) return;
+    }
+    const complete = this.complete;
+    this.complete = null;
+    complete?.();
+    this.payload = null;
+    this.storeStage = "retreat";
   }
   get status() {
     if (this.yielding) return "다른 AMR 통과 대기 · 안전거리 확보 후 자동 출발";
@@ -295,6 +357,7 @@ export class PalletDispatchController {
       loading: "완성 팔레트 상차",
       dispatch: "완성 팔레트 출고 중",
       unloading: "출고 완료 처리",
+      storing: "랙에 팔레트 보관 중",
       returning: "대기 위치로 복귀 중",
       blocked: "AMR 경로가 막혔습니다. 배치를 수정해 주세요.",
     }[this.phase];
