@@ -42,8 +42,8 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     kind: "pallet",
     icon: "Package",
     presets: [
-      { id: "normal", label: "정상품 팔레트", description: "정상품을 적재합니다.", tone: "normal" },
-      { id: "defect", label: "불량품 팔레트", description: "불량품을 적재합니다.", settings: { grade: "defect" }, tone: "defect" },
+      { id: "normal", label: "정상품 적재", description: "정상품을 받는 적재 위치입니다.", tone: "normal" },
+      { id: "defect", label: "불량품 적재", description: "불량품을 받는 적재 위치입니다.", settings: { grade: "defect" }, tone: "defect" },
     ],
   },
   {
@@ -56,8 +56,8 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     icon: "MapPin",
     presets: [
       { id: "any", label: "전체", description: "모든 팔레트를 받습니다." },
-      { id: "normal", label: "정상품 전용", description: "정상품 팔레트만 받습니다.", settings: { acceptGrade: "normal" }, tone: "normal" },
-      { id: "defect", label: "불량품 전용", description: "불량품 팔레트만 받습니다.", settings: { acceptGrade: "defect" }, tone: "defect" },
+      { id: "normal", label: "정상품 전용", description: "정상품 적재 팔레트만 받습니다.", settings: { acceptGrade: "normal" }, tone: "normal" },
+      { id: "defect", label: "불량품 전용", description: "불량품 적재 팔레트만 받습니다.", settings: { acceptGrade: "defect" }, tone: "defect" },
     ],
   },
   {
@@ -65,8 +65,8 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     icon: "Warehouse",
     presets: [
       { id: "any", label: "전체", description: "모든 팔레트를 보관합니다." },
-      { id: "normal", label: "정상품 전용", description: "정상품 팔레트만 보관합니다.", settings: { acceptGrade: "normal" }, tone: "normal" },
-      { id: "defect", label: "불량품 전용", description: "불량품 팔레트만 보관합니다.", settings: { acceptGrade: "defect" }, tone: "defect" },
+      { id: "normal", label: "정상품 전용", description: "정상품 적재 팔레트만 보관합니다.", settings: { acceptGrade: "normal" }, tone: "normal" },
+      { id: "defect", label: "불량품 전용", description: "불량품 적재 팔레트만 보관합니다.", settings: { acceptGrade: "defect" }, tone: "defect" },
     ],
   },
   {

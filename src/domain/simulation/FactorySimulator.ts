@@ -625,7 +625,7 @@ export class FactorySimulator {
     if (!robot || !belt || !docks.length) {
       agent.waitingReason =
         robot && belt && this.docks.length + this.racks.length
-          ? `${grade === "defect" ? "불량" : "정상"} 팔레트를 받을 출고 구역이 없습니다.`
+          ? `${grade === "defect" ? "불량품" : "정상품"} 적재 팔레트를 받을 출고 구역이 없습니다.`
           : "운반할 로봇·컨베이어·출고 구역을 확인해 주세요.";
       return false;
     }

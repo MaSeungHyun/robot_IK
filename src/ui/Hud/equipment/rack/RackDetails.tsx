@@ -27,12 +27,12 @@ export default function RackDetails({ object }: EquipmentDetailProps) {
         <EquipmentChoiceSetting
           id={object.id}
           field="acceptGrade"
-          label="수신 등급"
+          label="수신 용도"
           fallback="any"
           options={[
             { value: "any", label: "전체" },
-            { value: "normal", label: "정상품 팔레트만" },
-            { value: "defect", label: "불량품 팔레트만" },
+            { value: "normal", label: "정상품 적재 팔레트만" },
+            { value: "defect", label: "불량품 적재 팔레트만" },
           ]}
         />
         <EquipmentEnabledSetting id={object.id} />

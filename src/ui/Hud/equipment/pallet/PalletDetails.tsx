@@ -67,11 +67,11 @@ export default function PalletDetails({ object }: EquipmentDetailProps) {
           <EquipmentChoiceSetting
             id={object.id}
             field="grade"
-            label="적재 등급"
+            label="적재 용도"
             fallback="normal"
             options={[
-              { value: "normal", label: "정상품" },
-              { value: "defect", label: "불량품" },
+              { value: "normal", label: "정상품 적재" },
+              { value: "defect", label: "불량품 적재" },
             ]}
           />
           <EquipmentEnabledSetting id={object.id} />
