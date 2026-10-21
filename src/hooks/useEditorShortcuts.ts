@@ -1,5 +1,18 @@
 import { useEffect } from "react";
 import { useSceneStore } from "../stores/useSceneStore";
+import { useModalTransformStore, type ModalMode } from "../stores/useModalTransformStore";
+
+function begin(mode: ModalMode, id: string, created = false) {
+  const object = useSceneStore.getState().objects.find((entry) => entry.id === id);
+  if (!object) return;
+  useModalTransformStore.getState().begin({ mode, id, origin: { x: object.x, z: object.z, yaw: object.yaw }, created });
+}
+
+function paste(source: ReturnType<typeof useModalTransformStore.getState>["clipboard"]) {
+  if (!source) return;
+  const id = useSceneStore.getState().duplicate(source.object, source.settings);
+  if (id) begin("move", id, true);
+}
 
 export default function useEditorShortcuts(enabled:boolean){
   useEffect(()=>{
@@ -9,8 +22,20 @@ export default function useEditorShortcuts(enabled:boolean){
       if(!state.editing||event.isComposing||event.defaultPrevented)return;
       if(event.target instanceof Element&&event.target.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]'))return;
       if(document.querySelector('[role="dialog"],[role="listbox"],[role="menu"]'))return;
-      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"){
+      const modal=useModalTransformStore.getState();
+      if(modal.session)return; // ModalTransform owns the keyboard while G/R is active.
+      const mod=event.ctrlKey||event.metaKey,key=event.key.toLowerCase();
+      const selected=state.selected?state.objects.find(object=>object.id===state.selected):undefined;
+      if(mod&&key==="z"){
         event.preventDefault();if(event.shiftKey)state.redo();else state.undo();
+      }else if(mod&&key==="c"&&selected){
+        event.preventDefault();modal.copy({object:selected,settings:state.settings[selected.id]});
+      }else if(mod&&key==="v"&&modal.clipboard&&!state.pending){
+        event.preventDefault();paste(modal.clipboard);
+      }else if(mod&&key==="d"&&selected&&!state.pending){
+        event.preventDefault();paste({object:selected,settings:state.settings[selected.id]});
+      }else if(!mod&&!event.altKey&&(key==="g"||key==="r")&&selected&&!state.pending){
+        event.preventDefault();begin(key==="g"?"move":"rotate",selected.id);
       }else if((event.key==="Delete"||event.key==="Backspace")&&state.selected){
         event.preventDefault();state.remove(state.selected);
       }

@@ -55,6 +55,7 @@ export default function Hud() {
           <TrackingIndicator />
         </div>
         {showEditor && <FloorDrawingGuide />}
+        {showEditor && <ModalTransformHint />}
       </div>
     </section>
   );
