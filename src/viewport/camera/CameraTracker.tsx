@@ -9,6 +9,8 @@ import { SceneObjectResolver, setSceneRoot, worldYaw } from "@/viewport/scene/sc
 type ControlsEvent = "start" | "end";
 type Controls = {
   target: Vector3;
+  /** OrbitControls listens here (r3f's event source), which need not be the canvas. */
+  domElement?: HTMLElement | null;
   enablePan?: boolean;
   minDistance: number;
   maxDistance: number;
@@ -50,7 +52,9 @@ export default function CameraTracker() {
   const resolver = useMemo(() => new SceneObjectResolver(), []);
   // Per tracked id: the robot focus joint (null for other kinds or when the model lacks it).
   const focus = useRef<{ id: string | null; owner: Object3D | null; joint: Object3D | null }>({ id: null, owner: null, joint: null });
-  const scratchRef = useRef({ goal: new Vector3(), offset: new Vector3(), from: new Vector3(), box: new Box3(), sphere: new Sphere() });
+  const scratchRef = useRef({ goal: new Vector3(), offset: new Vector3(), from: new Vector3(), box: new Box3(), sphere: new Sphere(), lastTarget: new Vector3() });
+  // Pointer type of the current drag: touch gestures pinch/pan together and never release tracking.
+  const dragPointer = useRef<string>("mouse");
   const view = useRef({
     id: null as string | null,
     yaw: 0,
@@ -68,8 +72,9 @@ export default function CameraTracker() {
 
   // OrbitControls pans with the right button or left + ctrl/meta/shift (no key listener is set up).
   useEffect(() => {
-    const element = gl.domElement;
+    const element = controls?.domElement ?? gl.domElement;
     const release = (event: PointerEvent) => {
+      dragPointer.current = event.pointerType;
       if (!useCameraTrackingStore.getState().trackedId || controls?.enablePan === false) return;
       const pan = event.button === 2 || (event.button === 0 && (event.ctrlKey || event.metaKey || event.shiftKey));
       if (pan && event.pointerType !== "touch") useCameraTrackingStore.getState().track(null);
@@ -139,11 +144,23 @@ export default function CameraTracker() {
     v.yaw += wrap(yaw - v.yaw) * (1 - Math.exp(-YAW_RATE * dt));
 
     if (v.dragging) {
+      // Rotate/zoom keep the target; if the drag moved it since our last write, the user panned.
+      if (
+        controls.enablePan !== false &&
+        dragPointer.current !== "touch" &&
+        controls.target.distanceToSquared(scratch.lastTarget) > 1e-10
+      ) {
+        useCameraTrackingStore.getState().track(null);
+        v.dragging = false;
+        v.id = null;
+        return;
+      }
       // Keep following the position only; the user's rotation/zoom is applied by the controls.
       offset.subVectors(goal, controls.target).multiplyScalar(1 - Math.exp(-FOLLOW_RATE * dt));
       controls.target.add(offset);
       state.camera.position.add(offset);
       controls.update();
+      scratch.lastTarget.copy(controls.target);
       return;
     }
 
@@ -167,6 +184,7 @@ export default function CameraTracker() {
       controls.target.z + Math.cos(azimuth) * flat,
     );
     controls.update();
+    scratch.lastTarget.copy(controls.target);
   });
   return null;
 }
