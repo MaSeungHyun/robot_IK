@@ -15,7 +15,7 @@ export default function EquipmentDetailsPanel() {
       className="min-h-0 shrink overflow-hidden flex-1 h-full"
     >
       {/* Panel is bounded by the column; only this area scrolls. */}
-      <div className="-mr-2 min-h-0 flex-auto overflow-y-auto pr-2 [scrollbar-color:#334155_transparent] [scrollbar-width:thin]">
+      <div className="min-h-0 flex-auto overflow-y-auto -mr-4 pr-2.5 [scrollbar-gutter:stable] scrollbar-thin">
         {boxId ? (
           <BoxDetails id={boxId} />
         ) : object ? (

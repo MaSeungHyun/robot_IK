@@ -12,7 +12,11 @@ export default function useMockEquipmentTelemetry(objects: SceneEquipment[], run
   useEffect(() => {
     function update() {
       const previous = useSimulationStore.getState().mockTelemetry;
-      setMockTelemetry(createMockTelemetry(objects, useSceneStore.getState().settings, previous));
+      const equipment = useSimulationStore.getState().equipment;
+      const states: Record<string, string> = {};
+      for (const robot of equipment?.robots ?? []) states[robot.id] = robot.state;
+      for (const agent of equipment?.agents ?? []) states[agent.id] = agent.state;
+      setMockTelemetry(createMockTelemetry(objects, useSceneStore.getState().settings, previous, Math.random, states));
     }
 
     const previous = useSimulationStore.getState().mockTelemetry;

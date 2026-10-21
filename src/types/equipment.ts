@@ -18,4 +18,10 @@ export type EquipmentTelemetry = {
   operationCount?: number;
   /** AMR battery level 0-100 %, reported by a connected device. The simulator has no battery model. */
   batteryPercent?: number;
+  /** Mock-only extras (no simulator model): per-joint torque/load %, suction kPa (negative = vacuum), held box / AMR payload kg, conveyor motor load %. */
+  jointLoadPercent?: number[];
+  suctionKPa?: number;
+  heldBoxKg?: number;
+  payloadKg?: number;
+  motorLoadPercent?: number;
 };

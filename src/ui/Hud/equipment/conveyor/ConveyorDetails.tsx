@@ -1,5 +1,5 @@
 import useEquipmentTelemetry from "@/hooks/useEquipmentTelemetry";
-import { formatMetric } from "@/utils/equipment/formatMetric";
+import { formatFixed, formatMetric } from "@/utils/equipment/formatMetric";
 import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 import { useMemo } from "react";
 import Badge from "@/components/Badge";
@@ -13,6 +13,12 @@ import { useSimulationStore } from "@/stores/useSimulationStore";
 import { beltConnections, beltLength } from "@/domain/conveyor/conveyorLayout";
 import { SPEED_LIMITS } from "@/domain/simulation/equipmentSpeeds";
 import type { ConveyorTurn } from "@/types/layout";
+import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
+import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
+
+const metric = (value: number | undefined, unit: string) => (
+  <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
+);
 
 const TURN_LABELS: Record<ConveyorTurn, string> = { straight: "직선", left: "좌회전", right: "우회전" };
 
@@ -41,8 +47,9 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
         { label: "구간 길이", value: formatMetric(beltLength(object), "m", 2) },
         { label: "앞 구간", value: previous?.name ?? "없음 · 박스 생성 구간" },
         { label: "다음 구간", value: next?.name ?? "없음 · 라인 종료" },
-        { label: "모터 온도", value: formatMetric(telemetry?.motorTemperatureC, "°C") },
-        { label: "소비 전력", value: formatMetric(telemetry?.powerKw, "kW") },
+        { label: "모터 온도", value: metric(telemetry?.motorTemperatureC, "°C") },
+        { label: "소비 전력", value: metric(telemetry?.powerKw, "kW") },
+        { label: "모터 부하 (모의)", value: metric(telemetry?.motorLoadPercent, "%"), progress: telemetry?.motorLoadPercent },
       ]} />
     } settings={
       <DetailSection title="컨베이어 설정">

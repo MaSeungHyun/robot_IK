@@ -1,4 +1,4 @@
-import { MOCK_TELEMETRY_CONFIG as CONFIG } from "@/constants/telemetry";
+import { AMR_LOADED_STATES, MOCK_TELEMETRY_CONFIG as CONFIG } from "@/constants/telemetry";
 import type { EquipmentTelemetry } from "@/types/equipment";
 import type { EquipmentSettings, SceneEquipment } from "@/types/layout";
 
@@ -20,6 +20,8 @@ export function createMockTelemetry(
   settings: Record<string, EquipmentSettings>,
   previous: Record<string, EquipmentTelemetry>,
   random: () => number = Math.random,
+  /** Live equipment state by id (robot "working", AMR state), used to decide holding / carrying. */
+  states: Record<string, string> = {},
 ): Record<string, EquipmentTelemetry> {
   const readings: Record<string, EquipmentTelemetry> = {};
 
@@ -31,6 +33,7 @@ export function createMockTelemetry(
     }
 
     readings[object.id] = {
+      ...mockExtras(object.kind, states[object.id], last, random),
       source: "simulation",
       connection: { state: "online", latencyMs: Math.round(drift(last?.connection?.latencyMs, CONFIG.latency, random)) },
       motorTemperatureC: drift(last?.motorTemperatureC, CONFIG.motorTemperature, random),
@@ -46,4 +49,24 @@ export function createMockTelemetry(
   }
 
   return readings;
+}
+
+const isLoaded = (state: string | undefined) => (AMR_LOADED_STATES as readonly string[]).includes(state ?? "");
+
+/** Mock-only extras per equipment kind; the simulator models none of these physically. */
+function mockExtras(kind: string, state: string | undefined, last: EquipmentTelemetry | undefined, random: () => number): EquipmentTelemetry {
+  if (kind === "robot") {
+    const holding = state === "working";
+    return {
+      jointLoadPercent: Array.from({ length: CONFIG.jointCount }, (_, index) =>
+        drift(last?.jointLoadPercent?.[index], CONFIG.jointLoad, random)),
+      suctionKPa: drift(last?.suctionKPa, holding ? CONFIG.suctionHolding : CONFIG.suctionIdle, random),
+      heldBoxKg: holding ? (last?.heldBoxKg || drift(undefined, CONFIG.boxWeight, random)) : 0,
+    };
+  }
+  if (kind === "amr") {
+    return { payloadKg: isLoaded(state) ? (last?.payloadKg || drift(undefined, CONFIG.payload, random)) : 0 };
+  }
+  if (kind === "conveyor") return { motorLoadPercent: drift(last?.motorLoadPercent, CONFIG.motorLoad, random) };
+  return {};
 }

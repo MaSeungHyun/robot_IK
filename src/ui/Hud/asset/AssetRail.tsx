@@ -19,7 +19,7 @@ type Item = "templates" | "log" | EquipmentKind;
 const railButton =
   "flex size-10 shrink-0 items-center justify-center rounded-md text-text-secondary outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-brand-primary";
 const flyout =
-  "absolute top-2 left-full ml-2 max-h-[calc(100%-1rem)] overflow-y-auto rounded-md border border-brand-primary/20 bg-bg-primary/95 p-3 shadow-2xl backdrop-blur-md";
+  "absolute top-2 left-full ml-2 max-h-[calc(100%-1rem)] overflow-y-auto scrollbar-thin rounded-md border border-brand-primary/20 bg-bg-primary/95 p-3 shadow-2xl backdrop-blur-md";
 
 /**
  * Editor-only icon rail: Templates first, then asset categories. Each opens a flyout grid;

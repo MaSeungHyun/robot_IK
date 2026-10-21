@@ -182,7 +182,7 @@ export default function EquipmentStatusPanel() {
           장비 상태를 준비하고 있습니다.
         </p>
       ) : (
-        <div className="flex flex-col gap-2 min-h-0 overflow-y-auto scroll">
+        <div className="flex flex-col gap-2 min-h-0 overflow-y-auto -mr-4 pr-2.5 [scrollbar-gutter:stable] scrollbar-thin">
           {(!filtered || lists.robots.length > 0) && (
             <RobotStatusSection robots={lists.robots} />
           )}

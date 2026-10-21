@@ -3,11 +3,12 @@ import { Vector3 } from "three";
 import { AGENT_LABELS } from "@/ui/Hud/equipment/amr/constants";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { SceneObjectResolver, worldYaw } from "@/viewport/scene/sceneObjects";
+import { EQUIPMENT_REPORT_INTERVAL_MS, TELEMETRY_INTERPOLATION } from "@/constants/telemetry";
+import { BufferedScalar, lerpAngleDeg, smoothingAlpha } from "@/lib/interpolation";
 
-/** Refresh rate of the live readout (~10 Hz); text nodes are written directly, no React state. */
-const INTERVAL_MS = 100;
-/** Speed smoothing per update (0..1, higher = more responsive). */
-const SPEED_SMOOTHING = 0.35;
+/** Display smoothing time constants (wall ms): pose follows the moving model closely, speed is a noisier derivative. */
+const POSE_TAU_MS = 80;
+const SPEED_TAU_MS = 300;
 
 type Props = { id: string; amr: boolean };
 
@@ -22,45 +23,62 @@ export default function TrackingLiveInfo({ id, amr }: Props) {
   useEffect(() => {
     const resolver = new SceneObjectResolver(),
       point = new Vector3(),
-      last = new Vector3();
-    let lastAt = 0,
-      smoothed = 0;
+      last = new Vector3(),
+      shown = new Vector3();
+    const battery_ = new BufferedScalar(EQUIPMENT_REPORT_INTERVAL_MS, EQUIPMENT_REPORT_INTERVAL_MS * TELEMETRY_INTERPOLATION.smoothingTauRatio);
+    let frame = 0, lastFrame = 0, lastWrite = 0, speedValue = 0, headingDeg: number | undefined, primed = false;
+    let source = useSimulationStore.getState().equipment;
     const write = (node: HTMLSpanElement | null, value: string) => {
       if (node && node.textContent !== value) node.textContent = value;
     };
-    const update = () => {
+    const tick = (now: number) => {
+      frame = requestAnimationFrame(tick);
+      const dtMs = lastFrame ? now - lastFrame : 0;
+      lastFrame = now;
       const object = resolver.resolve(id);
       if (!object) {
+        primed = false;
         write(position.current, "—");
         write(heading.current, "—");
         return;
       }
       object.getWorldPosition(point);
-      write(
-        position.current,
-        `x ${point.x.toFixed(2)} \n z ${point.z.toFixed(2)}`,
-      );
-      write(
-        heading.current,
-        `${(((worldYaw(object) * 180) / Math.PI + 360) % 360).toFixed(0)}°`,
-      );
-      if (!amr) return;
-      const now = performance.now();
-      if (lastAt) {
+      const yaw = (((worldYaw(object) * 180) / Math.PI) % 360 + 360) % 360;
+      const pose = smoothingAlpha(dtMs, POSE_TAU_MS);
+      if (!primed) {
+        shown.copy(point);
+        last.copy(point);
+        headingDeg = yaw;
+        primed = true;
+      } else {
+        shown.lerp(point, pose);
+        headingDeg = lerpAngleDeg(headingDeg ?? yaw, yaw, pose);
         // Simulation seconds, so the readout is the same at any playback speed (배속).
-        const dt =
-          ((now - lastAt) / 1000) * useSimulationStore.getState().speed;
-        if (dt > 0)
-          smoothed +=
-            (Math.hypot(point.x - last.x, point.z - last.z) / dt - smoothed) *
-            SPEED_SMOOTHING;
+        const simSeconds = (dtMs / 1000) * useSimulationStore.getState().speed;
+        if (amr && simSeconds > 0) {
+          const measured = Math.hypot(point.x - last.x, point.z - last.z) / simSeconds;
+          speedValue += (measured - speedValue) * smoothingAlpha(dtMs, SPEED_TAU_MS);
+        }
+        last.copy(point);
       }
-      last.copy(point);
-      lastAt = now;
-      write(speed.current, `${smoothed.toFixed(2)} m/s`);
-      const agent = useSimulationStore
-        .getState()
-        .equipment?.agents.find((candidate) => candidate.id === id);
+
+      const state = useSimulationStore.getState();
+      const agent = amr ? state.equipment?.agents.find((candidate) => candidate.id === id) : undefined;
+      if (state.equipment !== source) {
+        source = state.equipment;
+        const level = agent ? (state.equipment?.telemetry?.[id]?.batteryPercent ?? agent.battery) : undefined;
+        if (level !== undefined && Number.isFinite(level)) battery_.push(level, now);
+      }
+      const batteryShown = battery_.sample(now);
+
+      if (now - lastWrite < TELEMETRY_INTERPOLATION.textUpdateMs) return;
+      lastWrite = now;
+      // Position keeps its intentional 2 decimals (cm); other continuous values use 1 fixed decimal.
+      write(position.current, `x ${shown.x.toFixed(2)} \n z ${shown.z.toFixed(2)}`);
+      const wrapped = ((((headingDeg ?? yaw) % 360) + 360) % 360).toFixed(1);
+      write(heading.current, `${wrapped === "360.0" ? "0.0" : wrapped}°`);
+      if (!amr) return;
+      write(speed.current, `${speedValue.toFixed(1)} m/s`);
       write(
         status.current,
         agent
@@ -68,16 +86,10 @@ export default function TrackingLiveInfo({ id, amr }: Props) {
               String(agent.state))
           : "—",
       );
-      write(
-        battery.current,
-        agent && Number.isFinite(agent.battery)
-          ? `${Math.round(agent.battery)}%`
-          : "—",
-      );
+      write(battery.current, agent && batteryShown !== undefined ? `${batteryShown.toFixed(1)}%` : "—");
     };
-    update();
-    const timer = window.setInterval(update, INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, [id, amr]);
 
   const row = "flex justify-between gap-3 whitespace-nowrap";
@@ -116,7 +128,7 @@ export default function TrackingLiveInfo({ id, amr }: Props) {
           <div className={row}>
             <dt className={label}>SPD</dt>
             <dd>
-              <span ref={speed}>—</span>
+              <span ref={speed} className="tabular-nums">—</span>
             </dd>
           </div>
         </>

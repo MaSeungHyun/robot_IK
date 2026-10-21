@@ -1,6 +1,5 @@
 import { Popover } from "radix-ui";
-import Button from "@/components/Button";
-import Icon from "@/components/Icon";
+import IconButton from "@/components/IconButton";
 import ShadowQualitySelect from "@/ui/Hud/simulation/ShadowQualitySelect";
 
 /** Header dropdown for simulation/view settings; KPIs live in the Dashboard tab. */
@@ -8,10 +7,7 @@ export default function SettingsMenu() {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <Button aria-label="Settings" className="h-8 px-2 text-xs">
-          <Icon icon="Settings" aria-hidden="true" className="size-3.5" />
-          Settings
-        </Button>
+        <IconButton icon="Settings" label="설정" tooltipSide="bottom" />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

@@ -1,5 +1,6 @@
 import Panel from "@/ui/Hud/_components/Panel";
 import SimulationStatsPanel from "@/ui/Hud/simulation/SimulationStatsPanel";
+import LineSummaryPanel from "@/ui/Hud/dashboard/LineSummaryPanel";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 
@@ -11,6 +12,7 @@ export default function DashboardMenuPanel() {
       <h2 className="text-sm font-semibold">대시보드</h2>
       <p className="my-3 text-xs text-text-secondary">설비 {count}개 · {running ? "실행 중" : "일시 정지"}</p>
       <SimulationStatsPanel />
+      <LineSummaryPanel />
     </Panel>
   );
 }

@@ -6,8 +6,13 @@ import type { EquipmentSnapshot } from "@/types/simulation";
 type Props = { robot: EquipmentSnapshot["robots"][number] };
 
 import { memo } from "react";
+import useSmoothedValue from "@/hooks/useSmoothedValue";
+import { EQUIPMENT_REPORT_INTERVAL_MS } from "@/constants/telemetry";
+
 
 export default memo(function RobotCard({ robot }: Props) {
+  const utilization = useSmoothedValue(robot.utilization, EQUIPMENT_REPORT_INTERVAL_MS);
+
   return (
     <EquipmentCard id={robot.id} name={robot.name}>
       <div className="flex items-center justify-between text-xs">
@@ -19,7 +24,7 @@ export default memo(function RobotCard({ robot }: Props) {
         <ProgressBar
           label={`${robot.name} 가동률`}
           caption="가동률"
-          value={robot.utilization}
+          value={utilization ?? robot.utilization}
           className="mt-1 pr-1"
         />
         <div className="flex items-center justify-between gap-2 text-xs text-text-secondary">

@@ -68,3 +68,20 @@
     opacity: 0.9;
   }
 }
+
+/* Thin, track-less scrollbar for HUD scroll areas: only a rounded thumb, no buttons. */
+@utility scrollbar-thin {
+  &::-webkit-scrollbar { width: 6px; height: 6px; }
+  &::-webkit-scrollbar-track, &::-webkit-scrollbar-corner { background: transparent; }
+  &::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  &::-webkit-scrollbar-thumb { border-radius: 9999px; background-color: color-mix(in srgb, white 15%, transparent); }
+  &:hover::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, white 25%, transparent); }
+  &::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--color-brand-primary) 45%, transparent); }
+
+  /* Firefox only: Chromium ignores ::-webkit-scrollbar styling once scrollbar-color/width are set. */
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, white 15%, transparent) transparent;
+    &:hover { scrollbar-color: color-mix(in srgb, white 25%, transparent) transparent; }
+  }
+}

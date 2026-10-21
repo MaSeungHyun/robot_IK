@@ -1,6 +1,6 @@
 import RobotJointValues from "@/ui/Hud/equipment/robot/RobotJointValues";
 import useEquipmentTelemetry from "@/hooks/useEquipmentTelemetry";
-import { formatMetric } from "@/utils/equipment/formatMetric";
+import { formatFixed, formatMetric } from "@/utils/equipment/formatMetric";
 import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 import Badge from "@/components/Badge";
 import RobotStatusBadge from "@/ui/Hud/equipment/robot/RobotStatusBadge";
@@ -12,6 +12,12 @@ import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/Equip
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
+import { EQUIPMENT_REPORT_INTERVAL_MS, MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
+
+const metric = (value: number | undefined, unit: string) => (
+  <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
+);
 
 export default function RobotDetails({ object }: EquipmentDetailProps) {
   const robot = useSimulationStore((state) =>
@@ -34,25 +40,27 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
           rows={[
             {
               label: "모터 온도",
-              value: formatMetric(telemetry?.motorTemperatureC, "°C"),
+              value: metric(telemetry?.motorTemperatureC, "°C"),
             },
             {
               label: "컨트롤러 온도",
-              value: formatMetric(telemetry?.controllerTemperatureC, "°C"),
+              value: metric(telemetry?.controllerTemperatureC, "°C"),
             },
             {
               label: "가동률",
-              value: formatMetric(robot?.utilization, "%"),
+              value: <SmoothValue value={robot?.utilization} format={(v) => formatFixed(v, "%")} intervalMs={EQUIPMENT_REPORT_INTERVAL_MS} className="tabular-nums" />,
               progress: robot?.utilization,
             },
             {
               label: "사이클 시간",
-              value: formatMetric(telemetry?.cycleTimeSeconds, "s"),
+              value: metric(telemetry?.cycleTimeSeconds, "s"),
             },
             {
               label: "소비 전력",
-              value: formatMetric(telemetry?.powerKw, "kW"),
+              value: metric(telemetry?.powerKw, "kW"),
             },
+            { label: "흡착 압력 (모의)", value: metric(telemetry?.suctionKPa, "kPa") },
+            { label: "파지 박스 중량 (모의)", value: metric(telemetry?.heldBoxKg, "kg") },
             { label: "프로그램", value: telemetry?.program },
             { label: "현재 부품", value: telemetry?.currentPart },
             {

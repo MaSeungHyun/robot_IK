@@ -8,10 +8,14 @@ import type { EquipmentSnapshot } from "@/types/simulation";
 type Props = { agent: EquipmentSnapshot["agents"][number] };
 
 import { memo } from "react";
+import useSmoothedValue from "@/hooks/useSmoothedValue";
+import { EQUIPMENT_REPORT_INTERVAL_MS } from "@/constants/telemetry";
+
 
 export default memo(function AMRCard({ agent }: Props) {
   const battery =
     useEquipmentTelemetry(agent.id)?.batteryPercent ?? agent.battery;
+  const smoothBattery = useSmoothedValue(battery, EQUIPMENT_REPORT_INTERVAL_MS);
   const charging = agent.state === "charging";
 
   return (
@@ -25,7 +29,7 @@ export default memo(function AMRCard({ agent }: Props) {
         <ProgressBar
           label={`${agent.name} 배터리`}
           caption="배터리"
-          value={battery}
+          value={smoothBattery ?? battery}
           tone={charging ? "info" : batteryTone(battery)}
           pulse={charging}
           className="mt-2 pr-1"

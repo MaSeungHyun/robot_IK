@@ -38,7 +38,7 @@ export default function LogPanel() {
         {hasWarnings ? `설비 배치 문제 발생 가능 · ${warnings.length}건` : "충돌 위험 없음"}
       </p>
       {hasWarnings && (
-        <ul className="max-h-28 space-y-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
+        <ul className="max-h-28 space-y-1 overflow-y-auto pr-1 scrollbar-thin">
           {warnings.map((warning) => (
             <li
               key={warning.id}

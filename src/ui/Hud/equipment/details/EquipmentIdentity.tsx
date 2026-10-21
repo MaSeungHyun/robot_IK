@@ -36,7 +36,7 @@ export default function EquipmentIdentity({ object, status }: Props) {
         {object.name} <span className="text-text-secondary">· {kindName}</span>
       </h2>
 
-      <div className="pointer-events-none mx-auto mt-2 flex h-28 w-36 items-center justify-center overflow-hidden rounded-[3px] border border-white/10 bg-black/20">
+      <div className="pointer-events-none mx-auto mt-2 flex h-28 w-36 items-center justify-center overflow-hidden bg-transparent">
         {visual.image ? (
           <img
             src={visual.image}

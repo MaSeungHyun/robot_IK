@@ -8,3 +8,6 @@ export const INSPECTOR_TABS = [
   { id: "details", label: "Details", icon: "Settings2" },
   { id: "dashboard", label: "Dashboard", icon: "ChartNoAxesCombined" },
 ] as const;
+
+/** Header Sim Time readout: DOM write interval (~30 Hz) and max extrapolation past the last snapshot (s, x speed). */
+export const HEADER_CLOCK = { updateMs: 33, maxExtrapolationS: 0.3 } as const;

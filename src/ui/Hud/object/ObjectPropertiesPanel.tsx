@@ -69,7 +69,7 @@ export default function ObjectPropertiesPanel({
         className={
           embedded
             ? undefined
-            : "-mr-2 flex min-h-0 flex-auto flex-col overflow-y-auto pr-2 [scrollbar-color:#334155_transparent] [scrollbar-width:thin]"
+            : "flex min-h-0 flex-auto flex-col overflow-y-auto -mr-4 pr-2.5 [scrollbar-gutter:stable] scrollbar-thin"
         }
       >
         <Select
