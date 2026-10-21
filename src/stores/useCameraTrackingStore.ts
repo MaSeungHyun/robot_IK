@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useSceneStore } from "@/stores/useSceneStore";
+import { useCargoStore } from "@/stores/useCargoStore";
 
 interface CameraTrackingState {
   /** Scene object id the camera follows; null = free camera. */
@@ -21,5 +22,5 @@ export const useCameraTrackingStore = create<CameraTrackingState>((set, get) => 
 // Entering edit mode, deleting the tracked object (or clearing / replacing the layout) releases tracking.
 useSceneStore.subscribe((scene) => {
   const { trackedId, track } = useCameraTrackingStore.getState();
-  if (trackedId && (scene.editing || !scene.objects.some((object) => object.id === trackedId))) track(null);
+  if (trackedId && (scene.editing || (!scene.objects.some((object) => object.id === trackedId) && !useCargoStore.getState().registry?.box(trackedId)))) track(null);
 });

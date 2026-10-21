@@ -16,6 +16,8 @@ export class ScannerInspection {
   private settings: () => Record<string, EquipmentSettings>;
   private random: () => number;
   private now: () => number;
+  /** Called once per scanner a box passes (box id lives on the box node's userData). */
+  onScan?: (box: Object3D, scannerId: string, result: ScanResult) => void;
 
   constructor(
     settings: () => Record<string, EquipmentSettings>,
@@ -87,6 +89,7 @@ export class ScannerInspection {
       sensor.snapshot.faults += inspection.result === "fault" ? 1 : 0;
       sensor.snapshot.lastResult = inspection.result;
       sensor.signalUntil = this.now() + SCANNER_CONFIG.signalSeconds;
+      this.onScan?.(box, id, inspection.result);
     }
   }
 

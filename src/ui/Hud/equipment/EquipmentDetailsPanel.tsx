@@ -1,10 +1,13 @@
 import Panel from "@/ui/Hud/_components/Panel";
 import EquipmentDetails from "@/ui/Hud/equipment/details/EquipmentDetails";
 import { useSceneStore } from "@/stores/useSceneStore";
+import { useCargoStore } from "@/stores/useCargoStore";
+import BoxDetails from "@/ui/Hud/cargo/BoxDetails";
 
 export default function EquipmentDetailsPanel() {
   const objects = useSceneStore((state) => state.objects);
   const selected = useSceneStore((state) => state.inspected ?? state.selected);
+  const boxId = useCargoStore((state) => state.selectedBoxId);
   const object = objects.find((candidate) => candidate.id === selected);
   return (
     <Panel
@@ -13,7 +16,9 @@ export default function EquipmentDetailsPanel() {
     >
       {/* Panel is bounded by the column; only this area scrolls. */}
       <div className="-mr-2 min-h-0 flex-auto overflow-y-auto pr-2 [scrollbar-color:#334155_transparent] [scrollbar-width:thin]">
-        {object ? (
+        {boxId ? (
+          <BoxDetails id={boxId} />
+        ) : object ? (
           <EquipmentDetails object={object} />
         ) : (
           <>

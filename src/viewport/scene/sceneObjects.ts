@@ -35,7 +35,7 @@ export class SceneObjectResolver {
     if (now < this.retryAt) return null;
     this.retryAt = now + RETRY_MS;
     let found: Object3D | null = null;
-    root.traverse((node) => { if (!found && node.userData.sceneId === id) found = node; });
+    root.traverse((node) => { if (!found && (node.userData.sceneId === id || node.userData.boxId === id)) found = node; });
     this.object = found;
     return found;
   }

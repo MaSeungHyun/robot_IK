@@ -9,6 +9,7 @@ import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/Equip
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import PalletCargo from "@/ui/Hud/cargo/PalletCargo";
 
 export default function PalletDetails({ object }: EquipmentDetailProps) {
   const pallet = useSimulationStore((state) =>
@@ -77,6 +78,8 @@ export default function PalletDetails({ object }: EquipmentDetailProps) {
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>
       }
-    ></EquipmentDetailLayout>
+    >
+      <PalletCargo stationId={object.id} />
+    </EquipmentDetailLayout>
   );
 }

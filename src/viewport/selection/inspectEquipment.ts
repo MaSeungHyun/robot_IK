@@ -1,6 +1,7 @@
 import type { ThreeEvent } from "@react-three/fiber";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useHudStore } from "@/stores/useHudStore";
+import { useCargoStore } from "@/stores/useCargoStore";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 
 /** A press held longer than this is a hold or a slow camera drag, not a click. */
@@ -50,3 +51,11 @@ export const playHover = {
   onPointerOut: () => { if (!useSceneStore.getState().editing) setCursor(""); },
 };
 export const resetCursor = () => setCursor("");
+
+/** Play-mode click on a cargo box: select it (not the equipment behind) and open its Details. */
+export function clickBox(event: ThreeEvent<MouseEvent>, id: string) {
+  if (!isSelectionClick(event) || useSceneStore.getState().editing) return;
+  event.stopPropagation();
+  useCargoStore.getState().selectBox(id);
+  useHudStore.getState().selectInspectorTab("details");
+}

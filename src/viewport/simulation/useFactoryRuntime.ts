@@ -10,6 +10,7 @@ import type { SimulatorRunProps } from "@/viewport/simulation/types";
 import { useSceneInstances } from "@/viewport/instancing/useInstanceModel";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useCargoStore } from "@/stores/useCargoStore";
 import { simulationDelta } from "@/domain/simulation/simulationTime";
 
 const REPORT_INTERVAL = 0.25;
@@ -36,7 +37,12 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
 
   useEffect(() => {
     world.connectInstances();
-    return () => world.dispose();
+    useCargoStore.getState().setRegistry(world.cargo);
+    return () => {
+      world.dispose();
+      // STOP (or a new run) clears box records and the box selection.
+      useCargoStore.getState().setRegistry(null);
+    };
   }, [world]);
 
   useEffect(() => {
@@ -59,6 +65,7 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
     onStats(world.stats);
     onProgress(world.placed, world.status);
     setEquipment(world.equipment);
+    useCargoStore.getState().refresh();
   }, -2);
 
   return { world, objects, settings };
