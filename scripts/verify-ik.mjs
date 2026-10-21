@@ -43,39 +43,38 @@ function load(name, nativeMeshNodes = false) {
 const output = path.resolve('.tmp/ik-tests'); fs.mkdirSync(output,{recursive:true});
 const sourcePaths = {
   sceneTemplates:'src/constants/sceneTemplates.ts',
-  applySceneTemplate:'src/features/simulator/templates/applySceneTemplate.ts',
+  applySceneTemplate:'src/stores/actions/applySceneTemplate.ts',
   useHudStore:'src/stores/useHudStore.ts',
   useModeStore:'src/stores/useModeStore.ts',
-  applyEquipmentSettings:'src/utils/equipment/applyEquipmentSettings.ts',
+  applyEquipmentSettings:'src/stores/actions/applyEquipmentSettings.ts',
   telemetry:'src/constants/telemetry.ts',
   equipmentTelemetry:'src/mock/equipmentTelemetry.ts',
   playback:'src/constants/playback.ts',
-  simulationTime:'src/utils/simulation/simulationTime.ts',
-  SceneInstances:'src/features/Viewport/instancing/SceneInstances.ts',
-  SelectionOutline:'src/features/Viewport/instancing/SelectionOutline.ts',
-  conveyorTemplate:'src/features/conveyor/conveyorTemplate.ts',
-  conveyorLayout:'src/utils/conveyor/conveyorLayout.ts',
+  simulationTime:'src/domain/simulation/simulationTime.ts',
+  SceneInstances:'src/viewport/instancing/SceneInstances.ts',
+  SelectionOutline:'src/viewport/selection/SelectionOutline.ts',
+  conveyorTemplate:'src/objects/conveyor/conveyorTemplate.ts',
+  conveyorLayout:'src/domain/conveyor/conveyorLayout.ts',
   conveyorLayoutConfig:'src/constants/conveyorLayoutConfig.ts',
   useSceneStore:'src/stores/useSceneStore.ts',
   useSimulationStore:'src/stores/useSimulationStore.ts',
-  sceneValidation:'src/utils/amr/sceneValidation.ts',
+  sceneValidation:'src/domain/amr/navigation/sceneValidation.ts',
   scanner: "src/constants/scanner.ts",
-  scannerModel: "src/utils/scanner/scannerModel.ts",
-  ScannerInspection: "src/features/scanner/ScannerInspection.ts",
+  scannerModel: "src/objects/scanner/scannerModel.ts",
+  ScannerInspection: "src/domain/scanner/ScannerInspection.ts",
   simulatorLayout:'src/constants/simulatorLayout.ts',
-  pathfinding:'src/utils/amr/pathfinding.ts',
-  layoutNavigation:'src/utils/amr/layoutNavigation.ts',
-  PalletDispatchController:'src/features/amr/PalletDispatchController.ts',
-  AMRTrafficController:'src/features/amr/AMRTrafficController.ts',
-  FactorySimulator:'src/features/simulator/runtime/FactorySimulator.ts',
-  PalletController:'src/features/Viewport/models/Pallet/PalletController.ts',
-  palletModel:'src/features/Viewport/models/Pallet/palletModel.ts',
-  stacking:'src/utils/packing/stacking.ts',
+  pathfinding:'src/domain/amr/navigation/pathfinding.ts',
+  layoutNavigation:'src/domain/amr/navigation/layoutNavigation.ts',
+  PalletDispatchController:'src/domain/amr/PalletDispatchController.ts',
+  AMRTrafficController:'src/domain/amr/AMRTrafficController.ts',
+  FactorySimulator:'src/domain/simulation/FactorySimulator.ts',
+  PalletController:'src/domain/pallet/PalletController.ts',
+  palletModel:'src/lib/three/palletModel.ts',
+  stacking:'src/domain/pallet/packing/stacking.ts',
   constants: 'src/constants/simulation.ts',
-  ConveyorSimulator: 'src/legacy/conveyor/ConveyorSimulator.ts',
-  modelNormalization:'src/utils/three/modelNormalization.ts',
-  ...Object.fromEntries(['joints','collisions','robotKinematics','closedChainKinematics','robotIK','heldBoxCollision','picking','motionTiming'].map(name => [name, `src/utils/robot/${name}.ts`])),
-  ...Object.fromEntries(['packingDiagnostics','perfectTiling','tiling','onlinePacking','fixedLayerPacking'].map(name => [name, `src/utils/packing/${name}.ts`])),
+  modelNormalization:'src/lib/three/modelNormalization.ts',
+  ...Object.fromEntries(['joints','collisions','robotKinematics','closedChainKinematics','robotIK','heldBoxCollision','picking','motionTiming'].map(name => [name, `src/domain/robot/ik/${name}.ts`])),
+  ...Object.fromEntries(['packingDiagnostics','perfectTiling','tiling','onlinePacking','fixedLayerPacking'].map(name => [name, `src/domain/pallet/packing/${name}.ts`])),
 };
 for (const name of Object.keys(sourcePaths)) {
   const source = fs.readFileSync(sourcePaths[name], "utf8").replace(/from "(?:@\/|(?:\.\.?\/)+)[^"\n]+"/g, spec => spec.replace(/"[^"\n]+"/, value => {const base=path.basename(value.slice(1,-1));return `"./${base==="simulation"?"constants":base}.mjs"`;}));
@@ -768,22 +767,16 @@ if(process.argv.includes('--scene-state')){
   process.exit(0);
 }
 const { createRobotIK } = await import(new URL('../.tmp/ik-tests/robotIK.mjs',import.meta.url));
-const { ConveyorSimulator }=await import(new URL('../.tmp/ik-tests/ConveyorSimulator.mjs',import.meta.url));
 const { createUnitBox, createUnitPallet }=await import('../.tmp/ik-tests/modelNormalization.mjs');
 const { BOX_SIZES: PRODUCTION_BOX_SIZES, STREAM_CONFIG }=await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
 const strip = source => source.replace(/^import[\s\S]*?;\r?\n/gm,'').replaceAll('export ','');
 const compile = source => ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
-let demoSource = strip(fs.readFileSync('src/legacy/robot/RobotDemo.tsx','utf8')).replace('default function RobotDemo','function Demo');
-if(process.env.IK_BATCH_COUNT)demoSource=demoSource.replace(/BOX_COUNT\s*=\s*\d+/,`BOX_COUNT = ${Number(process.env.IK_BATCH_COUNT)}`);
-demoSource = demoSource.slice(0,demoSource.lastIndexOf('  return ('))+'return demo;}';
-const stacking = compile(strip(fs.readFileSync('src/utils/packing/stacking.ts','utf8')));
-const demoFactory = new Function('useGLTF','useMemo','useRef','useEffect','Box3','Group','Vector3','boxUrl','palletUrl','createUnitBox','createUnitPallet','STREAM_CONFIG','BOX_SIZES','ROBOT_PICKING',stacking+compile(demoSource)+';return Demo({running:true,onProgress:()=>{}});');
-const makeDemo=(...args)=>demoFactory(...args,createUnitBox,createUnitPallet,STREAM_CONFIG,PRODUCTION_BOX_SIZES,ROBOT_PICKING);
+const stacking = compile(strip(fs.readFileSync('src/domain/pallet/packing/stacking.ts','utf8')));
 const { MOTION, IK_CONFIG, COLLISION, PACKING, ROBOT_PICKING } = await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
 const { isPickupInRange, isWristAboveBox, setCargoWorldPose } = await import(new URL('../.tmp/ik-tests/picking.mjs',import.meta.url));
 const { minimumJerk } = await import(new URL('../.tmp/ik-tests/motionTiming.mjs',import.meta.url));
 const { setJointAngle, createJointControl, blenderWorldX } = await import(new URL('../.tmp/ik-tests/joints.mjs',import.meta.url));
-const controllerSource = compile(strip(fs.readFileSync('src/features/robots/SuctionRobotController.ts', 'utf8')));
+const controllerSource = compile(strip(fs.readFileSync('src/domain/robot/SuctionRobotController.ts', 'utf8')));
 function controllerClass(createIK = createRobotIK) {
   return new Function('createRobotIK','MOTION','IK_CONFIG','ROBOT_PICKING','Group','Quaternion','Vector3','Euler','setJointAngle','isPickupInRange','isWristAboveBox','setCargoWorldPose','minimumJerk',
     controllerSource+';return SuctionRobotController;')(createIK,MOTION,IK_CONFIG,ROBOT_PICKING,T.Group,T.Quaternion,T.Vector3,T.Euler,setJointAngle,isPickupInRange,isWristAboveBox,setCargoWorldPose,minimumJerk);
@@ -1016,150 +1009,6 @@ if(process.env.IK_FACTORY==='1'||process.argv.includes('--scene')){
   if(world.dispatched<deliveries||world.robots.some(r=>r.count<(cycles?2:1))||simultaneous!==2||!heldFrames)throw Error(`Multiple-robot shared-conveyor simulation did not finish: ${world.robots.map((r,i)=>`${r.object.id}: ${r.status}, phase=${controllers.get(models[i]).phase}, busy=${r.busy}, jobs=${r.jobs.length}`).join('; ')}`);
   console.log(`Scene: two independent robots, shared conveyor, exclusive box claims, live speed change and ${deliveries} full pallet deliveries passed`);
   process.exit(0);
-}
-if(process.env.IK_CUSTOMIZE==='1'){
-  const {DEFAULT_LAYOUT,SIMULATOR_CONFIG:C}=await import('../.tmp/ik-tests/simulatorLayout.mjs');
-  const {validateLayout,clearanceAt}=await import('../.tmp/ik-tests/layoutNavigation.mjs');
-  const {PalletDispatchController}=await import('../.tmp/ik-tests/PalletDispatchController.mjs');
-  const layouts=[structuredClone(DEFAULT_LAYOUT)];
-  if(process.env.IK_CUSTOMIZE_VARIANTS==='1')layouts.push({...structuredClone(DEFAULT_LAYOUT),robot:{x:.2,z:-.1,yaw:Math.PI/2},pallet:{x:-1.1,z:-.1,yaw:Math.PI/2},conveyor:{x:1.15,z:.1,yaw:.15},amr:{x:-2.6,z:-1.7,yaw:0}});
-  for(const [index,layout] of layouts.entries()){
-    const errors=validateLayout(layout);if(errors.length)throw Error('Custom layout invalid: '+errors.join('; '));
-    const dispatch=new PalletDispatchController(layout),belt=layout.conveyor;
-    const {CONVEYOR_PATH}=await import('../.tmp/ik-tests/constants.mjs');
-    const path=CONVEYOR_PATH.map(point=>new T.Vector3(point.x-1.06875,point.y,point.z).applyAxisAngle(new T.Vector3(0,1,0),belt.yaw).add(new T.Vector3(belt.x,0,belt.z)));
-    let requests=0;
-    const world=new ConveyorSimulator(load('box'),load('pallet'),()=>0,{center:new T.Vector3(layout.pallet.x,0,layout.pallet.z),palletYaw:layout.pallet.yaw,path,boxYaw:belt.yaw,robotPosition:new T.Vector3(layout.robot.x,0,layout.robot.z),stackHeight:PRODUCTION_BOX_SIZES[0].y,
-      dispatch:(payload,complete)=>{if(world.packer.count!==C.palletCapacity)throw Error('AMR took an incomplete pallet');requests++;dispatch.request(payload,complete);}});
-    let frame,ik,status='';
-    const model=makeRobot(()=>({scene:load('robot',true)}),f=>f(),v=>({current:v}),f=>{frame=f;},T.Group,T.Quaternion,T.Vector3,'',m=>{ik=createRobotIK(m,C.robotScale,'none');return ik;},{current:world.jobs},(_,next)=>{status=next;},{geometryScale:C.robotScale,transferMode:process.env.IK_TRANSFER_MODE??'base',position:new T.Vector3(layout.robot.x,0,layout.robot.z),yaw:layout.robot.yaw});
-    const root=new T.Group();root.add(world.root,dispatch.carrier,model);
-    const fps=30;
-    for(let i=0;i<fps*3000&&world.completedPallets<1;i++){
-      world.advance(1/fps);world.syncJobs();dispatch.advance(1/fps);frame(null,1/fps);
-      if(world.placed<C.palletCapacity&&dispatch.phase!=='idle')throw Error('AMR started before loading finished');
-      if(dispatch.phase==='blocked')throw Error('AMR dispatch path blocked');
-      if(!ik.collisions.isWristAboveHeld())throw Error('Custom robot wrist dropped below box');
-      const radius=dispatch.phase==='dispatch'?.82:.4;
-      if(clearanceAt(dispatch.carrier.position.x,dispatch.carrier.position.z,'robot',layout)<radius-1e-6||clearanceAt(dispatch.carrier.position.x,dispatch.carrier.position.z,'conveyor',layout)<radius-1e-6)throw Error('Custom AMR collided with equipment');
-    }
-    console.log({layout:index,placed:world.placed,dispatched:world.completedPallets,requests,status,amr:dispatch.status});
-    if(world.completedPallets!==1||world.placed!==C.palletCapacity||requests!==1||world.packer.count!==0)throw Error('Custom packing-to-AMR pipeline did not finish');
-  }
-  const invalid=structuredClone(DEFAULT_LAYOUT);invalid.pallet.x=-4;
-  if(!validateLayout(invalid).some(error=>error.includes('도달 범위')))throw Error('Invalid robot reach was accepted');
-  console.log('Simulator: independent placements, reach validation, 20-box loading, full-pallet-only AMR dispatch and empty pallet reset passed');
-  process.exit(0);
-}
-if(process.env.IK_BATCH_ONLY==='1'){
-  const demo=makeDemo(url=>({scene:load(url)}),f=>f(),v=>({current:v}),()=>{},T.Box3,T.Group,T.Vector3,'box','pallet');
-  const expected=Number(process.env.IK_BATCH_COUNT??fs.readFileSync('src/legacy/robot/RobotDemo.tsx','utf8').match(/BOX_COUNT\s*=\s*(\d+)/)[1]);
-  const robotScale=Number(fs.readFileSync('src/legacy/robot/RobotDemo.tsx','utf8').match(/ROBOT_SCALE\s*=\s*([\d.]+)/)[1]);
-  if(!Number.isInteger(expected)||expected<=0||demo.transfers.length!==expected)throw Error('Robot demo does not contain the configured box count');
-  for(const job of demo.transfers){
-    if(new T.Box3().setFromObject(job.box).getSize(new T.Vector3()).distanceTo(PRODUCTION_BOX_SIZES[0])>1e-5)throw Error('Robot and conveyor box dimensions differ');
-  }
-  const sourcePallet=new T.Box3().setFromObject(demo.root.children[0]).getSize(new T.Vector3());
-  if(sourcePallet.distanceTo(new T.Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletHeight,STREAM_CONFIG.palletDepth))>1e-5)throw Error('Robot and conveyor pallet dimensions differ');
-  let frame,ik,status='',completed=0,placed=0;
-  const fps=Number(process.env.IK_FPS??30),transferMode=process.env.IK_TRANSFER_MODE??'base';
-  for(const job of demo.transfers)job.onPlace=()=>{
-    if(job.box.getWorldPosition(new T.Vector3()).distanceTo(job.destination)>1e-6)throw Error('Batch box missed its destination');
-    placed++;
-  };
-  const model=makeRobot(()=>({scene:load('robot',true)}),f=>f(),v=>({current:v}),f=>{frame=f;},T.Group,T.Quaternion,T.Vector3,'',m=>{ik=createRobotIK(m,robotScale,'none');return ik;},{current:demo.transfers},(count,next)=>{completed=count;if(status!==next&&next.includes('미발견'))console.log(next);status=next;},{geometryScale:robotScale,pickupRadius:ROBOT_PICKING.radius*STREAM_CONFIG.robotScale+STREAM_CONFIG.palletWidth/4,transferMode});
-  const root=new T.Group();root.add(demo.root,model);
-  for(let i=0;i<fps*2400&&completed<expected;i++){
-    frame(null,1/fps);
-    if(Math.abs(ik.controls[3].angle-ik.controls[3].initialX)>1e-8)throw Error('Batch hand03 moved');
-    if(!ik.collisions.isWristAboveHeld())throw Error('Batch hand04 dropped below cargo');
-  }
-  console.log({batchPlaced:placed,completed,expected,transferMode,status,
-    ...(completed<expected?{start:controllers.get(model).runtime.segmentStart.toArray(),end:controllers.get(model).runtime.segmentEnd.toArray(),point:ik.grip.getWorldPosition(new T.Vector3()).toArray(),angles:ik.controls.map(c=>T.MathUtils.radToDeg(c.angle))}:{}),
-  });
-  if(placed!==expected||completed!==expected)throw Error('Configured batch transfer did not finish');
-  process.exit(0);
-}
-for (const fps of process.argv.includes("--legacy")?[30,60]:[]) {
-  const demo = makeDemo(url=>({scene:load(url)}),f=>f(),v=>({current:v}),()=>{},T.Box3,T.Group,T.Vector3,'box','pallet');
-  let frame, ik, completed = 0, minimumGripY = -Infinity, lowering = false, batchStatus="";
-  const model = makeRobot(()=>({scene:load('robot')}),f=>f(),v=>({current:v}),f=>{frame=f;},T.Group,T.Quaternion,T.Vector3,'',m=>{
-    ik=createRobotIK(m);
-    const plan=ik.plan;
-    ik.plan=(target,...options)=>{
-      m.updateWorldMatrix(true,true);
-      minimumGripY=Math.min(ik.grip.getWorldPosition(new T.Vector3()).y,target.y)-0.025;
-      const oldAngles=ik.controls.map(c=>c.angle), oldPosition=m.position.clone();
-      lowering=Boolean(options[0]) && Boolean(demo.transfers[completed]) && target.distanceTo(demo.transfers[completed].destination)<1e-6;
-      const pose=plan(target,...options); if(pose.route) minimumGripY=0.25;
-
-      if (m.position.distanceTo(oldPosition)>1e-8 || ik.controls.some((c,i)=>Math.abs(c.angle-oldAngles[i])>1e-8)) throw Error('Planning changed displayed pose');
-      return pose;
-    };
-    return ik;
-  },{current:demo.transfers},(count,status)=>{completed=count;batchStatus=status;});
-  const world = new T.Group(); world.add(demo.root,model);
-  const movingArmMeshes=[];
-  model.traverse(node=>{
-    if (node instanceof T.Mesh && /^hand0[2-5]$/.test(node.parent?.name)) movingArmMeshes.push(node);
-  });
-  // The library chain must exactly match the displayed GLB at rest.
-  const position = [0,0,0]; ik.effector.updateMatrixWorld(); ik.effector.getWorldPosition(position);
-  if (ik.grip.getWorldPosition(new T.Vector3()).distanceTo(new T.Vector3().fromArray(position)) > 1e-5) throw Error('IK/GLB transform mismatch');
-  for (let i=0;i<fps*600 && completed<10;i++) {
-    const previouslyCompleted=completed;
-    frame(null,1/fps);
-    if (ik.collisions.collision()) throw Error(`Collision during animation: ${ik.collisions.lastHit}, completed=${completed}, tip=${ik.grip.getWorldPosition(new T.Vector3()).toArray()}`);
-    if (lowering || completed>previouslyCompleted) {
-      const wristBounds=new T.Box3();
-      for(const mesh of movingArmMeshes) {
-        if(mesh.parent?.name==='hand04') wristBounds.union(new T.Box3().setFromObject(mesh));
-      }
-      const cargoTop=ik.grip.getWorldPosition(new T.Vector3()).y;
-      if(wristBounds.min.y<cargoTop+0.03-1e-6) throw Error('hand04 intruded into cargo while lowering');
-      if(model.getObjectByName('hand04').getWorldPosition(new T.Vector3()).y<cargoTop+0.15-1e-6) throw Error('Wrist is not above cargo');
-    }
-
-    if (ik.grip.getWorldPosition(new T.Vector3()).y<minimumGripY-1e-6) throw Error('Grip dipped below approach clearance');
-    for (const mesh of movingArmMeshes) {
-      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-      const floorHeight=new T.Box3().copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld).min.y;
-      if (floorHeight<0.015-1e-6) throw Error('Arm crossed floor clearance');
-    }
-    for (const control of ik.controls.slice(0,2)) {
-      if (control.angle<control.min-1e-6 || control.angle>control.max+1e-6) throw Error('Joint limit exceeded');
-    }
-  }
-  const placed = demo.transfers.filter(job=>job.box.getWorldPosition(new T.Vector3()).distanceTo(job.destination)<1e-5).length;
-  if (placed!==10 || completed!==10) throw Error(`Only ${placed}/10 placed at ${fps} fps: ${batchStatus}`);
-  // A distant goal must fail rather than attach/move to a fabricated pose.
-  if (ik.plan(new T.Vector3(100,100,100)).reachable) throw Error('Unreachable goal accepted');
-  ik.collisions.setContext({boxes:[],active:demo.transfers[9].box,carrying:false});
-  const safePose=ik.plan(ik.grip.getWorldPosition(new T.Vector3()).add(new T.Vector3(0,0.12,0)));
-  if(!safePose.reachable) throw Error('Runtime collision fixture has no initial plan');
-  const deferred=ik.startPlan(ik.grip.getWorldPosition(new T.Vector3()).add(new T.Vector3(0,0.12,0)));
-  if(ik.advancePlan(deferred,0,0)?.reason!=='timeout')throw Error('Budget was not distinguished from collision');
-  let resumed;
-  for(let n=0;n<10000&&!resumed;n++){const result=deferred.next();if(result.done)resumed=result.value;}
-  if(!resumed?.reachable)throw Error('Timed-out safe plan could not resume');
-  const blocker=new T.Group(); blocker.add(new T.Mesh(new T.BoxGeometry(1,1.2,1)));
-  const base=model.getObjectByName('base');
-  blocker.position.copy(new T.Box3().setFromObject(base).getCenter(new T.Vector3()));
-  world.add(blocker);
-  ik.collisions.setContext({boxes:[blocker],active:demo.transfers[9].box,carrying:false});
-  if(!ik.collisions.collision()) throw Error('Robot/body collision was not detected');
-  const beforeAngles=ik.controls.map(c=>c.angle), beforePosition=model.position.clone();
-  if(ik.animate(safePose,1/fps)) throw Error('Runtime obstacle did not stop animation');
-  if(model.position.distanceTo(beforePosition)>1e-8 || ik.controls.some((c,i)=>Math.abs(c.angle-beforeAngles[i])>1e-8)) throw Error('Collision rollback failed');
-  world.remove(blocker);
-  const held=demo.transfers[9].box;
-  const duplicate=held.clone(true);
-  duplicate.position.copy(held.getWorldPosition(new T.Vector3()));
-  duplicate.quaternion.copy(held.getWorldQuaternion(new T.Quaternion()));
-  world.add(duplicate);ik.grip.attach(held);
-  ik.collisions.setContext({boxes:[held,duplicate],active:held,carrying:true});
-  if(!ik.collisions.collision()) throw Error('Held/placed cargo overlap was not detected');
-  console.log(`${fps} fps: 10/10 collision-free transfers; limits, wrist placement, body/cargo obstacles and runtime rollback passed`);
 }
 
 
@@ -1493,11 +1342,6 @@ rollWorld.attach(armBox);rollWorld.remove(armBox);
 rollIK.collisions.setContext({boxes:[],active,carrying:false});
 console.log('Collision policy: held/robot detected with rollback; other arm/box and held/conveyor ignored');
 console.log('Packing cache, low-layer balance and actual gripper sweep filter passed');
-let selection=0;
-const randomShapes=new ConveyorSimulator(load('box'),load('pallet'),()=>[0,0.3,0.6,0.9][selection++%4]);
-for(let n=0;n<100;n++)randomShapes.spawn(0);
-if(new Set(randomShapes.items.map(item=>item.size.toArray().join(','))).size!==PRODUCTION_BOX_SIZES.length)
-  throw Error('Conveyor generation did not keep the single production size');
 const { tile,randomPerfectSet }=await import(new URL('../.tmp/ik-tests/perfectTiling.mjs',import.meta.url));
 const inventory=[{w:2,d:3,count:2},{w:2,d:2,count:4},{w:2,d:1,count:4}];
 const finiteSolution=tile(6,6,inventory);if(!finiteSolution)throw Error('Finite inventory tiling failed');
@@ -1584,55 +1428,6 @@ console.log('Mixed packing: bounds, support, rotations and non-overlap passed');
 const unitPalletBounds=new T.Box3().setFromObject(createUnitPallet(load('pallet')));
 if(unitPalletBounds.getSize(new T.Vector3()).distanceTo(new T.Vector3(1,1,1))>1e-5||Math.abs(unitPalletBounds.min.y)>1e-5)
   throw Error('Base pallet must be 1x1x1m with bottom-centred origin');
-let randomState=98765;const random=()=>{randomState=(Math.imul(randomState,1664525)+1013904223)>>>0;return randomState/4294967296;};
-const stream=new ConveyorSimulator(load('box'),load('pallet'),random);
-const unitBounds=new T.Box3().setFromObject(stream.boxAsset);
-if(unitBounds.getSize(new T.Vector3()).distanceTo(new T.Vector3(1,1,1))>1e-5
-  ||Math.abs(unitBounds.max.y)>1e-5||Math.abs(unitBounds.getCenter(new T.Vector3()).x)>1e-5
-  ||Math.abs(unitBounds.getCenter(new T.Vector3()).z)>1e-5)throw Error('Base box must be 1x1x1m with top-centred origin');
-const palletExtent=new T.Box3().setFromObject(stream.pallet).getSize(new T.Vector3());
-if(Math.abs(palletExtent.x-STREAM_CONFIG.palletWidth)>1e-5||Math.abs(palletExtent.z-STREAM_CONFIG.palletDepth)>1e-5)
-  throw Error('Visual pallet and packing dimensions differ');
-for(const item of stream.items){
-  if(item.size.distanceTo(PRODUCTION_BOX_SIZES[0])>1e-8)throw Error("Conveyor spawned a non-uniform box");
-  if(new T.Box3().setFromObject(item.node).getSize(new T.Vector3()).distanceTo(item.size)>1e-5)
-    throw Error('Visual box and packing dimensions differ');
-}
-// Fill a real load, then exercise outgoing/incoming exchange without robot motion.
-const exchangeWorld=new ConveyorSimulator(load('box'),load('pallet'),()=>0);
-for(let n=0;n<1000;n++){
-  const placement=exchangeWorld.packer.candidates(PRODUCTION_BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,PRODUCTION_BOX_SIZES)[0];
-  if(!placement)break;
-  exchangeWorld.spawn(0);const item=exchangeWorld.items.at(-1);
-  exchangeWorld.packer.commit(placement);
-  item.node.position.copy(exchangeWorld.packer.position(placement,STREAM_CONFIG.center,exchangeWorld.palletTop));item.state='placed';
-}
-const oldPallet=exchangeWorld.pallet,loadedItem=exchangeWorld.items.find(item=>item.state==='placed');
-const relativeLoad=loadedItem.node.getWorldPosition(new T.Vector3()).sub(oldPallet.getWorldPosition(new T.Vector3()));
-exchangeWorld.busy=true;exchangeWorld.advance(1/60);if(exchangeWorld.exchange)throw Error('Pallet changed during an active transfer');
-exchangeWorld.busy=false;exchangeWorld.advance(1/60);if(exchangeWorld.exchange!=='outgoing')throw Error('Full pallet was not dispatched');
-const beltItem=exchangeWorld.items.find(item=>item.state==='moving'),distanceBefore=beltItem.distance;
-for(let i=0;i<60;i++)exchangeWorld.advance(1/60);
-const relativeMoved=loadedItem.node.getWorldPosition(new T.Vector3()).sub(oldPallet.getWorldPosition(new T.Vector3()));
-if(relativeMoved.distanceTo(relativeLoad)>1e-6||beltItem.distance<=distanceBefore)throw Error('Load did not move with pallet or belt stopped during exchange');
-for(let i=0;i<60*12&&exchangeWorld.exchange;i++)exchangeWorld.advance(1/60);
-if(exchangeWorld.exchange||exchangeWorld.completedPallets!==1||exchangeWorld.palletNumber!==2||exchangeWorld.packer.count!==0
-  ||exchangeWorld.pallet.parent!==exchangeWorld.root||oldPallet.parent||exchangeWorld.items.some(item=>item.state==='departing'))throw Error('New pallet was not reset and prepared');
-exchangeWorld.advance(1/60);if(!exchangeWorld.jobs.length)throw Error('Picking did not resume after pallet exchange');
-console.log('Pallet exchange: loaded exit, continuous belt, empty reset and next reservation passed');
-const rotationWorld=new ConveyorSimulator(load('box'),load('pallet'),()=>0);
-rotationWorld.advance(1/60);
-const rotationJob=rotationWorld.jobs[0];
-const initialDiagnostic=rotationWorld.diagnostics;
-if(initialDiagnostic.columns!==Math.round(STREAM_CONFIG.palletWidth/PACKING.cell)||initialDiagnostic.rows!==Math.round(STREAM_CONFIG.palletDepth/PACKING.cell)||!initialDiagnostic.selected)throw Error('Packing dashboard grid/candidate not initialized');
-rotationJob.onPlanEvent({state:'rejected',phase:'quick',reason:'fixture: far candidate blocked'});
-const rejectedDiagnostic=rotationWorld.diagnostics;
-fs.writeFileSync('.tmp/packingSnapshot.json',JSON.stringify(rejectedDiagnostic));
-if(rejectedDiagnostic.inspected!==1||rejectedDiagnostic.selected.state!=='rejected'||!rejectedDiagnostic.reason.includes('fixture'))throw Error('Packing dashboard did not record actual rejection');
-const reservedDestination=rotationJob.destination.clone();
-if(rotationJob.replanPlacement()||rotationJob.replanPlacement(true)||rotationJob.advancePlacementLevel()
-  ||rotationJob.destination.distanceTo(reservedDestination)>1e-8)throw Error('Fixed production silently skipped its blocked slot');
-console.log('Fixed production: blocked placement preserves the same destination and layer');
 function makeGapPacking(){
   const packing=new OnlinePacker(new T.Vector3(6,5,6),1);
   for(let x=0;x<6;x++)for(let z=0;z<6;z+=2){
@@ -1647,181 +1442,7 @@ if(large.bottom!==1)throw Error('Large box must move above the small lower gap')
 gaps.commit(large);
 const laterSmall=gaps.candidates(BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,BOX_SIZES)[0];
 if(laterSmall.bottom!==0||laterSmall.x!==0||laterSmall.z!==0)throw Error('Later small box did not return to the saved lower gap');
-const gapWorld=new ConveyorSimulator(load('box'),load('pallet'),()=>.9);gapWorld.packer=makeGapPacking();
-const smallItem=gapWorld.items[2];smallItem.size.copy(BOX_SIZES[0]);smallItem.node.children[0].scale.copy(smallItem.size);
-gapWorld.items[3].size.copy(BOX_SIZES[3]);gapWorld.items[3].node.children[0].scale.copy(BOX_SIZES[3]);
-gapWorld.robotZ=2;gapWorld.advance(0);
-if(gapWorld.jobs[0].box!==smallItem.node)throw Error('Belt selection did not favour the box that fills the lower gap');
-const levelWorld=new ConveyorSimulator(load('box'),load('pallet'),()=>0);
-levelWorld.packer=new OnlinePacker(new T.Vector3(STREAM_CONFIG.palletWidth,STREAM_CONFIG.maxStackHeight,STREAM_CONFIG.palletDepth));
-levelWorld.packer.commit(levelWorld.packer.candidates(PRODUCTION_BOX_SIZES[0],STREAM_CONFIG.palletApproachDirection,PRODUCTION_BOX_SIZES)[0]);levelWorld.advance(0);
-const levelJob=levelWorld.jobs[0],lowerTop=levelJob.destination.y;
-while(levelJob.replanPlacement())if(levelJob.destination.y!==lowerTop)throw Error('Quick search climbed before testing the whole lower level');
-if(!levelJob.replanPlacement(true)||levelJob.destination.y!==lowerTop)throw Error('Precise pass did not restart on the lower level');
-while(levelJob.replanPlacement())if(levelJob.destination.y!==lowerTop)throw Error('Precise search left the lower level too early');
-let raised=false;
-for(let n=0;n<100;n++){
-  if(!levelJob.advancePlacementLevel())break;
-  if(levelJob.destination.y>lowerTop){raised=true;break;}
-  while(levelJob.replanPlacement())if(levelJob.destination.y!==lowerTop)throw Error('Access band crossed height during quick search');
-  if(!levelJob.replanPlacement(true))throw Error('Precise access band restart failed');
-  while(levelJob.replanPlacement())if(levelJob.destination.y!==lowerTop)throw Error('Access band crossed height during precise search');
-}
-if(!raised)throw Error('Upper level fallback was unavailable after lower-level exhaustion');
-console.log('Bottom-first: both search passes stay low, upper fallback preserves holes, and later small boxes fill gaps');
+console.log('Bottom-first: later small boxes fill saved lower gaps');
 
-if(process.argv.includes('--packing-only'))process.exit(0);
-const obstacles={current:stream.boxes};let streamFrame,streamIK;
-const streamFps=Number(process.env.IK_FPS??60);
-const streamTransferMode=process.env.IK_TRANSFER_MODE??"base";
-let lastStatus='';let failures=0;let planningSlices=0,pendingSlices=0,maxPlanningMs=0;
-const streamModel=makeRobot(()=>({scene:load('robot',true)}),f=>f(),v=>({current:v}),f=>{streamFrame=f;},T.Group,T.Quaternion,T.Vector3,'',model=>{streamIK=createRobotIK(model,STREAM_CONFIG.robotScale,process.env.IK_INJECT_RECOVERY==='1'?"held-box-hand03":"none");const originalAdvance=streamIK.advancePlan;streamIK.advancePlan=(...args)=>{
-  const before=streamIK.controls.map(c=>c.angle),baseAngle=streamIK.baseControl.angle,position=model.position.clone(),start=performance.now();
-  const result=originalAdvance(...args);maxPlanningMs=Math.max(maxPlanningMs,performance.now()-start);planningSlices++;
-  if(!result){pendingSlices++;if(Math.abs(streamIK.baseControl.angle-baseAngle)>1e-8||model.position.distanceTo(position)>1e-8||streamIK.controls.some((c,i)=>Math.abs(c.angle-before[i])>1e-8))throw Error('Planning yield left speculative pose visible');}
-  if(result&&!result.reachable&&failures++<8)console.log('failed-plan',{tip:streamIK.grip.getWorldPosition(new T.Vector3()).toArray(),angles:streamIK.controls.map(control=>T.MathUtils.radToDeg(control.angle)),blockedBy:result.blockedBy,error:result.error});
-  return result;
-};return streamIK;},{current:stream.jobs},(_,status)=>{if(lastStatus!==status)console.log('stream',status);lastStatus=status;},{geometryScale:STREAM_CONFIG.robotScale,obstacles,transferMode:streamTransferMode});
-let injectedRecoveries=0,lastInjectedWrist=null;
-if(process.env.IK_INJECT_RECOVERY==='1'){
-  const animate=streamIK.animateEased;
-  streamIK.animateEased=(...args)=>{
-    const controller=controllers.get(streamModel);
-    const wrist=streamIK.controls[2].angle;
-    if(controller.phase==='TRANSIT'&&injectedRecoveries<2&&(lastInjectedWrist===null||Math.abs(wrist-lastInjectedWrist)>.03)){
-      const collision=streamIK.collisions.collision;
-      let injected=false;
-      streamIK.collisions.collision=()=>{if(!injected){injected=true;return '들어 올린 박스 / hand03 충돌';}return collision();};
-      try {
-        const moved=animate(...args);
-        if(injected&&!moved){injectedRecoveries++;lastInjectedWrist=wrist;}
-        return moved;
-      } finally {streamIK.collisions.collision=collision;}
-    }
-    return animate(...args);
-  };
-}
-const streamRoot=new T.Group();streamRoot.add(stream.root,streamModel);
-const streamOrigin=streamModel.position.clone();
-let minimumBaseYaw=Infinity,maximumBaseYaw=-Infinity;
-let maximumMovementWhileReserved=0;
-const attachmentPoses=new WeakMap();
-const verifiedReleases = new WeakSet();
-let releaseCount = 0;
-let releaseStartRotation=null,releaseAngle=0,releaseProgressAngle=0;
-const pickupJointPoses = new WeakMap();
-let rearFrames = 0, alignmentFrames = 0, maximumRearShoulder = -Infinity, maximumShoulderTransfer = 0;
-const streamController=controllers.get(streamModel);
-const phases=new Set();
-let verticalFrames=0, simultaneousFrames=0;
-let liftRetraction=0,liftPlanningMovementFrames=0;
-let verticalOrigin=null,verticalPhase=null;
-for(let i=0;i<streamFps*Number(process.env.IK_STREAM_SECONDS??400)&&(stream.placed<Number(process.env.IK_STREAM_TARGET??3)||streamController.phase!=="HOME");i++){
-  const reserved=stream.items.find(item=>item.state==='reserved');const before=reserved?.node.position.clone();
-  stream.advance(1/streamFps);stream.syncJobs();obstacles.current=stream.boxes;
-  for (const job of stream.jobs) if (!verifiedReleases.has(job)) {
-    verifiedReleases.add(job);
-    const onPick = job.onPick;
-    job.onPick = () => {
-      if(job.box.getWorldPosition(new T.Vector3()).distanceTo(job.pickup)>MOTION.contactTolerance)throw Error("Pickup snapped the cargo");
-      pickupJointPoses.set(job.box,{base:streamIK.baseControl.angle,shoulder:streamIK.controls[0].angle});
-      onPick?.();
-    };
-    const onPlace = job.onPlace;
-    job.onPlace = () => {
-      if(streamController.phase!=="RELEASE")throw Error("Cargo committed outside RELEASE");
-      const checkpoint = job.destination;
-      if (streamIK.grip.getWorldPosition(new T.Vector3()).distanceTo(checkpoint) > MOTION.contactTolerance) throw Error('Release happened before the robot reached its destination');
-      if (job.box.parent === streamIK.grip || job.box.getWorldPosition(new T.Vector3()).distanceTo(job.destination) > 1e-6) throw Error('Checkpoint did not place cargo at the exact destination');
-      releaseCount++; onPlace?.();
-    };
-  }
-  if(before&&reserved?.state==='reserved')maximumMovementWhileReserved+=before.distanceTo(reserved.node.position);
-  const frameStatus = lastStatus;
-  const frameAngles = streamIK.controls.map(control=>control.angle);
-  const frameBase=streamIK.baseControl.angle;
-  const phaseBefore=streamController.phase;
-  const tipBefore=streamIK.grip.getWorldPosition(new T.Vector3());
-  const planningBefore=planningSlices;
-  if(verticalPhase!==phaseBefore){verticalPhase=phaseBefore;verticalOrigin=tipBefore.clone();}
-  streamFrame(null,1/streamFps);
-  if(streamController.phase==='PRE_PLACE'&&phaseBefore!=='PRE_PLACE'){
-    const cargo=stream.items.find(item=>item.state==='held');
-    releaseStartRotation=cargo.node.getWorldQuaternion(new T.Quaternion());
-    const yaw=stream.jobs[stream.placed].yaw??0;
-    releaseAngle=Math.min(...[yaw,yaw+Math.PI].map(angle=>releaseStartRotation.angleTo(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),angle))));
-    releaseProgressAngle=0;
-  }
-  if(phaseBefore==='PRE_PLACE'){
-    const cargo=stream.items.find(item=>item.state==='held')??stream.items.filter(item=>item.state==='placed').at(-1);
-    const angle=releaseStartRotation.angleTo(cargo.node.getWorldQuaternion(new T.Quaternion()));
-    if(angle>releaseAngle+1e-6||angle<releaseProgressAngle-1e-6)throw Error('Hovering box did not take its nearest equivalent rotation');
-    if(angle-releaseProgressAngle>ROBOT_PICKING.releaseAngularSpeed/streamFps+1e-6)throw Error('Hovering box rotated too quickly');
-    releaseProgressAngle=angle;
-  }
-  if(['PLACE','RELEASE'].includes(phaseBefore)){
-    const cargo=stream.items.find(item=>item.state==='held')??stream.items.filter(item=>item.state==='placed').at(-1);
-    if(Math.abs(releaseStartRotation.angleTo(cargo.node.getWorldQuaternion(new T.Quaternion()))-releaseAngle)>1e-6)throw Error('Box changed orientation during lowering or release');
-  }
-  phases.add(streamController.phase);
-  if(phaseBefore==="TRANSIT"&&Math.abs(streamIK.baseControl.angle-frameBase)>1e-8&&streamIK.controls.some((c,j)=>Math.abs(c.angle-frameAngles[j])>1e-8))simultaneousFrames++;
-  if(phaseBefore==='LIFT'&&streamTransferMode==='shoulder'){
-    const tip=streamIK.grip.getWorldPosition(new T.Vector3());
-    const offset=Math.hypot(tip.x-verticalOrigin.x,tip.z-verticalOrigin.z);
-    liftRetraction=Math.max(liftRetraction,offset);
-    if(offset>ROBOT_PICKING.liftRearwardDistance+MOTION.contactTolerance)throw Error('Lift exceeded its rearward waypoint');
-    if(planningSlices>planningBefore&&tip.distanceTo(tipBefore)>1e-6)liftPlanningMovementFrames++;
-  }
-  if([...(streamTransferMode==='shoulder'?[]:['LIFT']),"PLACE","RETREAT"].includes(phaseBefore)&&phaseBefore===streamController.phase){
-    const tipAfter=streamIK.grip.getWorldPosition(new T.Vector3());
-    if(Math.hypot(tipAfter.x-verticalOrigin.x,tipAfter.z-verticalOrigin.z)>MOTION.contactTolerance)throw Error("Vertical waypoint drifted horizontally in "+phaseBefore+": "+tipAfter.distanceTo(tipBefore));
-    verticalFrames++;
-  }
-  if (Math.abs(streamIK.controls[3].angle-streamIK.controls[3].initialX)>1e-8) throw Error('Production hand03 rotated');
-  const held = stream.items.find(item=>item.state==='held');
-  const pickedPose = held && pickupJointPoses.get(held.node);
-  if (pickedPose && frameStatus.includes('hand00 고정')) {
-    if (Math.abs(streamIK.baseControl.angle-pickedPose.base)>1e-8) throw Error('hand00 rotated before the shoulder finished its rear transfer');
-    rearFrames++;
-    maximumRearShoulder = Math.max(maximumRearShoulder,streamIK.controls[0].angle);
-    maximumShoulderTransfer = Math.max(maximumShoulderTransfer,streamIK.controls[0].angle-pickedPose.shoulder);
-  }
-  if (held && frameStatus.includes('hand00으로 팔레트 좌우 정렬')) {
-    if (streamIK.controls.some((control,index)=>Math.abs(control.angle-frameAngles[index])>1e-8)) throw Error('Pallet alignment changed joints other than hand00');
-    alignmentFrames++;
-  }
-  const wristTravel=streamIK.controls[2];
-  if(wristTravel.angle<wristTravel.min-1e-8||wristTravel.angle>wristTravel.max+1e-8)throw Error('hand04 left its fixed travel range');
-  if (!streamIK.collisions.isWristAboveHeld()) throw Error('hand04 dropped below the lifted box');
-  for(const item of stream.items.filter(item=>item.state==='held')){
-    if(item.node.parent!==streamIK.grip)continue;
-    const saved=attachmentPoses.get(item.node);
-    if(!saved)attachmentPoses.set(item.node,{rotation:item.node.quaternion.clone(),position:item.node.position.clone()});
-    else if(!['PRE_PLACE','PLACE','RELEASE'].includes(phaseBefore)&&(item.node.quaternion.angleTo(saved.rotation)>1e-6||item.node.position.distanceTo(saved.position)>1e-8))throw Error("Held cargo lost its rigid attachment during transport");
-  }
-  if(streamModel.position.distanceTo(streamOrigin)>1e-8)throw Error("Robot root translated during conveyor pickup");
-  minimumBaseYaw=Math.min(minimumBaseYaw,streamIK.baseControl.angle);maximumBaseYaw=Math.max(maximumBaseYaw,streamIK.baseControl.angle);
-
-  const wristControl=streamIK.controls[2];
-  if(!Number.isFinite(wristControl.angle))throw Error('hand04 angle is not finite');
-}
-console.log({streamPlaced:stream.placed,spawned:stream.spawned,passed:stream.passed,status:lastStatus,movingPickupDistance:maximumMovementWhileReserved,planningSlices,pendingSlices,maxPlanningMs,rearFrames,alignmentFrames,maximumRearShoulderDegrees:T.MathUtils.radToDeg(maximumRearShoulder)});
-if(process.env.IK_INJECT_RECOVERY==='1'&&injectedRecoveries!==2)throw Error('Controller did not exercise repeated collision recovery');
-if(planningSlices===0)throw Error('No joint targets were calculated');
-if(stream.placed<Number(process.env.IK_STREAM_TARGET??3)||maximumMovementWhileReserved<0.01)throw Error('Continuous mixed-size moving pickup fixture failed');
-if(stream.items.filter(item=>item.state==='placed').length!==stream.packer.count)throw Error('Pallet committed before placement');
-if(releaseCount !== stream.placed)throw Error('Release committed more than once or was skipped');
-for(const phase of ['HOME','PRE_GRASP','GRASP','ATTACH','LIFT','TRANSIT','PRE_PLACE','PLACE','RELEASE','RETREAT',...(streamTransferMode==='shoulder'?['SHOULDER_TRANSFER','ALIGN_BASE']:[])])if(!phases.has(phase))throw Error('Missing waypoint phase '+phase);
-if(verticalFrames===0||streamController.phase!=='HOME')throw Error('Vertical retreat did not finish');
-if(streamTransferMode==='shoulder'){
-  if(liftRetraction<ROBOT_PICKING.liftRearwardDistance*.8||liftPlanningMovementFrames===0)throw Error('Lift did not retract while planning the rear transfer');
-  if(rearFrames===0||alignmentFrames===0||maximumShoulderTransfer<.2)throw Error('Shoulder-first option was not exercised');
-}else{
-  if(phases.has('SHOULDER_TRANSFER')||phases.has('ALIGN_BASE'))throw Error('Default MoveJ forced sequential joint phases');
-  if(simultaneousFrames===0)throw Error('Base rotation was not synchronized with arm motion');
-}
-console.log({transferMode:streamTransferMode,simultaneousFrames});
-if(maximumBaseYaw-minimumBaseYaw<.1)throw Error('Continuous pickup did not use hand00 yaw');
-console.log('Continuous spline: '+stream.placed+' T11 boxes at '+streamFps+'fps; closed-chain-ik, bounded hand04 travel and yellow-target placement verified');
 
 

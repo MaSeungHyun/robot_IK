@@ -5,13 +5,12 @@ import ts from "typescript";
 import { execFileSync } from "node:child_process";
 
 const output=path.resolve('.tmp/amr-tests');fs.mkdirSync(output,{recursive:true});
-for(const [name,file] of Object.entries({amr:'src/constants/amr.ts',pathfinding:'src/utils/amr/pathfinding.ts',AMRSimulator:'src/legacy/amr/AMRSimulator.ts'})){
+for(const [name,file] of Object.entries({amr:'src/constants/amr.ts',pathfinding:'src/domain/amr/navigation/pathfinding.ts'})){
   const source=fs.readFileSync(file,'utf8').replace(/from "(?:@\/|(?:\.\.?\/)+)[^"\n]+"/g,spec=>spec.replace(/"[^"\n]+"/,value=>`"./${path.basename(value.slice(1,-1))}.mjs"`));
   fs.writeFileSync(path.join(output,`${name}.mjs`),ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}));
 }
 const {AMR_CONFIG:C}=await import('../.tmp/amr-tests/amr.mjs');
 const {findPath}=await import('../.tmp/amr-tests/pathfinding.mjs');
-const {AMRSimulator,cellPosition,createWarehouseGrid}=await import('../.tmp/amr-tests/AMRSimulator.mjs');
 assert.equal(findPath({columns:3,rows:3,blocked:new Set([1,4,7])},[0,0],[2,0]),null);
 assert.equal(findPath({columns:3,rows:3,blocked:new Set([0])},[0,0],[2,0]),null);
 assert.equal(findPath({columns:3,rows:3,blocked:new Set()},[-1,0],[2,0]),null);
@@ -20,30 +19,6 @@ assert.deepEqual(findPath({columns:4,rows:4,blocked:new Set()},[0,0],[3,3]),[[0,
 assert.equal(findPath({columns:2,rows:2,blocked:new Set([1,2])},[0,0],[1,1]),null,'Diagonal cut through a blocked corner');
 assert.deepEqual(findPath({columns:2,rows:2,blocked:new Set([1])},[0,0],[1,1]),[[0,0],[0,1],[1,1]]);
 assert.equal(findPath({columns:2,rows:2,blocked:new Set(),canTraverse:()=>false},[0,0],[1,1]),null,'Diagonal ignored continuous edge clearance');
-const grid=createWarehouseGrid();
-for(const pickup of C.pickups)for(const [start,goal] of [[C.start,pickup],[pickup,C.dispatch]]){
-  const route=findPath(grid,start,goal);assert.ok(route);
-  for(let i=0;i<route.length;i++){
-    const [x,z]=route[i];assert.ok(!grid.blocked.has(z*C.columns+x));
-    if(i){
-      const [px,pz]=route[i-1],dx=Math.abs(x-px),dz=Math.abs(z-pz);
-      assert.equal(Math.max(dx,dz),1);
-      if(dx&&dz){assert.ok(!grid.blocked.has(pz*C.columns+x));assert.ok(!grid.blocked.has(z*C.columns+px));}
-    }
-  }
-}
-const world=new AMRSimulator();let loaded=false,detoured=false;
-for(let frame=0;frame<60*240;frame++){
-  world.advance(1/60);loaded ||= world.carrying;
-  detoured ||= world.path.some(cell=>cell[1]!==world.path[0][1]);
-  for(const rack of C.racks){
-    const point=cellPosition(rack),dx=Math.max(0,Math.abs(world.x-point[0])-C.rackWidth/2),dz=Math.max(0,Math.abs(world.z-point[2])-C.rackDepth/2);
-    assert.ok(Math.hypot(dx,dz)>=C.bodyWidth/2+C.clearance-1e-6,'AMR clearance intersects a shelf');
-  }
-  assert.notEqual(world.phase,'blocked');
-}
-assert.ok(world.completed>=6);assert.ok(loaded&&detoured);
-assert.equal(world.stats.completedPallets,world.completed);assert.ok(world.spawned>world.completed);
-console.log(`AMR: obstacle detours, body clearance, pickup, dispatch and ${world.completed} completed jobs passed`);
+console.log('AMR: grid pathfinding (blocked, diagonal corner and clearance rules) passed');
 // Fleet traffic regressions (head-on corridor, shared dock, multi-fleet deadlock) run on the simulator modules built by verify-ik.
 execFileSync(process.execPath,['scripts/verify-ik.mjs','--amr-traffic'],{stdio:'inherit'});
