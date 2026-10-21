@@ -10,7 +10,7 @@ export const SCENE_TEMPLATES = [
     equipment: [
       { kind: "robot", x: 0, z: 0, yaw: 0 },
       { kind: "pallet", x: -1.15, z: 0, yaw: 0 },
-      { kind: "conveyor", ...DEFAULT_LAYOUT.conveyor },
+      { kind: "conveyor", ...DEFAULT_LAYOUT.conveyor, settings: { spawnInterval: 5 } },
     ],
   },
   {
@@ -47,6 +47,7 @@ export const SCENE_TEMPLATES = [
         x: 1.06875,
         z: -1,
         yaw: 0,
+        settings: { spawnInterval: 5 },
       },
       {
         kind: "amr",
@@ -65,6 +66,7 @@ export const SCENE_TEMPLATES = [
         x: 1.06875,
         z: 1.5,
         yaw: 0,
+        settings: { spawnInterval: 5 },
       },
     ],
   },
@@ -79,7 +81,7 @@ export const SCENE_TEMPLATES = [
         z: -2.7,
         yaw: 0,
         settings: {
-          spawnInterval: 0.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -100,7 +102,7 @@ export const SCENE_TEMPLATES = [
         z: -0.2,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -110,7 +112,7 @@ export const SCENE_TEMPLATES = [
         z: 2.3,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -120,7 +122,7 @@ export const SCENE_TEMPLATES = [
         z: 4.8,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -130,7 +132,7 @@ export const SCENE_TEMPLATES = [
         z: 7.3,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -140,7 +142,7 @@ export const SCENE_TEMPLATES = [
         z: 9.8,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -150,7 +152,7 @@ export const SCENE_TEMPLATES = [
         z: -2.7,
         yaw: 0,
         settings: {
-          spawnInterval: 0.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -160,7 +162,7 @@ export const SCENE_TEMPLATES = [
         z: -0.2,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -170,7 +172,7 @@ export const SCENE_TEMPLATES = [
         z: 2.3,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -180,7 +182,7 @@ export const SCENE_TEMPLATES = [
         z: 4.8,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -190,7 +192,7 @@ export const SCENE_TEMPLATES = [
         z: 7.3,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -200,7 +202,7 @@ export const SCENE_TEMPLATES = [
         z: 9.8,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -210,7 +212,7 @@ export const SCENE_TEMPLATES = [
         z: -2.5,
         yaw: 0,
         settings: {
-          spawnInterval: 0.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -220,7 +222,7 @@ export const SCENE_TEMPLATES = [
         z: 0,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -230,7 +232,7 @@ export const SCENE_TEMPLATES = [
         z: 2.5,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -240,7 +242,7 @@ export const SCENE_TEMPLATES = [
         z: 5,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -250,7 +252,7 @@ export const SCENE_TEMPLATES = [
         z: 7.5,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
@@ -260,7 +262,7 @@ export const SCENE_TEMPLATES = [
         z: 10,
         yaw: 0,
         settings: {
-          spawnInterval: 2.666667,
+          spawnInterval: 5,
           beltSpeed: 0.1875,
         },
       },
