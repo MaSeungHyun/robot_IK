@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Tabs as RadixTabs } from "radix-ui";
-import ScrollFade from "@/components/ScrollFade";
 
 type Props<T extends string> = {
   label: string;
@@ -45,9 +44,9 @@ export default function Tabs<T extends string>({
           className="min-h-0 flex-auto outline-none focus-visible:ring-2 focus-visible:ring-brand-primary data-[state=active]:flex data-[state=active]:flex-col"
         >
           {/* The only scrolling element of the tab: everything above stays fixed. */}
-          <ScrollFade className="min-h-0 flex-auto pr-1 [&>*]:shrink-0">
+          <div className="min-h-0 flex-auto overflow-y-auto pr-1 [scrollbar-color:#334155_transparent] [scrollbar-width:thin] [&>*]:shrink-0">
             {item.content}
-          </ScrollFade>
+          </div>
         </RadixTabs.Content>
       ))}
     </RadixTabs.Root>
