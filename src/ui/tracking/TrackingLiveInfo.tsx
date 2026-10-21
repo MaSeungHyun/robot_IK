@@ -47,7 +47,9 @@ export default function TrackingLiveInfo({ id, amr }: Props) {
       if (!amr) return;
       const now = performance.now();
       if (lastAt) {
-        const dt = (now - lastAt) / 1000;
+        // Simulation seconds, so the readout is the same at any playback speed (배속).
+        const dt =
+          ((now - lastAt) / 1000) * useSimulationStore.getState().speed;
         if (dt > 0)
           smoothed +=
             (Math.hypot(point.x - last.x, point.z - last.z) / dt - smoothed) *
