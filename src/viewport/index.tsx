@@ -43,7 +43,7 @@ export default function Viewport() {
       <SceneBoundary resetKey={run}>
         <Canvas
           camera={CAMERA}
-          gl={{ antialias: true }}
+          gl={{ antialias: true, stencil: true }}
           shadows="percentage"
           dpr={[1, 1.5]}
           onCreated={({ gl }) => {

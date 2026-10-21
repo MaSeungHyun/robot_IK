@@ -2,9 +2,14 @@ import { SelectiveBloom, EffectComposer } from "@react-three/postprocessing";
 import type { RefObject } from "react";
 import type { AmbientLight } from "three";
 
-export default function PostProcessing({ lights }: { lights: RefObject<AmbientLight | null>[] }) {
+export default function PostProcessing({
+  lights,
+}: {
+  lights: RefObject<AmbientLight | null>[];
+}) {
   return (
-    <EffectComposer multisampling={4}>
+    // stencilBuffer: the selection outline masks its silhouette in the stencil buffer.
+    <EffectComposer multisampling={2} stencilBuffer>
       <SelectiveBloom
         lights={lights}
         ignoreBackground

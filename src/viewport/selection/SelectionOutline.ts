@@ -1,11 +1,16 @@
 import {
+  AlwaysStencilFunc,
   BackSide,
+  DoubleSide,
   EdgesGeometry,
   Group,
   LineBasicMaterial,
   LineSegments,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
+  NotEqualStencilFunc,
+  ReplaceStencilOp,
   ShaderMaterial,
   Vector2,
 } from "three";
@@ -17,12 +22,35 @@ import type { SceneInstances } from "@/viewport/instancing/SceneInstances";
  */
 export const OUTLINE_WIDTH_PX = 8;
 
-/** Reuses selected source geometry; the normal scene remains instanced. */
+/** Stencil value marking the selected silhouette. */
+const SILHOUETTE = 1;
+/** Drawn after the scene: silhouette mask first, then the hull outside it. */
+const MASK_ORDER = 9998,
+  HULL_ORDER = 9999;
+
+/**
+ * Reuses selected source geometry; the normal scene remains instanced.
+ * Stencil outline: the selection is written to the stencil buffer (no colour/depth), then the
+ * expanded back-face hull is drawn without depth test only where the stencil is not set, so the
+ * outline ring stays visible through objects that overlap or occlude the selection.
+ * Requires a stencil buffer on the canvas and the post-processing composer.
+ */
 export class SelectionOutline {
   readonly root = new Group();
   private selected: string | null = null;
   private inverse = new Matrix4();
   private shells = new Map<Mesh, Mesh | LineSegments>();
+  private masks = new Map<Mesh, Mesh>();
+  private mask = new MeshBasicMaterial({
+    side: DoubleSide,
+    colorWrite: false,
+    depthWrite: false,
+    depthTest: false,
+    stencilWrite: true,
+    stencilRef: SILHOUETTE,
+    stencilFunc: AlwaysStencilFunc,
+    stencilZPass: ReplaceStencilOp,
+  });
   private lines = new LineBasicMaterial({
     color: 0x38bdf8,
     depthWrite: false,
@@ -31,6 +59,10 @@ export class SelectionOutline {
   private material = new ShaderMaterial({
     side: BackSide,
     depthWrite: false,
+    depthTest: false,
+    stencilWrite: true,
+    stencilRef: SILHOUETTE,
+    stencilFunc: NotEqualStencilFunc,
     toneMapped: false,
     uniforms: {
       resolution: { value: new Vector2(1, 1) },
@@ -68,11 +100,22 @@ export class SelectionOutline {
       shell.matrixAutoUpdate = false;
       shell.frustumCulled = false;
       shell.raycast = () => {};
+      shell.renderOrder = HULL_ORDER;
       this.shells.set(source, shell);
       this.root.add(shell);
+      if (!flat) {
+        const mask = new Mesh(source.geometry, this.mask);
+        mask.matrixAutoUpdate = false;
+        mask.frustumCulled = false;
+        mask.raycast = () => {};
+        mask.renderOrder = MASK_ORDER;
+        this.masks.set(source, mask);
+        this.root.add(mask);
+      }
     }
     shell.visible = true;
     shell.matrix.multiplyMatrices(this.inverse, source.matrixWorld);
+    this.masks.get(source)?.matrix.copy(shell.matrix);
   };
   sync(instances: SceneInstances, id: string | null, resolution: Vector2) {
     if (id !== this.selected) {
@@ -90,6 +133,8 @@ export class SelectionOutline {
         if (shell instanceof LineSegments) shell.geometry.dispose();
         shell.removeFromParent();
         this.shells.delete(source);
+        this.masks.get(source)?.removeFromParent();
+        this.masks.delete(source);
       }
   }
   private clear() {
@@ -97,10 +142,12 @@ export class SelectionOutline {
       if (shell instanceof LineSegments) shell.geometry.dispose();
     this.root.clear();
     this.shells.clear();
+    this.masks.clear();
   }
   dispose() {
     this.clear();
     this.material.dispose();
+    this.mask.dispose();
     this.lines.dispose();
   }
 }
