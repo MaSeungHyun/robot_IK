@@ -51,7 +51,12 @@ export default function FactoryRun(props: SimulatorRunProps) {
         </primitive>
       ))}
 
-      {staticObjects.map((object) => (
+      {staticObjects.map((object) => object.kind === "floor" ? (
+        // Floors/walls are scenery while simulating: not selectable, hoverable or trackable.
+        <group key={object.id} position={[object.x, 0, object.z]} rotation={[0, object.yaw, 0]}>
+          <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={false} />
+        </group>
+      ) : (
         <group
           key={object.id}
           userData={{ sceneId: object.id }}
@@ -61,7 +66,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
           onClick={(event) => handleEquipmentSelect(event, object.id)}
           onDoubleClick={(event) => inspectEquipment(event, object.id)}
         >
-          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "floor" ? <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} /> : object.kind === "rack" ? <Rack /> : <Dock id={object.id} />}
+          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "rack" ? <Rack /> : <Dock id={object.id} />}
         </group>
       ))}
     </>

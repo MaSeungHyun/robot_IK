@@ -69,7 +69,9 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(!state.editing||object?.kind!=="floor"||!object.floor)return;
     const floor=normalizeFloor(size,object.floor);
     if(!floor||(floor.width===object.floor.width&&floor.depth===object.floor.depth&&floor.wallHeight===object.floor.wallHeight))return;
-    const next=snapFloor({...object,floor});
+    // Resize symmetrically about the center (the gizmo origin): no re-snap here, which would shift
+    // the center by half a cell on odd/even size changes. Moving the floor re-aligns its edges.
+    const next={...object,floor};
     set({...history(state),objects:state.objects.map(o=>o.id===id?next:o),errors:[]});
   },
   updateSettings:(id,values)=>{

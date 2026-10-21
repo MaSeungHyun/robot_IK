@@ -8,16 +8,21 @@ import RoomWall from "./RoomWall";
 import RoomRoof from "./RoomRoof";
 
 const noRaycast = () => {};
-type Props = FloorSize & { preview?: boolean };
+/** `interactive={false}`: floor, walls and roof ignore pointer rays (simulation mode). */
+type Props = FloorSize & { preview?: boolean; interactive?: boolean };
 /** A drawn footprint owns its finishes, perimeter frame and connected roof. */
-export default function FloorRoom({ width, depth, wallHeight, preview = false }: Props) {
+export default function FloorRoom({ width, depth, wallHeight, preview = false, interactive = true }: Props) {
   const floor = useMemo(() => createRoomTexture("floor", width / C.floorTileSize, depth / C.floorTileSize), [width, depth]);
   useEffect(() => () => floor.dispose(), [floor]);
   const room = useRef<Group>(null);
   // Floor, walls and roof only receive shadows: BackSide/cut-away walls and the roof would
   // otherwise darken the whole interior.
   useLayoutEffect(() => {
-    room.current?.traverse((node) => { node.castShadow = false; node.receiveShadow = !preview; });
+    room.current?.traverse((node) => {
+      node.castShadow = false;
+      node.receiveShadow = !preview;
+      if (!interactive) node.raycast = noRaycast;
+    });
   });
   return (
     <group ref={room}>
