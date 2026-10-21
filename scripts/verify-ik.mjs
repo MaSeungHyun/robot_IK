@@ -51,6 +51,8 @@ const sourcePaths = {
   equipmentTelemetry:'src/mock/equipmentTelemetry.ts',
   playback:'src/constants/playback.ts',
   simulationTime:'src/domain/simulation/simulationTime.ts',
+  equipmentSpeeds:'src/domain/simulation/equipmentSpeeds.ts',
+  planningScheduler:'src/domain/robot/ik/planningScheduler.ts',
   SceneInstances:'src/viewport/instancing/SceneInstances.ts',
   SelectionOutline:'src/viewport/selection/SelectionOutline.ts',
   conveyorTemplate:'src/objects/conveyor/conveyorTemplate.ts',
@@ -73,7 +75,7 @@ const sourcePaths = {
   stacking:'src/domain/pallet/packing/stacking.ts',
   constants: 'src/constants/simulation.ts',
   modelNormalization:'src/lib/three/modelNormalization.ts',
-  ...Object.fromEntries(['joints','collisions','robotKinematics','closedChainKinematics','robotIK','heldBoxCollision','picking','motionTiming'].map(name => [name, `src/domain/robot/ik/${name}.ts`])),
+  ...Object.fromEntries(['placePoseCache','analyticIK','joints','collisions','robotKinematics','closedChainKinematics','robotIK','heldBoxCollision','picking','motionTiming'].map(name => [name, `src/domain/robot/ik/${name}.ts`])),
   ...Object.fromEntries(['packingDiagnostics','perfectTiling','tiling','onlinePacking','fixedLayerPacking'].map(name => [name, `src/domain/pallet/packing/${name}.ts`])),
 };
 for (const name of Object.keys(sourcePaths)) {
@@ -776,10 +778,11 @@ const { MOTION, IK_CONFIG, COLLISION, PACKING, ROBOT_PICKING } = await import(ne
 const { isPickupInRange, isWristAboveBox, setCargoWorldPose } = await import(new URL('../.tmp/ik-tests/picking.mjs',import.meta.url));
 const { minimumJerk } = await import(new URL('../.tmp/ik-tests/motionTiming.mjs',import.meta.url));
 const { setJointAngle, createJointControl, blenderWorldX } = await import(new URL('../.tmp/ik-tests/joints.mjs',import.meta.url));
+const placeCache = await import(new URL('../.tmp/ik-tests/placePoseCache.mjs',import.meta.url));
 const controllerSource = compile(strip(fs.readFileSync('src/domain/robot/SuctionRobotController.ts', 'utf8')));
 function controllerClass(createIK = createRobotIK) {
-  return new Function('createRobotIK','MOTION','IK_CONFIG','ROBOT_PICKING','Group','Quaternion','Vector3','Euler','setJointAngle','isPickupInRange','isWristAboveBox','setCargoWorldPose','minimumJerk',
-    controllerSource+';return SuctionRobotController;')(createIK,MOTION,IK_CONFIG,ROBOT_PICKING,T.Group,T.Quaternion,T.Vector3,T.Euler,setJointAngle,isPickupInRange,isWristAboveBox,setCargoWorldPose,minimumJerk);
+  return new Function('createRobotIK','MOTION','IK_CONFIG','ROBOT_PICKING','Group','Quaternion','Vector3','Euler','setJointAngle','isPickupInRange','isWristAboveBox','setCargoWorldPose','minimumJerk','invalidatePlacePose','lookupPlacePose','placePoseKey','storePlacePose',
+    controllerSource+';return SuctionRobotController;')(createIK,MOTION,IK_CONFIG,ROBOT_PICKING,T.Group,T.Quaternion,T.Vector3,T.Euler,setJointAngle,isPickupInRange,isWristAboveBox,setCargoWorldPose,minimumJerk,placeCache.invalidatePlacePose,placeCache.lookupPlacePose,placeCache.placePoseKey,placeCache.storePlacePose);
 }
 const controllers = new WeakMap();
 const makeRobot = (useGLTF, useMemo, useRef, useFrame, Group, Quaternion, Vector3, robot, createIK, jobs, report, options = {}) => {

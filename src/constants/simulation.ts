@@ -97,6 +97,8 @@ export const IK_CONFIG = {
   angularSample: 0.01,
   pathSamplesPerSecond: 60,
   placementWorldTiltToleranceDegrees: 5,
+  /** Largest tool tilt (deg off vertical) the closed-form IK sweeps before numeric IK. */
+  analyticMaxTiltDegrees: 20,
   // Locked hand03 limits orientation freedom; the wrist-above-cargo check remains mandatory.
   lockedRollTiltToleranceDegrees: 60,
   releaseWorldXDegrees: [-100, 80] as const,

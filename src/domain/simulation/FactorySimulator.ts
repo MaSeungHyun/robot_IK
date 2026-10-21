@@ -198,6 +198,12 @@ export class FactorySimulator {
             distance(robot.object, a.object) - distance(robot.object, b.object),
         ),
       );
+    // Far-first fill order relative to the robot that serves each pallet (its nearest robot).
+    for (const pallet of this.pallets) {
+      const robot = this.robots.reduce<FactoryRobot | null>((best, next) =>
+        !best || distance(next.object, pallet.object) < distance(best.object, pallet.object) ? next : best, null);
+      if (robot) pallet.orderFrom(robot.object.x, robot.object.z);
+    }
     this.inspection.onScan = (node, scannerId, result) => {
       if (node.userData.boxId)
         this.cargo.scanBox({ t: this.elapsed, boxId: node.userData.boxId, scannerId, result: result === "fault" ? "defect" : "normal" });

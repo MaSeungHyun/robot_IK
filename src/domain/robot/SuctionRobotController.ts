@@ -4,7 +4,7 @@ import type { Object3D } from "three";
 import { MOTION, IK_CONFIG, ROBOT_PICKING } from "@/constants/simulation";
 import type { RobotController, RobotControllerOptions } from "@/domain/robot/RobotController";
 import type { JointAngleReading, RobotPhase, RobotTransferMode, Transfer } from "@/types/robot";
-import { createRobotIK, type IKPose } from "@/domain/robot/ik/robotIK";
+import { createRobotIK, ikSolveStats, type IKPose, type LineLock } from "@/domain/robot/ik/robotIK";
 import type { PlanningBudget } from "@/domain/robot/ik/planningScheduler";
 import { setJointAngle } from "@/domain/robot/ik/joints";
 import { isPickupInRange, isWristAboveBox, setCargoWorldPose } from "@/domain/robot/ik/picking";
@@ -19,6 +19,10 @@ const createRuntime = () => ({
   planning: null as ReturnType<ReturnType<typeof createRobotIK>["startPlan"]> | null,
   transferPlanning: null as ReturnType<ReturnType<typeof createRobotIK>["prepareShoulderTransfer"]> | null,
   preparedShoulder: null as IKPose | null,
+  /** Rejected plans in this phase and sim time waited since the last one (retry/abort policy). */
+  failures: 0, retryWait: 0,
+  /** Straight-segment lock (LIFT/PLACE/RETREAT): analytic branch+pitch; false = this segment uses the planner. */
+  lineLock: null as LineLock | null | false,
   releasePosition: new Vector3(), releaseRotation: new Quaternion(), destinationRotation: new Quaternion(), rotation: new Quaternion(),
 });
 const PHASE_LABELS: Record<RobotPhase,string> = {
@@ -34,6 +38,8 @@ function homeHeading(current:number,initial:number){
   const unwound=initial+turn*Math.trunc((current-initial)/turn);
   return Math.abs(unwound-current)<=Math.PI+Math.PI/6?unwound:nearestYaw;
 }
+/** Retry a rejected (non-tracking) plan after waitSeconds of sim time; relax/abandon after N rejections. */
+const RETRY = { waitSeconds: 0.5, relaxAfter: 3, abortAfter: 8 } as const;
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
 const LINEAR_PHASES: readonly RobotPhase[] = ["GRASP","LIFT","PLACE","RETREAT"];
 type CargoPose = { parent: Object3D | null; position: Vector3; quaternion: Quaternion; scale: Vector3 };
@@ -177,12 +183,12 @@ export class SuctionRobotController implements RobotController {
 
   private enter(phase: RobotPhase, job: Transfer): void {
     const r=this.runtime, grip=this.ik.grip;
-    r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null;
+    r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null; r.failures=0; r.retryWait=0; r.lineLock=null;
     if(phase==="PRE_GRASP")r.pickupWristStart=this.ik.controls[2].angle;
     grip.getWorldPosition(r.segmentStart);
     r.segmentEnd.copy(r.segmentStart);
     const carryPhase=["SHOULDER_TRANSFER","ALIGN_BASE","TRANSIT","PRE_PLACE"].includes(phase);
-    this.ik.setMinimumToolHeight(carryPhase?job.destination.y+ROBOT_PICKING.prePlaceHeight
+    this.ik.setMinimumToolHeight(carryPhase?Math.min(job.destination.y+ROBOT_PICKING.prePlaceHeight,r.segmentStart.y-MOTION.contactTolerance)
       :["LIFT","RETREAT"].includes(phase)?r.segmentStart.y-MOTION.contactTolerance:null);
     if(phase==="GRASP") r.segmentEnd.y=job.pickup.y;
     if(phase==="LIFT") {
@@ -258,6 +264,7 @@ export class SuctionRobotController implements RobotController {
     const settled=(pose:IKPose)=>linear?ik.isCartesianSettled(pose):tracking?ik.isSettled(pose):ik.isEasedSettled(pose);
     if(!["SHOULDER_TRANSFER","ALIGN_BASE"].includes(r.phase)&&r.pose&&settled(r.pose)&&r.target.distanceTo(target)>MOTION.contactTolerance/4){r.pose=null;r.planning=null;}
     if(!r.pose){
+      // Carry plans are solved live: the closed-form IK makes the place-pose cache unnecessary.
       if(!r.planning){
         r.target.copy(target);
         job.onPlanEvent?.({state:"searching",reason:`${r.phase} · 손목 상향 위치와 회전 경로 계산`,phase:"precise"});
@@ -268,12 +275,12 @@ export class SuctionRobotController implements RobotController {
           r.planning=ik.startCollisionRecovery(r.recovery,fixedBase,r.phase==="ALIGN_BASE",replan,r.phase==="SHOULDER_TRANSFER"?undefined:goal);
         }else r.planning=replan();
       }
-      const cached=r.recovery?null:r.phase==="ALIGN_BASE"?r.alignment:r.phase==="TRANSIT"?r.transit:null;
+      const cached=(r.recovery?null:r.phase==="ALIGN_BASE"?r.alignment:r.phase==="TRANSIT"?r.transit:null);
       let pose=cached;
       if(!pose){
         const budget=this.takePlanningBudget("plan",IK_CONFIG.planningBudgetMs,tracking);
         // No planning time left this frame (another robot's turn or a later sub-step): keep waiting.
-        if(budget<=0)return false;
+        if(budget<=0||!r.planning)return false;
         pose=ik.advancePlan(r.planning,budget);
       }
       if(!pose)return false;
@@ -291,13 +298,24 @@ export class SuctionRobotController implements RobotController {
           this.options.onProgress?.(r.index,`${r.phase} · 박스/hand03 간섭 · 현재 각도에서 양방향 재계산`);
           return false;
         }
+        r.failures++;r.retryWait=0;
         job.onPlanEvent?.({state:"rejected",reason:pose.blockedBy??"관절 경로 미발견",phase:"precise"});
         this.options.onProgress?.(r.index,`${r.phase} · ${pose.blockedBy??"관절 경로 미발견"}`);
         return false;
       }
       job.onPlanEvent?.({state:"ready",reason:`${r.phase} · 경유점 계산 완료`,phase:"precise"});
     }
-    if(!r.pose.reachable)return false;
+    if(!r.pose.reachable){
+      // Tracking phases re-plan as the box moves; others would wait forever on a rejected plan.
+      if(tracking)return false;
+      r.retryWait+=delta;
+      if(r.retryWait<RETRY.waitSeconds)return false;
+      r.pose=null;r.planning=null;r.retryWait=0;
+      if(r.failures>=RETRY.abortAfter&&job.box.parent!==ik.grip){this.abandon(job);return false;}
+      // Repeated rejections: drop the carry height floor for this phase and plan once more.
+      if(r.failures>=RETRY.relaxAfter)ik.setMinimumToolHeight(null);
+      return false;
+    }
     const moved=(!r.recovery&&(linear||tracking))?ik.animate(r.pose,delta):ik.animateEased(r.pose,delta,
       job.box.parent===ik.grip?ROBOT_PICKING.loadedSpeedScale:1);
     if(!moved){
@@ -324,12 +342,30 @@ export class SuctionRobotController implements RobotController {
       r.command.x=job.pickup.x;r.command.z=job.pickup.z;
       r.command.y=job.pickup.y+(r.segmentStart.y-r.segmentEnd.y)*(1-progress);
     }
-    const reached=this.moveTo(r.command,job,delta,true);
+    const reached=r.phase!=="GRASP"&&!r.recovery&&r.lineLock!==false?this.followLine(job,delta):this.moveTo(r.command,job,delta,true);
     if(r.phase==="PLACE"){
       job.box.getWorldPosition(r.point);
       setCargoWorldPose(job.box,this.ik.grip,r.point,r.destinationRotation);
     }
     return reached&&r.elapsed>=r.duration;
+  }
+
+  /**
+   * Vertical MoveL with hand00 fixed: every frame solves the commanded point in closed form on the branch and
+   * tool pitch the segment started with, so hand01/02/04 follow one smooth curve. Any miss (reach, limits,
+   * jump, collision) hands the rest of the segment to the planner; solvers never alternate within a segment.
+   */
+  private followLine(job: Transfer, delta: number): boolean {
+    const r=this.runtime,ik=this.ik;
+    r.lineLock??=ik.lineLock()??false;
+    const pose=r.lineLock?ik.solveLine(r.command,r.lineLock):null;
+    if(!pose||!ik.animate(pose,delta)){
+      if(pose)ikSolveStats.lineBlocked++;
+      r.lineLock=false;r.pose=null;r.planning=null;
+      return this.moveTo(r.command,job,delta,true);
+    }
+    r.planning=null;r.pose=pose;r.target.copy(r.command);
+    return ik.isCartesianSettled(pose)&&ik.grip.getWorldPosition(r.point).distanceTo(r.command)<MOTION.contactTolerance;
   }
 
   private attach(job: Transfer): void {
@@ -341,6 +377,13 @@ export class SuctionRobotController implements RobotController {
     r.transportBaseYaw=ik.baseControl.angle;
     job.onPick?.();
     this.enter("LIFT",job);
+  }
+
+  /** Give an un-picked job back to the factory (box keeps moving, slot is released). */
+  private abandon(job: Transfer): void {
+    const r=this.runtime;
+    this.cargo.delete(job.box);job.onMiss?.();r.index++;r.phase="HOME";r.pose=null;r.planning=null;r.recovery=null;r.failures=0;
+    this.options.onProgress?.(r.index,"HOME · 경로 반복 실패로 작업 반환");
   }
 
   private release(job: Transfer, delta: number): void {

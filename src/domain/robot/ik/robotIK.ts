@@ -6,10 +6,31 @@ import { createKinematics, solvePosition } from "@/domain/robot/ik/closedChainKi
 import type { NumericResult } from "@/domain/robot/ik/robotKinematics";
 import { createHeldBoxCollision } from "@/domain/robot/ik/heldBoxCollision";
 import { minimumJerk } from "@/domain/robot/ik/motionTiming";
+import { createAnalyticIK } from "@/domain/robot/ik/analyticIK";
 
 type IKStep = { angles: number[]; baseYaw: number };
 export type IKPose = IKStep & { error: number; reachable: boolean; reason?: "timeout"; blockedBy?: string; route?: IKStep[]; step?: number; target?: Vector3; alignment?: IKPose; transit?: IKPose };
+export type LineLock = { baseYaw: number; pitch: number; origin: number; softReach: number; maxReach: number; front: boolean; elbow: 1 | -1 };
 type IKConstraints = { baseYaw?: number; wristAbovePoint?: boolean; descentTarget?: Vector3; wristRange?: [number,number] };
+
+/**
+ * How plans were solved (process-wide, diagnostics only): analytic = strict vertical tool, tilt = analytic with a
+ * small tool pitch tolerance, numeric = seeded numeric IK, rrt = joint-space detour, failed = no plan.
+ * cartesianAnalytic / cartesianNumeric count individual straight-line (MoveL) waypoints.
+ */
+export const ikSolveStats = { analytic: 0, tilt: 0, numeric: 0, rrt: 0, failed: 0, cartesianAnalytic: 0, cartesianNumeric: 0, line: 0, lineNoSolution: 0, lineBlocked: 0 };
+export function resetIKSolveStats() { for (const key of Object.keys(ikSolveStats) as (keyof typeof ikSolveStats)[]) ikSolveStats[key] = 0; }
+/** Analytic tool pitch sweep (degrees off vertical), strict first. */
+const ANALYTIC_TILT_DEGREES = [0, 3, -3, 6, -6, 9, -9, 12, -12, 15, -15, 18, -18, 20, -20];
+/** Largest single-joint change (rad) accepted for one analytic MoveL waypoint; bigger means a branch flip. */
+const ANALYTIC_STEP_CONTINUITY = 0.35;
+/** Straight segments keep the wrist inside this fraction of full reach; beyond it the tool tilts instead. */
+const LINE_MAX_REACH = 0.97;
+/** Tool starts tilting (smoothly) once the wrist passes this fraction of full reach. */
+const LINE_SOFT_REACH = 0.88;
+/** Candidate ranking extras (s of equivalent joint travel): per degree of tool tilt, and for leaving the current branch. */
+const ANALYTIC_TILT_COST = 0.01;
+const ANALYTIC_BRANCH_COST = 0.6;
 
 export function createRobotIK(model: Group, motionScale = 1, collisionMode: "world" | "held-box-hand03" | "none" = "world") {
   if (motionScale <= 0) throw new Error("Robot geometry scale must be positive");
@@ -26,6 +47,9 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
   const all = [baseControl, ...controls];
   for (const control of all) setJointAngle(control, control.angle);
   model.updateWorldMatrix(true, true);
+  // Geometry is read once at the export pose; models that break the planar-arm assumptions use numeric IK only.
+  let analytic: ReturnType<typeof createAnalyticIK> | null = null;
+  try { analytic = createAnalyticIK(all, grip); } catch { analytic = null; }
   const shaft = grip.getWorldPosition(new Vector3()).sub(wrist.getWorldPosition(new Vector3())).normalize();
   const downRotation = new Quaternion().setFromUnitVectors(shaft, new Vector3(0, -1, 0));
   const upright = downRotation.multiply(grip.getWorldQuaternion(new Quaternion()));
@@ -122,6 +146,47 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     ]);
   }
   const nearest = (value: number, reference: number) => reference + Math.atan2(Math.sin(value-reference), Math.cos(value-reference));
+  /** Time-weighted joint travel (s): hand00 is slower, so its turns cost more. */
+  const travelCost = (from: number[], to: number[]) => to.reduce((sum, value, i) =>
+    sum + Math.abs(value - from[i]) / (i === 0 ? MOTION.baseAngularSpeed : MOTION.angularSpeed), 0);
+  /**
+   * Closed-form candidates: hand00 aims the arm plane (facing or reaching backward), hand01/02 by law of cosines,
+   * hand04 = pitch - (q1+q2). `plan` sweeps the tool pitch (vertical, then up to ANALYTIC sweep tilt, plus the
+   * current tilt when allowed); `step` (MoveL waypoint) keeps the current tool pitch so the orientation is held.
+   * Candidates respect `limits` (fixed hand00, wrist range, locked joints), are FK-checked, and are ordered by
+   * time-weighted joint travel plus a small tilt cost and a branch-change cost (hysteresis for tracking re-plans).
+   */
+  function analyticCandidates(start: number[], target: Vector3, limits: [number,number][], maxTiltDegrees: number, forward: ReturnType<typeof createKinematics>["forward"], mode: "plan" | "step" = "plan") {
+    const found: { angles: number[]; tilt: number; cost: number }[] = [];
+    if (!analytic) return found;
+    const vertical = -Math.PI / 2, tiltOf = (pitch: number) => Math.abs(MathUtils.radToDeg(nearest(pitch, vertical) - vertical));
+    const current = analytic.pitchOf(start), currentTilt = tiltOf(current);
+    const sweep = Math.min(maxTiltDegrees, IK_CONFIG.analyticMaxTiltDegrees);
+    const clamped = vertical + MathUtils.degToRad(Math.sign(nearest(current, vertical) - vertical) * Math.min(currentTilt, maxTiltDegrees));
+    const pitches = mode === "step" ? [currentTilt <= maxTiltDegrees + 1e-6 ? current : clamped]
+      : [...ANALYTIC_TILT_DEGREES.filter(t => Math.abs(t) <= sweep + 1e-9).map(t => vertical + MathUtils.degToRad(t)),
+        ...(currentTilt > 0.5 && currentTilt <= maxTiltDegrees + 1e-6 ? [current] : [])];
+    const branch = analytic.branchOf(start);
+    for (const pitch of pitches) {
+      for (const solution of analytic.solve(target, start, { pitch, keepElbow: false, maxReachRatio: LINE_MAX_REACH })) {
+        const angles = solution.angles;
+        if (limits[0][0] === limits[0][1]) {
+          if (Math.abs(angles[0] - limits[0][0]) > 2e-3) continue;
+          angles[0] = limits[0][0];
+        }
+        if (all[4].locked) angles[4] = start[4];
+        if (angles.some((value, i) => value < limits[i][0] - 1e-8 || value > limits[i][1] + 1e-8)) continue;
+        if (forward(angles).position.distanceTo(target) > NUMERICAL_IK.positionTolerance) continue;
+        if (found.some(other => other.angles.every((v, i) => Math.abs(v - angles[i]) < 1e-3))) continue;
+        const tilt = tiltOf(pitch);
+        const cost = travelCost(start, angles) + ANALYTIC_TILT_COST * tilt
+          + (solution.front !== branch.front ? ANALYTIC_BRANCH_COST : 0) + (solution.elbow !== branch.elbow ? ANALYTIC_BRANCH_COST / 2 : 0);
+        found.push({ angles, tilt, cost });
+      }
+    }
+    return found.sort((a, b) => a.cost - b.cost);
+  }
+  const analyticTiltLimit = (downward: boolean) => downward ? MathUtils.radToDeg(tiltTolerance()) : 90;
   function makeSeeds(start: number[], target: Vector3, forward: ReturnType<typeof createKinematics>["forward"]) {
     const pivot = baseNode.getWorldPosition(new Vector3());
     const source = forward(start).position.sub(pivot), destination = target.clone().sub(pivot);
@@ -151,6 +216,14 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     const route: IKStep[] = [];
     for (let i = 1; i <= count; i++) {
       const stepLimits = withinHalfTurn(limits, before);
+      const point = origin.clone().lerp(target,i/count);
+      const closed = releaseRange ? undefined : analyticCandidates(before, point, stepLimits, analyticTiltLimit(downward), forward, "step")
+        .find(c => c.angles.every((v, j) => Math.abs(v - before[j]) < ANALYTIC_STEP_CONTINUITY));
+      if (closed) {
+        const hit=yield* edge(before,closed.angles,limits);
+        if(!hit){ikSolveStats.cartesianAnalytic++;before=closed.angles;route.push(pack(before));continue;}
+      }
+      ikSolveStats.cartesianNumeric++;
       let result = yield* solvePosition(forward, before, stepLimits, origin.clone().lerp(target,i/count), downward,
         NUMERICAL_IK.positionTolerance, tiltTolerance(), i===count?releaseRange:undefined);
       if(!result.converged && i<count) result=yield* solvePosition(forward,before,stepLimits,origin.clone().lerp(target,i/count),false,NUMERICAL_IK.positionTolerance,0);
@@ -216,6 +289,17 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
       // point safely. Fall through to the seeded search below instead of
       // declaring the target unreachable and stalling the phase forever.
     }
+    // 1) Closed-form IK: strict vertical tool, then small tilt. Verified like numeric results.
+    const analyticBlocked:NumericResult[]=[];
+    for(const candidate of releaseRange?[]:analyticCandidates(start,worldTarget,limits,analyticTiltLimit(downward),forward).slice(0,6)){
+      if(constraints?.wristAbovePoint&&forward(candidate.angles).wristPosition.y<worldTarget.y+MOTION.contactTolerance)continue;
+      if(yield* edge(candidate.angles,candidate.angles,limits))continue;
+      if(descentTarget&&!(yield* descentRoute(candidate.angles,descentTarget,downward,forward,limits,releaseRange)).route)continue;
+      const hit=yield* edge(start,candidate.angles,limits);
+      if(!hit){ikSolveStats[candidate.tilt>0.5?"tilt":"analytic"]++;return {...pack(candidate.angles),error:forward(candidate.angles).position.distanceTo(worldTarget),reachable:true};}
+      analyticBlocked.push({angles:candidate.angles,error:0,tilt:0,converged:true});
+    }
+    // 2) Seeded numeric IK.
     const seeds=makeSeeds(start,worldTarget,forward);
     let best:NumericResult={angles:start,error:Infinity,tilt:Infinity,converged:false};
     let firstHit:string|null=null;
@@ -239,7 +323,7 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
 
       candidates.push(result);
       const hit=yield* edge(start,result.angles,limits);
-      if(!hit)return {...pack(result.angles),error:result.error,reachable:true};
+      if(!hit){ikSolveStats.numeric++;return {...pack(result.angles),error:result.error,reachable:true};}
       firstHit??=hit;
       if(hit===WRIST_FULL_TURN){
         // The solver wandered more than half a turn on hand04; solve the same
@@ -248,7 +332,7 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
         const wristOK=!constraints?.wristAbovePoint || forward(short.angles).wristPosition.y>=worldTarget.y+MOTION.contactTolerance;
         if(short.converged&&wristOK&&!(yield* edge(short.angles,short.angles,limits))){
           const descentOK=!descentTarget||(yield* descentRoute(short.angles,descentTarget,downward,forward,limits,releaseRange)).route;
-          if(descentOK&&!(yield* edge(start,short.angles,limits)))return {...pack(short.angles),error:short.error,reachable:true};
+          if(descentOK&&!(yield* edge(start,short.angles,limits))){ikSolveStats.numeric++;return {...pack(short.angles),error:short.error,reachable:true};}
         }
       }
       // A continuous joint's shortest turn can cross the pallet/body. Check
@@ -259,30 +343,33 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
         for(const i of indices)if(!Number.isFinite(all[i].min)&&!all[i].locked&&!(i===0&&Math.abs(reverse[0]-start[0])<MIN_SHORT_BASE_TURN))
           reverse[i]-=Math.sign(reverse[i]-start[i]||1)*Math.PI*2;
         if(indices.every(i=>reverse[i]===result.angles[i]))continue;
-        if(!(yield* edge(start,reverse,limits)))return {...pack(reverse),error:result.error,reachable:true};
+        if(!(yield* edge(start,reverse,limits))){ikSolveStats.numeric++;return {...pack(reverse),error:result.error,reachable:true};}
       }
       if(candidates.length>=NUMERICAL_IK.endpointCandidates)break;
       yield;
       // Tracking stays near its current solution, but never skips the full retry on failure.
       if(tracking&&candidates.length>=3)break;
     }
+    // Closed-form endpoints whose direct sweep was blocked are the first RRT goals.
+    candidates.sort((a,b)=>a.angles.reduce((sum,v,i)=>sum+(v-start[i])**2,0)-b.angles.reduce((sum,v,i)=>sum+(v-start[i])**2,0));
+    candidates.unshift(...analyticBlocked.slice(0,2));
     if(candidates.length){
       const straight=yield* cartesianRoute(start,worldTarget,downward,forward,limits);
       if(straight.route){
         const end=straight.route.at(-1)!, values=unpack(end), pose=forward(values);
         const wristOK=!constraints?.wristAbovePoint || pose.wristPosition.y>=worldTarget.y+MOTION.contactTolerance;
         const descent=descentTarget?yield* descentRoute(values,descentTarget,downward,forward,limits,releaseRange):null;
-        if(wristOK&&(!descent||descent.route))return {...end,error:pose.position.distanceTo(worldTarget),reachable:true,route:straight.route,step:0};
+        if(wristOK&&(!descent||descent.route)){ikSolveStats.rrt++;return {...end,error:pose.position.distanceTo(worldTarget),reachable:true,route:straight.route,step:0};}
       }
-      candidates.sort((a,b)=>a.angles.reduce((sum,v,i)=>sum+(v-start[i])**2,0)-b.angles.reduce((sum,v,i)=>sum+(v-start[i])**2,0));
       for(const candidate of candidates.slice(0,3)){
         const route=yield* jointRoute(start,candidate.angles,limits);
-        if(route)return {...pack(candidate.angles),error:candidate.error,reachable:true,route,step:0};
+        if(route){ikSolveStats.rrt++;return {...pack(candidate.angles),error:candidate.error,reachable:true,route,step:0};}
       }
     }
     const reason=firstHit ? (candidates.length ? "경로 충돌 · " : "목표 자세 충돌 · ")+firstHit : position.converged&&downward
       ? "위치는 도달 가능 · 하향 자세와 관절 제한을 동시에 만족하는 해 미발견"
       : "위치 해 탐색 미수렴 · 오차 "+(best.error*1000).toFixed(1)+"mm (도달 불가 확정 아님)";
+    ikSolveStats.failed++;
     return {...pack(start),error:best.error,reachable:false,blockedBy:reason};
   }
   const planningWork=new WeakMap<ReturnType<typeof startPlan>,number>();
@@ -406,10 +493,18 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     const phase=Math.atan2(b,a);
     const turns = [phase+offset,phase-offset];
     turns.sort((a,b) => Math.abs(nearest(a,nearTurn)-nearTurn)-Math.abs(nearest(b,nearTurn)-nearTurn));
-    const values = [...start];
-    values[0] = nearest(start[0]+turns[0],start[0]);
-    const hit = yield* edge(start,values);
-    const point = createKinematics(all,grip,wrist).forward(values).position;
+    const {forward} = createKinematics(all,grip,wrist);
+    // Closed-form heading: the hand00 angle of the cheapest full arm solution (facing or backward reach),
+    // so the following fixed-base transit lands on that same solution. Falls back to the geometric turns.
+    const headings = analyticCandidates(start,target,limitsAround(start),analyticTiltLimit(Boolean(payloadCollision?.holding)),forward)
+      .map(c=>c.angles[0]);
+    let values = [...start], hit: string | null = "hand00 정렬 해 없음";
+    for (const yaw of [...headings.slice(0,4), ...turns.map(turn=>nearest(start[0]+turn,start[0]))]) {
+      values = [...start]; values[0] = yaw;
+      hit = yield* edge(start,values);
+      if (!hit) break;
+    }
+    const point = forward(values).position;
     return {...pack(values),error:0,reachable:!hit,blockedBy:hit??undefined,target:point};
   }
   // Nested planning runs from a proposed checkpoint, restoring the real pose at every yield.
@@ -511,9 +606,45 @@ export function createRobotIK(model: Group, motionScale = 1, collisionMode: "wor
     const wristRange: [number,number]=direction>0?[controls[2].min,start]:[start,controls[2].max];
     return yield* startConstrainedPlan(target,{wristAbovePoint:true,wristRange});
   }
+  /** Branch, tool pitch and hand00 of the current pose; held fixed along one straight vertical segment. */
+  function lineLock(): LineLock | null {
+    if (!analytic) return null;
+    const values = read();
+    const pitch = analytic.pitchOf(values);
+    // The easing knee starts at or beyond the current reach, so the first waypoint never re-tilts the tool.
+    const ratio = analytic.reachRatioOf(values);
+    const softReach = Math.max(LINE_SOFT_REACH, ratio + 1e-6), maxReach = Math.max(LINE_MAX_REACH, softReach + 0.02);
+    return { baseYaw: values[0], pitch, origin: pitch, softReach, maxReach: Math.min(maxReach, 0.995), ...analytic.branchOf(values) };
+  }
+  /**
+   * Closed-form point on a straight segment: same hand00, branch and tool pitch as `lock`, so successive
+   * points form one continuous joint curve (no solver switching, no re-planning). Null when out of reach,
+   * outside joint limits, or when the next point would jump (caller then falls back to the planner).
+   */
+  function solveLine(target: Vector3, lock: LineLock): IKPose | null {
+    if (!analytic) return null;
+    const start = read();
+    // Only the locked branch: crossing the straight-elbow boundary mid-lift is what made hand02 jerk.
+    // Near full reach the tool turns continuously (wrist held on the reach limit) instead of in steps, and only
+    // the locked branch is accepted: crossing the straight-elbow boundary mid-lift is what made hand02 jerk.
+    let best: number[] | null = null, bestPitch = lock.pitch, bestJump = Infinity;
+    for (const solution of analytic.solve(target, start, { pitch: lock.origin, keepElbow: false, maxReachRatio: lock.maxReach, adjustPitch: true, softReachStart: lock.softReach })) {
+      if (solution.front !== lock.front || solution.elbow !== lock.elbow) continue;
+      if (Math.abs(solution.pitch - lock.origin) > MathUtils.degToRad(IK_CONFIG.analyticMaxTiltDegrees)) continue;
+      const angles = solution.angles;
+      if (Math.abs(angles[0] - lock.baseYaw) > 2e-3) continue;
+      angles[0] = lock.baseYaw;
+      if (all[4].locked) angles[4] = start[4];
+      const jump = Math.max(...angles.map((value, i) => Math.abs(value - start[i])));
+      if (jump > ANALYTIC_STEP_CONTINUITY || jump >= bestJump) continue;
+      best = angles; bestPitch = solution.pitch; bestJump = jump;
+    }
+    if (best) { lock.pitch = bestPitch; return { ...pack(best), error: 0, reachable: true, target: target.clone() }; }
+    return null;
+  }
   // Minimal FK adapter retained for callers that inspect the original chain.
   const effector={updateMatrixWorld:()=>model.updateWorldMatrix(true,true),getWorldPosition:(out:number[])=>grip.getWorldPosition(new Vector3()).toArray(out)};
-  return {plan,startPlan,startConstrainedPlan,startCartesianPlan,startBaseAlignment,startBaseTransfer,startShoulderTransfer,prepareShoulderTransfer,startPickupPlan,advancePlan,animate,animateEased,isSettled,isEasedSettled,isCartesianSettled,startCollisionRecovery,
+  return {lineLock,solveLine:(t:Vector3,l:LineLock)=>{const r=solveLine(t,l);if(r)ikSolveStats.line++;else ikSolveStats.lineNoSolution++;return r;},plan,startPlan,startConstrainedPlan,startCartesianPlan,startBaseAlignment,startBaseTransfer,startShoulderTransfer,prepareShoulderTransfer,startPickupPlan,advancePlan,animate,animateEased,isSettled,isEasedSettled,isCartesianSettled,startCollisionRecovery,
     get lastMotionBlock(){return lastMotionBlock;},
     setMinimumToolHeight:(height:number|null)=>{minimumToolHeight=height;},collisions,carryRotation,grip,controls,baseControl,effector};
 }

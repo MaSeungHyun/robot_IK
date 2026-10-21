@@ -12,8 +12,12 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { useCargoStore } from "@/stores/useCargoStore";
 import { simulationDelta } from "@/domain/simulation/simulationTime";
+import { ikSolveStats } from "@/domain/robot/ik/robotIK";
+import { log } from "@/stores/useLogStore";
 
 const REPORT_INTERVAL = 0.25;
+/** Log the IK solve-path counters once per this many plans (dev diagnostics, kept sparse). */
+const IK_LOG_EVERY = 50;
 const getSettings = () => useSceneStore.getState().settings;
 
 export default function useFactoryRuntime({ running, onStats, onProgress }: SimulatorRunProps) {
@@ -30,6 +34,7 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   const box = useGLTF(boxUrl);
   const pallet = useGLTF(palletUrl);
   const reportElapsed = useRef(0);
+  const ikLogged = useRef(0);
   const world = useMemo(
     () => new FactorySimulator(objects, box.scene, pallet.scene, getSettings, instances ?? undefined),
     [objects, box.scene, pallet.scene, instances],
@@ -66,6 +71,11 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
     onProgress(world.placed, world.status);
     setEquipment(world.equipment);
     useCargoStore.getState().refresh();
+    const ik = ikSolveStats, plans = ik.analytic + ik.tilt + ik.numeric + ik.rrt + ik.failed;
+    if (plans - ikLogged.current >= IK_LOG_EVERY) {
+      ikLogged.current = plans;
+      log("info", "IK 해법 경로", `해석 ${ik.analytic} / 기울임 ${ik.tilt} / 수치 ${ik.numeric} / RRT ${ik.rrt} / 실패 ${ik.failed} · 직선 해석 ${ik.cartesianAnalytic} / 수치 ${ik.cartesianNumeric}`);
+    }
   }, -2);
 
   return { world, objects, settings };
