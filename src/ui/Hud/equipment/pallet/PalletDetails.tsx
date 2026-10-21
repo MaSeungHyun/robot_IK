@@ -60,7 +60,6 @@ export default function PalletDetails({ object }: EquipmentDetailProps) {
             field="capacity"
             label="적재 개수"
             min={1}
-            max={100}
             step={1}
             integer
           />

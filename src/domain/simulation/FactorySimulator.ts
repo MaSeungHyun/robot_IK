@@ -13,6 +13,7 @@ import type { EquipmentSnapshot } from "@/types/simulation";
 import { BOX_SIZES, STREAM_CONFIG, MOTION } from "@/constants/simulation";
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
+import { amrSpeedFactor, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
 import { RACK_CONFIG, rackApproachPoint, rackSlotPoint } from "@/constants/rack";
 import { PalletController } from "@/domain/pallet/PalletController";
 import { PalletDispatchController } from "@/domain/amr/PalletDispatchController";
@@ -256,7 +257,7 @@ export class FactorySimulator {
       box.job
         .velocity!.set(s, 0, c)
         .multiplyScalar(
-          STREAM_CONFIG.speed * this.settings()[box.belt.id].speed,
+          beltSpeedOf(this.settings()[box.belt.id]),
         );
     }
   }
@@ -284,8 +285,10 @@ export class FactorySimulator {
     for (const belt of this.belts) {
       const config = settings[belt.object.id];
       if (!config.enabled || this.incoming.has(belt.object.id)) continue;
-      belt.elapsed += dt * config.speed;
-      if (belt.elapsed >= config.spawnInterval) {
+      // Real-time interval: independent of belt speed (a stopped belt simply blocks its inlet).
+      const interval = spawnIntervalOf(config);
+      belt.elapsed += dt;
+      if (belt.elapsed >= interval) {
         const inletOccupied = this.boxes.some(
           (box) =>
             (box.state === "moving" || box.state === "reserved") &&
@@ -293,9 +296,10 @@ export class FactorySimulator {
             box.distance < BOX_SIZES[0].z + 0.08,
         );
         if (!inletOccupied) {
-          belt.elapsed -= config.spawnInterval;
+          // Defensive: at most one box per belt per step, no unbounded backlog for tiny intervals.
+          belt.elapsed = Math.min(belt.elapsed - interval, interval);
           this.spawn(belt.object);
-        } else belt.elapsed = config.spawnInterval;
+        } else belt.elapsed = interval;
       }
     }
     let removed = false;
@@ -304,7 +308,7 @@ export class FactorySimulator {
       const config = settings[box.belt.id];
       let scanStart = box.distance;
       if (config.enabled)
-        box.distance += dt * STREAM_CONFIG.speed * config.speed;
+        box.distance += dt * beltSpeedOf(config);
       // Reserved boxes stay on their segment until picked or released by the robot.
       for (
         let hops = 0;
@@ -377,7 +381,7 @@ export class FactorySimulator {
             distance(robot.object, box.node.position) > config.reach - 0.05
           )
             continue;
-          const speed = STREAM_CONFIG.speed * settings[box.belt.id].speed;
+          const speed = beltSpeedOf(settings[box.belt.id]);
           const predicted = beltPoint(
             box.belt,
             Math.min(
@@ -395,7 +399,7 @@ export class FactorySimulator {
       }
     }
     for (const vehicle of this.trafficVehicles) {
-      vehicle.speed = settings[vehicle.id].speed;
+      vehicle.speed = amrSpeedFactor(settings[vehicle.id]);
       vehicle.enabled = settings[vehicle.id].enabled;
     }
     this.traffic.advance(this.trafficVehicles, dt, (vehicle, target) => {
@@ -524,7 +528,7 @@ export class FactorySimulator {
     for (const agent of this.agents) {
       const config = settings[agent.object.id];
       if (!config.enabled) continue;
-      const scaled = dt * config.speed;
+      const scaled = dt * amrSpeedFactor(config);
       const idle = agent.dispatch.phase === "idle";
       if (agent.charging) {
         agent.battery = Math.min(100, agent.battery + AMR_BATTERY.chargeRate * scaled);

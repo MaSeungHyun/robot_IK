@@ -6,6 +6,8 @@ import { validateScene } from "@/domain/amr/navigation/sceneValidation";
 import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/conveyor/conveyorLayout";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate } from "@/types/sceneTemplate";
+import { migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
+import { log } from "@/stores/useLogStore";
 
 export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙"};
 /** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
@@ -18,6 +20,8 @@ export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSi
 }
 const snapFloor=(object:SceneEquipment):SceneEquipment=>object.kind==="floor"&&object.floor?{...object,x:snapFloorCenter(object.x,object.floor.width),z:snapFloorCenter(object.z,object.floor.depth)}:object;
 const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:20,spawnInterval:8,enabled:true});
+/** Defaults (and legacy/preset values) in real units for `kind`. */
+const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...values});
 interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
   past:SceneSnapshot[];future:SceneSnapshot[];undo:()=>void;redo:()=>void;
@@ -47,8 +51,16 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
       const object=kind==="conveyor"?snapBelt(initial,state.objects):snapFloor(initial);
-      return {...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:settings()},selected:id,pending:null,nextId:state.nextId+1,errors:[]};
+      return {...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:settingsFor(kind,state.pending===kind?state.pendingPreset:null)},selected:id,pending:null,pendingPreset:null,nextId:state.nextId+1,errors:[]};
     });
+  },
+  duplicate:(source,config)=>{
+    const state=get();
+    if(!state.editing)return null;
+    const id=`${source.kind}-${state.nextId}`;
+    const object:SceneEquipment={...source,...(source.floor?{floor:{...source.floor}}:{}),id,name:`${EQUIPMENT_NAMES[source.kind]} ${state.nextId}`};
+    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:migrateSettings(source.kind,{...config})},selected:id,pending:null,pendingPreset:null,nextId:state.nextId+1,errors:[]});
+    return id;
   },
   extendConveyor:(id,turn)=>{
     const state=get(),source=state.objects.find(o=>o.id===id&&o.kind==="conveyor");
@@ -78,20 +90,23 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const state = get(), current = state.settings[id];
     if (!current) return;
     if (values.defectRate !== undefined && (!Number.isFinite(values.defectRate) || values.defectRate < 0 || values.defectRate > 1)) return;
-    const connected = values.speed !== undefined && state.objects.some(object => object.id === id && object.kind === "conveyor")
+    const connected = values.beltSpeed !== undefined && state.objects.some(object => object.id === id && object.kind === "conveyor")
       ? connectedBeltIds(state.objects, id) : new Set([id]);
     const nextSettings = { ...state.settings };
     let changed = false;
     for (const target of connected) {
       const config = state.settings[target];
       if (!config) continue;
-      const updates = target === id ? values : { speed: values.speed };
+      const updates = target === id ? values : { beltSpeed: values.beltSpeed };
       if (Object.entries(updates).every(([key, value]) => config[key as keyof EquipmentSettings] === value)) continue;
       nextSettings[target] = { ...config, ...updates };
       changed = true;
     }
     if (!changed) return;
     set({ ...history(state), settings: nextSettings, errors: [] });
+    const object = state.objects.find(entry => entry.id === id);
+    const warning = unrealisticWarning(object?.kind, values);
+    if (warning) log("warning", `${object?.name ?? id}: 비현실적인 설정값`, warning);
     if(!get().editing&&values.capacity!==undefined)useSimulationStore.getState().reset();
   },
   remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const next={...state.settings};delete next[id];return {...history(state),objects:state.objects.filter(object=>object.id!==id),settings:next,selected:state.selected===id?null:state.selected,errors:[]};});},
@@ -107,7 +122,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       id: `${entry.kind}-${index + 1}`, name: `${EQUIPMENT_NAMES[entry.kind]} ${index + 1}`,
     }));
     const configs = Object.fromEntries(objects.map((object, index) => [
-      object.id, { ...settings(), ...template.equipment[index].settings },
+      object.id, settingsFor(object.kind, template.equipment[index].settings),
     ]));
     const errors = validateScene(objects, configs);
     if (errors.length) { set({ errors }); return false; }

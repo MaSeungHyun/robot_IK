@@ -13,7 +13,13 @@ export type CargoGrade="normal"|"defect";
 export type PickFilter="all"|CargoGrade;
 /** Pallet grades a dock receives; "any" keeps the original behaviour. */
 export type DockAcceptGrade="any"|CargoGrade;
-export type EquipmentSettings={speed:number;reach:number;capacity:number;spawnInterval:number;enabled:boolean;defectRate?:number;
+export type EquipmentSettings={speed:number;reach:number;capacity:number;
+  /** Conveyor inlet: seconds between boxes (real time once `beltSpeed` is set; legacy = scaled by `speed`). */
+  spawnInterval:number;enabled:boolean;defectRate?:number;
+  /** Conveyor only: belt velocity in m/s (absent = legacy `speed` multiplier). */
+  beltSpeed?:number;
+  /** AMR only: max travel speed in m/s (absent = legacy `speed` multiplier). */
+  amrSpeed?:number;
   /** Robot only; default "all". */
   pickFilter?:PickFilter;
   /** Pallet only; default "normal". */

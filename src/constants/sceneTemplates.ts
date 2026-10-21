@@ -105,8 +105,8 @@ export const SCENE_TEMPLATES = [
         z: -2.7,
         yaw: 0,
         settings: {
-          speed: 3,
-          spawnInterval: 2,
+          beltSpeed: 0.1875,
+          spawnInterval: 2 / 3,
         },
       },
       {
@@ -116,7 +116,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         floor: {
           width: 18,
-          depth: 23,
+          depth: 28,
           wallHeight: 6.5,
         },
       },
@@ -126,7 +126,8 @@ export const SCENE_TEMPLATES = [
         z: -0.2,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -135,7 +136,8 @@ export const SCENE_TEMPLATES = [
         z: 2.3,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -144,7 +146,8 @@ export const SCENE_TEMPLATES = [
         z: 4.8,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -153,7 +156,8 @@ export const SCENE_TEMPLATES = [
         z: 7.3,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -162,7 +166,8 @@ export const SCENE_TEMPLATES = [
         z: 9.8,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -171,8 +176,8 @@ export const SCENE_TEMPLATES = [
         z: -2.7,
         yaw: 0,
         settings: {
-          speed: 3,
-          spawnInterval: 2,
+          beltSpeed: 0.1875,
+          spawnInterval: 2 / 3,
         },
       },
       {
@@ -181,7 +186,8 @@ export const SCENE_TEMPLATES = [
         z: -0.2,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -190,7 +196,8 @@ export const SCENE_TEMPLATES = [
         z: 2.3,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -199,7 +206,8 @@ export const SCENE_TEMPLATES = [
         z: 4.8,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -208,7 +216,8 @@ export const SCENE_TEMPLATES = [
         z: 7.3,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -217,7 +226,8 @@ export const SCENE_TEMPLATES = [
         z: 9.8,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -226,8 +236,8 @@ export const SCENE_TEMPLATES = [
         z: -2.5,
         yaw: 0,
         settings: {
-          speed: 3,
-          spawnInterval: 2,
+          beltSpeed: 0.1875,
+          spawnInterval: 2 / 3,
         },
       },
       {
@@ -236,7 +246,8 @@ export const SCENE_TEMPLATES = [
         z: 0,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -245,7 +256,8 @@ export const SCENE_TEMPLATES = [
         z: 2.5,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -254,7 +266,8 @@ export const SCENE_TEMPLATES = [
         z: 5,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -263,7 +276,8 @@ export const SCENE_TEMPLATES = [
         z: 7.5,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {
@@ -272,7 +286,8 @@ export const SCENE_TEMPLATES = [
         z: 10,
         yaw: 0,
         settings: {
-          speed: 3,
+          beltSpeed: 0.1875,
+          spawnInterval: 8 / 3,
         },
       },
       {

@@ -5,7 +5,8 @@ import Badge from "@/components/Badge";
 import AMRStatusBadge from "@/ui/Hud/equipment/amr/AMRStatusBadge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
-import EquipmentSpeedSetting from "@/ui/Hud/equipment/details/_components/EquipmentSpeedSetting";
+import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
+import { SPEED_LIMITS } from "@/domain/simulation/equipmentSpeeds";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
@@ -32,7 +33,7 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
       ]} />
     } settings={
       <DetailSection title="AMR 설정">
-        <EquipmentSpeedSetting id={object.id} />
+        <EquipmentNumberSetting id={object.id} field="amrSpeed" label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} />
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
     }>

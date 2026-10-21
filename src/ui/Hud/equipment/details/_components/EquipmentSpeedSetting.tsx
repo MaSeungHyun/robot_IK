@@ -16,10 +16,10 @@ export default function EquipmentSpeedSetting({
       <EquipmentNumberSetting
         id={id}
         field="speed"
-        label={connected ? "연결 컨베이어 속도 ×" : "작동 속도 ×"}
-        min={0.25}
-        max={3}
-        step={0.25}
+        label={connected ? "연결 컨베이어 속도" : "작동 속도"}
+        unit="×"
+        min={0}
+        exclusiveMin
       />
     </div>
   );

@@ -3,10 +3,15 @@ import { useShallow } from "zustand/react/shallow";
 import { useSceneStore } from "@/stores/useSceneStore";
 import Select from "@/components/Select";
 import Button from "@/components/Button";
-import { SIMULATOR_CONFIG, FLOOR_CONFIG } from "@/constants/simulatorLayout";
+import { FLOOR_CONFIG } from "@/constants/simulatorLayout";
 import { beltConnections } from "@/domain/conveyor/conveyorLayout";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import Panel from "@/ui/Hud/_components/Panel";
+import NumberField from "@/components/NumberField";
+import {
+  SPEED_LIMITS, amrSpeedOf, beltSpeedOf, fromBoxesPerHour, fromMetersPerMinute, spawnIntervalOf, speedPatch,
+  toBoxesPerHour, toMetersPerMinute,
+} from "@/domain/simulation/equipmentSpeeds";
 
 export default function ObjectPropertiesPanel({
   embedded = false,
@@ -159,75 +164,35 @@ export default function ObjectPropertiesPanel({
         {object.kind !== "dock" && object.kind !== "rack" && object.kind !== "floor" && (
           <section className="mt-5 border-t border-white/10 pt-4">
             <h3 className="mb-3 text-xs text-text-primary">시뮬레이션 설정</h3>
-            {object.kind !== "pallet" && object.kind !== "scanner" && (
-              <label className="block text-xs text-text-secondary">
-                {object.kind === "conveyor"
-                  ? "연결 컨베이어 속도 ×"
-                  : "작동 속도 ×"}
-                <input
-                  aria-label="작동 속도"
-                  className={input}
-                  type="number"
-                  min={0.25}
-                  max={3}
-                  step={0.25}
-                  value={settings.speed}
-                  onChange={(e) => {
-                    const value = e.currentTarget.valueAsNumber;
-                    if (value >= 0.25 && value <= 3)
-                      state.updateSettings(object.id, { speed: value });
-                  }}
-                />
-              </label>
+            {object.kind === "robot" && (
+              <>
+                <NumberField label="작동 속도" unit="×" min={0} exclusiveMin value={settings.speed} inputClassName={input}
+                  onCommit={(value) => state.updateSettings(object.id, { speed: value })} />
+                <p className="mt-1 text-xs text-text-secondary">
+                  개별 {settings.speed}× · 전체 {playbackSpeed}× → 실제{" "}
+                  {Number((settings.speed * playbackSpeed).toFixed(2))}×
+                </p>
+              </>
             )}
-            {object.kind !== "pallet" && object.kind !== "scanner" && (
-              <p className="mt-1 text-xs text-text-secondary">
-                {object.kind === "conveyor" ? "연결 구간" : "개별"}{" "}
-                {settings.speed}× · 전체 {playbackSpeed}× → 실제{" "}
-                {Number((settings.speed * playbackSpeed).toFixed(2))}×
-              </p>
+            {object.kind === "amr" && (
+              <NumberField label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} value={amrSpeedOf(settings)} inputClassName={input}
+                onCommit={(value) => state.updateSettings(object.id, speedPatch("amrSpeed", value, settings))} />
+            )}
+            {object.kind === "conveyor" && (
+              <NumberField label="연결 컨베이어 속도" unit="m/min" decimals={2} {...SPEED_LIMITS.beltSpeed} value={toMetersPerMinute(beltSpeedOf(settings))} inputClassName={input}
+                onCommit={(value) => state.updateSettings(object.id, speedPatch("beltSpeed", fromMetersPerMinute(value), settings))} />
             )}
             {object.kind === "scanner" && (
               <ScannerSettings id={object.id} inputClassName={input} />
             )}
 
             {object.kind === "robot" && (
-              <label className="mt-3 block text-xs text-text-secondary">
-                집기 범위 m
-                <input
-                  aria-label="집기 범위"
-                  className={input}
-                  type="number"
-                  min={0.5}
-                  max={SIMULATOR_CONFIG.reach}
-                  step={0.1}
-                  value={settings.reach}
-                  onChange={(e) => {
-                    const value = e.currentTarget.valueAsNumber;
-                    if (value >= 0.5 && value <= SIMULATOR_CONFIG.reach)
-                      state.updateSettings(object.id, { reach: value });
-                  }}
-                />
-              </label>
+              <NumberField className="mt-3" label="집기 범위" unit="m" min={0} exclusiveMin value={settings.reach} inputClassName={input}
+                onCommit={(value) => state.updateSettings(object.id, { reach: value })} />
             )}
             {object.kind === "pallet" && (
-              <label className="block text-xs text-text-secondary">
-                적재 개수
-                <input
-                  aria-label="적재 개수"
-                  className={input}
-                  type="number"
-                  min={1}
-                  max={100}
-                  step={1}
-                  value={settings.capacity}
-                  onChange={(e) => {
-                    const value = e.currentTarget.valueAsNumber;
-                    if (Number.isInteger(value) && value >= 1 && value <= 100)
-                      state.updateSettings(object.id, { capacity: value });
-                  }}
-                />
-              </label>
+              <NumberField label="적재 개수" unit="개" integer min={1} value={settings.capacity} inputClassName={input}
+                onCommit={(value) => state.updateSettings(object.id, { capacity: value })} />
             )}
             {object.kind === "conveyor" &&
               (connectedInput ? (
@@ -235,25 +200,8 @@ export default function ObjectPropertiesPanel({
                   앞 구간에서 넘어오는 박스를 이송합니다.
                 </p>
               ) : (
-                <label className="mt-3 block text-xs text-text-secondary">
-                  박스 생성 간격 s
-                  <input
-                    aria-label="박스 생성 간격"
-                    className={input}
-                    type="number"
-                    min={2}
-                    max={30}
-                    step={1}
-                    value={settings.spawnInterval}
-                    onChange={(e) => {
-                      const value = e.currentTarget.valueAsNumber;
-                      if (value >= 2 && value <= 30)
-                        state.updateSettings(object.id, {
-                          spawnInterval: value,
-                        });
-                    }}
-                  />
-                </label>
+                <NumberField className="mt-3" label="박스 투입량" unit="개/h" decimals={2} {...SPEED_LIMITS.spawnInterval} value={toBoxesPerHour(spawnIntervalOf(settings))} inputClassName={input}
+                  onCommit={(value) => state.updateSettings(object.id, speedPatch("spawnInterval", fromBoxesPerHour(value), settings))} />
               ))}
             <label className="mt-4 flex items-center gap-2 text-xs text-text-primary">
               <input

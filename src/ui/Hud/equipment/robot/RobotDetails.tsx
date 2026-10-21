@@ -3,7 +3,6 @@ import useEquipmentTelemetry from "@/hooks/useEquipmentTelemetry";
 import { formatMetric } from "@/utils/equipment/formatMetric";
 import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 import Badge from "@/components/Badge";
-import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import RobotStatusBadge from "@/ui/Hud/equipment/robot/RobotStatusBadge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
@@ -72,8 +71,8 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
             id={object.id}
             field="reach"
             label="집기 범위 m"
-            min={0.5}
-            max={SIMULATOR_CONFIG.reach}
+            min={0}
+            exclusiveMin
             step={0.1}
           />
           <EquipmentChoiceSetting

@@ -89,11 +89,14 @@ export default function Robot({
     // Shared per-frame IK budget, consumed once across all sub-steps of this frame.
     instance.setPlanningBudget?.(planningScheduler.budget(instance.id, state.clock.elapsedTime));
     let remaining = simulationDelta(delta, playbackSpeed, simulationSpeed);
+    if (!Number.isFinite(remaining)) remaining = 0;
+    // Defensive cap for extreme speed multipliers (normal speeds need far fewer sub-steps).
+    let steps = 0;
     do {
       const step = Math.min(remaining, 0.05);
       instance.update(step);
       remaining -= step;
-    } while (remaining > 1e-9);
+    } while (remaining > 1e-9 && ++steps < 400);
     if (jointAnglesRef) jointAnglesRef.current = instance.getJointAngles();
   });
 

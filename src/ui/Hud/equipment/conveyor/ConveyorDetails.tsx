@@ -5,13 +5,13 @@ import { useMemo } from "react";
 import Badge from "@/components/Badge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
-import EquipmentSpeedSetting from "@/ui/Hud/equipment/details/_components/EquipmentSpeedSetting";
 import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { beltConnections, beltLength } from "@/domain/conveyor/conveyorLayout";
+import { SPEED_LIMITS } from "@/domain/simulation/equipmentSpeeds";
 import type { ConveyorTurn } from "@/types/layout";
 
 const TURN_LABELS: Record<ConveyorTurn, string> = { straight: "직선", left: "좌회전", right: "우회전" };
@@ -46,9 +46,9 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
       ]} />
     } settings={
       <DetailSection title="컨베이어 설정">
-        <EquipmentSpeedSetting id={object.id} connected />
+        <EquipmentNumberSetting id={object.id} field="beltSpeed" label="연결 컨베이어 속도" unit="m/min" {...SPEED_LIMITS.beltSpeed} />
         {incoming ? <p>앞 구간에서 넘어오는 박스를 이송합니다.</p> : (
-          <EquipmentNumberSetting id={object.id} field="spawnInterval" label="박스 생성 간격 s" min={2} max={30} step={1} />
+          <EquipmentNumberSetting id={object.id} field="spawnInterval" label="박스 투입량" unit="개/h" {...SPEED_LIMITS.spawnInterval} />
         )}
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
