@@ -5,19 +5,19 @@ import useEditorShortcuts from "@/hooks/useEditorShortcuts";
 import ObjectPropertiesPanel from "@/ui/Hud/object/ObjectPropertiesPanel";
 import LoadingOverlay from "@/ui/Hud/LoadingOverlay";
 import Header from "@/ui/Header/index";
-import SideBar from "@/ui/Hud/SideBar";
-import WorkspacePanel from "@/ui/Hud/workspace/WorkspacePanel";
+import PlacementErrors from "@/ui/Hud/asset/PlacementErrors";
 import InspectorPanel from "@/ui/Hud/inspector/InspectorPanel";
 import PanelColumn from "@/ui/Hud/_components/PanelColumn";
 import FloorDrawingGuide from "@/ui/Hud/asset/FloorDrawingGuide";
 import TrackingOverlay from "@/ui/Hud/TrackingOverlay";
 import TrackingIndicator from "@/ui/tracking/TrackingIndicator";
+import AssetRail from "@/ui/Hud/asset/AssetRail";
+import ModalTransformHint from "@/ui/Hud/ModalTransformHint";
 
 export default function Hud() {
   const mode = useModeStore((state) => state.mode);
   const editing = useSceneStore((state) => state.editing);
   const selected = useSceneStore((state) => state.selected);
-  const workspaceOpen = useHudStore((state) => state.workspacePanelOpen);
   const inspectorTab = useHudStore((state) => state.inspectorTab);
   const simulation = mode === "simulation";
   const showEditor = simulation && editing;
@@ -33,10 +33,12 @@ export default function Hud() {
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div className="shadow" />
-        {simulation && <SideBar />}
+        {showEditor && <AssetRail />}
         <div className="relative flex min-h-0 min-w-0 flex-1 gap-4 overflow-hidden p-2 max-sm:flex-col max-sm:gap-3 max-sm:p-3">
-          {simulation && (
-            <PanelColumn>{workspaceOpen && <WorkspacePanel />}</PanelColumn>
+          {showEditor && (
+            <PanelColumn>
+              <PlacementErrors />
+            </PanelColumn>
           )}
           {showEditor && selected && (
             <PanelColumn right>

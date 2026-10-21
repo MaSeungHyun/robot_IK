@@ -21,10 +21,12 @@ const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:20,spawnIn
 interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
   past:SceneSnapshot[];future:SceneSnapshot[];undo:()=>void;redo:()=>void;
-  objects:SceneEquipment[];settings:Record<string,EquipmentSettings>;selected:string|null;pending:EquipmentKind|null;editing:boolean;tool:"translate"|"rotate";errors:string[];nextId:number;
-  select:(id:string|null)=>void;setPending:(kind:EquipmentKind|null)=>void;setTool:(tool:"translate"|"rotate")=>void;
+  objects:SceneEquipment[];settings:Record<string,EquipmentSettings>;selected:string|null;pending:EquipmentKind|null;/** Settings applied to the next placed `pending` object (asset rail presets). */pendingPreset:Partial<EquipmentSettings>|null;editing:boolean;tool:"translate"|"rotate";errors:string[];nextId:number;
+  select:(id:string|null)=>void;setPending:(kind:EquipmentKind|null,preset?:Partial<EquipmentSettings>|null)=>void;setTool:(tool:"translate"|"rotate")=>void;
   add:(kind:EquipmentKind,pose:Partial<EquipmentPose>&{floor?:FloorSize})=>void;updateFloor:(id:string,size:Partial<FloorSize>)=>void;updatePose:(id:string,pose:Partial<EquipmentPose>)=>void;
   extendConveyor:(id:string,turn:ConveyorTurn)=>void;
+  /** Adds a copy (new id/name, same pose/props/settings) and selects it; returns its id. */
+  duplicate:(object:SceneEquipment,settings:EquipmentSettings)=>string|null;
   updateSettings:(id:string,values:Partial<EquipmentSettings>)=>void;remove:(id:string)=>void;
   edit:()=>void;complete:()=>void;clear:()=>void;example:()=>void;
   loadTemplate: (template: SceneTemplate) => boolean;
@@ -37,8 +39,8 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   inspected:null,inspect:id=>set(id?{inspected:id,selected:id}:{inspected:null}),
   undo:()=>{const state=get();if(!state.editing||!state.past.length)return;set({...state.past[state.past.length-1],past:state.past.slice(0,-1),future:[snapshot(state),...state.future],pending:null,errors:[]});},
   redo:()=>{const state=get();if(!state.editing||!state.future.length)return;set({...state.future[0],past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:state.future.slice(1),pending:null,errors:[]});},
-  objects:[],settings:{},selected:null,pending:null,editing:true,tool:"translate",errors:[],nextId:1,
-  select:selected=>{if(get().selected!==selected||get().inspected!==null)set({selected,inspected:null});},setPending:pending=>{if(get().pending!==pending)set({pending});},setTool:tool=>{if(get().tool!==tool)set({tool});},
+  objects:[],settings:{},selected:null,pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
+  select:selected=>{if(get().selected!==selected||get().inspected!==null)set({selected,inspected:null});},setPending:(pending,preset=null)=>{const next=pending?preset:null;if(get().pending!==pending||get().pendingPreset!==next)set({pending,pendingPreset:next});},setTool:tool=>{if(get().tool!==tool)set({tool});},
   add:(kind,pose)=>{
     if(!get().editing)return;
     set(state=>{
