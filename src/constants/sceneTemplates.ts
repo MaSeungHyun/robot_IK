@@ -115,8 +115,8 @@ export const SCENE_TEMPLATES = [
         z: 1.5,
         yaw: 0,
         floor: {
-          width: 15,
-          depth: 21,
+          width: 18,
+          depth: 23,
           wallHeight: 6.5,
         },
       },

@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes } from "react";
-import { cn } from "../lib/style";
+import { cn } from "@/lib/style";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   fill?: boolean;

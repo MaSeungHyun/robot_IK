@@ -9,10 +9,14 @@
 
 ## 폴더와 책임
 - `src/constants/`: 전체 설정에 대한 상수에 대해서는 다음 폴더에 정의한다. 
-- `src/features/`: 기능별 화면과 해당 기능에 종속된 컴포넌트.
-- `src/components/`: 여러 기능에서 공유하는 UI 컴포넌트. (최대한 radix를 사용하여 만든다.)
-- `src/hooks/`: React 생명주기와 연결된 재사용 로직. `src/stores/`: 공유 상태와 상태 변경 액션.
-- `src/utils/`: 계산·변환·외부 연동 등의 로직. 도메인별로 하위 폴더를 나눈다.
+- `src/components/`: Radix 기반 Button·Select·Tabs 등 여러 화면에서 공유하는 작은 UI 프리미티브.
+- `src/ui/`: Header·Hud·장비 상세·설정 패널 등 공용 컴포넌트를 조합하는 React 화면. 도메인 규칙은 직접 구현하지 않는다.
+- `src/viewport/`: Canvas·장면 조립·카메라·조명·인스턴싱·선택·추적 효과·3D 편집기와 실행 연결 훅.
+- `src/objects/`: 오브젝트(amr·robot·conveyor·scanner·pallet·box·room·dock)별 3D 모델과 시각 표현. 제어·IK·경로 탐색·적재 규칙은 `domain/`으로 분리한다.
+- `src/domain/`: 로봇 제어·IK, AMR 배차·경로 탐색, 팔레트 적재, 검사와 시뮬레이션 규칙. React·UI·viewport 구현·Zustand 스토어를 참조하지 않는다. 기존 Three.js 기반 수학·장면 상태는 유지하며 렌더링 구현은 인터페이스로 받는다.
+- `src/lib/`: clsx/tailwind-merge 래퍼, Three.js 모델 정규화·복제 등 외부 기술을 연결하는 코드. 설비의 업무 규칙은 넣지 않는다.
+- `src/hooks/`: React 생명주기와 연결된 재사용 로직. `src/stores/`: 공유 상태와 상태 변경 액션. 여러 스토어를 묶는 명령은 `stores/actions/`에 둔다.
+- `src/utils/`: 포맷·변환 등 작은 공용 함수. 도메인 규칙과 외부 기술 래퍼는 각각 `domain/`, `lib/`에 둔다.
 - `src/types/`, `src/constants/`, `src/i18n/`, `src/mock/`: 각각 공유 타입, 설정 상수, 번역, 개발용 데이터를 관리한다.
 - 기존 프로젝트에 다른 구조가 있다면 그 구조를 따른다. 한 기능에서만 쓰는 코드는 해당 기능 가까이에 둔다.
 

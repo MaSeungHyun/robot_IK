@@ -2,8 +2,8 @@ import { create } from "zustand";
 import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn,FloorSize } from "../types/layout";
 import { DEFAULT_LAYOUT,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG } from "../constants/simulatorLayout";
 import { useSimulationStore } from "./useSimulationStore";
-import { validateScene } from "../utils/amr/sceneValidation";
-import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/utils/conveyor/conveyorLayout";
+import { validateScene } from "@/domain/amr/navigation/sceneValidation";
+import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/conveyor/conveyorLayout";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate } from "@/types/sceneTemplate";
 

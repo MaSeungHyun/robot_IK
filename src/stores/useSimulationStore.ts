@@ -1,7 +1,7 @@
 import type { EquipmentTelemetry } from "@/types/equipment";
 import { create } from "zustand";
 import { ROBOT_PICKING } from "../constants/simulation";
-import type { PackingSnapshot } from "../utils/packing/packingDiagnostics";
+import type { PackingSnapshot } from "@/domain/pallet/packing/packingDiagnostics";
 import type { StreamStats } from "../types/conveyor";
 import type { JointAngleReading, RobotTransferMode, RobotJointSnapshot } from "../types/robot";
 import type { SimulationSceneMode, EquipmentSnapshot } from "../types/simulation";

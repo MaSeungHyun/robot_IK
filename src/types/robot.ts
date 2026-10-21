@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import type { Group, Vector3 } from "three";
-import type { PlanningEvent } from "../utils/packing/packingDiagnostics";
+import type { PlanningEvent } from "@/domain/pallet/packing/packingDiagnostics";
 
 export type RobotState =
   | "FIND_BOX"

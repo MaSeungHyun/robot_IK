@@ -1,247 +1,172 @@
-# React + TypeScript + Vite
+# Smart Factory
 
-## 현재 프로젝트 폴더 구조
+React와 Three.js 기반의 3D 공장 시뮬레이터입니다. 로봇·컨베이어·팔레트·AMR·스캐너를 자유롭게 배치하고, 박스 이송·적재·출고 과정을 실행합니다.
 
-자유 배치로 공장을 구성하고 장비를 실행하는 3D 공장 시뮬레이터입니다. 기존 로봇·컨베이어·AMR 데모는 기능 검증용 레거시로 분리했습니다.
+SIMULATION과 MONITORING 화면을 제공합니다. 현재 실제 설비 통신·제어 전송은 연결되어 있지 않으며, 미연동 telemetry는 모의 값으로 표시합니다.
+
+## 시작하기
+
+Node.js와 npm을 준비한 뒤 프로젝트 루트에서 실행합니다.
+
+```sh
+npm ci
+npm run dev
+```
+
+개발 서버 주소는 터미널의 Vite 출력을 확인합니다.
+
+```sh
+npm run build       # TypeScript 검사 후 배포 번들 생성
+npm run preview     # 생성된 dist 번들 미리보기
+npm run lint        # ESLint 검사
+```
+
+`preview`는 빌드가 완료된 뒤 사용합니다.
+
+## 주요 기술
+
+- React · TypeScript · Vite
+- Three.js · React Three Fiber · Drei
+- Zustand
+- Tailwind CSS · Radix UI · Lucide
+- closed-chain-ik · three-mesh-bvh
+
+## 사용 흐름
+
+### SIMULATION
+
+1. **Edit → Asset**에서 장비를 선택하거나 장면으로 드래그하여 배치합니다. 배치 전 고스트로 위치를 확인할 수 있습니다.
+2. **Template** 카드를 누르면 준비된 배치로 교체합니다. 템플릿 정의는 [sceneTemplates.ts](src/constants/sceneTemplates.ts)에 있습니다. 배치 교체도 편집 이력에 포함됩니다.
+3. 선택한 오브젝트의 속성 패널에서 위치·회전과 장비별 값을 수정합니다.
+4. **Play**로 전환한 뒤 **시작**을 눌러 실행합니다. 전체 배속·초기화·장비 상태를 확인할 수 있습니다.
+5. 장비 목록의 더블클릭 또는 Enter로 상세 화면을 열고 상태·설정·관절 값 등을 확인합니다.
+
+Edit / Play, 패널 열림 여부, 시뮬레이션 실행 여부는 각각 별도 상태입니다. 패널을 닫거나 장비 상세로 이동하는 동작만으로 실행이 종료되지 않습니다. Edit로 돌아가면 실행 상태를 초기화합니다.
+
+### MONITORING
+
+Edit / Play 도구를 숨기고 공통 Equipments / Details / Dashboard 패널을 사용합니다. 장비 설정 적용은 읽기 전용입니다. 실제 설비 데이터 수신과 명령 전송·응답 처리는 별도 연동이 필요합니다.
+
+### 편집과 카메라 조작
+
+- `Ctrl+Z` / `Cmd+Z`: 실행 취소
+- `Ctrl+Shift+Z` / `Cmd+Shift+Z`: 다시 실행
+- `Delete` / `Backspace`: 편집 중 선택한 오브젝트 삭제
+- 휠: 확대·축소
+- 오른쪽 드래그: 팬
+
+단축키는 편집 모드에서 동작하며, 텍스트 입력 중에는 삭제·실행 취소를 가로채지 않습니다.
+
+바닥/벽 에셋은 선택 후 바닥을 드래그하여 영역을 정하고, 마우스를 이동해 벽 높이를 지정한 뒤 클릭하여 확정합니다. 좌하단에서 단계와 치수를 확인할 수 있으며, 벽 높이 조정 중 Esc를 누르면 바닥만 생성합니다. 그리기 중에도 휠과 팬을 사용할 수 있습니다.
+
+장비 상세의 추적 버튼을 누르면 카메라가 대상을 따라가고 타깃 마크·바닥 링을 표시합니다. 추적 중 회전·줌을 조절할 수 있으며 팬 또는 해제 버튼으로 추적을 종료합니다.
+
+## 폴더 구조
 
 ```text
 src/
-├── features/
-│   ├── simulator/                  # 실제 공장 시뮬레이터
-│   │   ├── SimulatorScene.tsx      # 편집·실행 전환만 담당
-│   │   ├── editor/                 # 편집 장면·장비·배치 입력·미리보기
-│   │   └── runtime/                # 실행 장면·엔진·생명주기 훅
-│   ├── Viewport/                   # Canvas·카메라·공유 3D 모델·인스턴싱
-│   ├── Header/
-│   ├── Hud/
-│   │   ├── _components/Panel.tsx   # HUD 공통 패널
-│   │   ├── asset/                 # 에셋·배치
-│   │   ├── equipment/
-│   │   │   ├── _components/EquipmentCard.tsx # 선택·더블클릭·키보드 공통 처리
-│   │   │   ├── robot/              # RobotCard·로봇 상태 목록
-│   │   │   ├── amr/                # AMRCard·AMR 상태 목록·상태 문구
-│   │   │   ├── pallet/             # PalletCard·팔레트 상태 목록
-│   │   │   └── details/            # 더블클릭한 장비의 상세 화면
-│   │   ├── object/                # 오브젝트 속성
-│   │   ├── dashboard/             # 대시보드
-│   │   └── simulation/            # 재생·속도·통계
-│   ├── amr/                       # AMR 배차·교통 제어
-│   ├── conveyor/                  # 컨베이어 모델 형상
-│   └── robots/                    # 공유 로봇 제어
-├── legacy/                        # 기능 테스트용 기존 데모·전용 시뮬레이션 엔진
-│   ├── robot/RobotDemo.tsx
-│   ├── conveyor/ConveyorDemo.tsx
-│   ├── amr/AMRDemo.tsx
-│   └── Hud/                       # 데모 선택·상태·관절·패킹 디버그 UI
-├── constants/simulatorLayout.ts   # 공장 배치 기본값·장비 설정
-├── stores/                        # 배치·시뮬레이션·HUD 공유 상태
-├── types/
-├── utils/                         # 공유 도메인 계산
-├── components/                    # 공용 UI
-└── assets/models/                 # 원본 GLB 모델
+├── App.tsx                  # Viewport와 HUD 조립
+├── components/              # 작은 공용 UI: Button·Select·Tabs·Badge 등
+├── ui/                      # 공용 컴포넌트를 조합한 React 화면
+│   ├── Header/              # 모드 선택·정보 탭
+│   ├── Hud/                 # 에셋·설비 상세·설정·통계·재생 패널
+│   └── tracking/            # 추적 상태·실시간 정보 표시
+├── viewport/                # Three.js 장면 표현과 React 연결
+│   ├── index.tsx            # Canvas·장면·카메라 조립
+│   ├── SimulatorScene.tsx   # 편집·실행 장면 전환
+│   ├── editor/              # 배치·변환 조작·고스트·컨베이어 확장 조작
+│   ├── simulation/          # 실행 장면과 도메인 엔진을 연결하는 컴포넌트·훅
+│   ├── camera/              # 카메라 이동·추적
+│   ├── instancing/          # GPU 인스턴싱·등록 모델 동기화
+│   ├── selection/           # 클릭 해석·선택 외곽선
+│   ├── tracking/            # 타깃 마크·바닥 링·추적 범위 계산
+│   ├── shadows/             # 그림자 조명
+│   └── scene/               # 실행 중인 장면 오브젝트 조회
+├── objects/                 # 설비별 3D 모델·시각 표현
+│   ├── robot/               # 로봇 모델·미리보기·작업 반경
+│   ├── amr/                 # AMR 모델·경로 표시
+│   ├── conveyor/            # 벨트 모델·형상 생성
+│   ├── pallet/              # 팔레트 모델
+│   ├── scanner/             # 스캐너 모델·검사 시각화
+│   ├── room/                # 바닥·벽·기둥·지붕·재질
+│   ├── dock/                # 출고 구역 모델
+│   └── box/                 # 박스 모델
+├── domain/                  # 설비 동작 규칙과 계산
+│   ├── robot/               # 제어 인터페이스·흡착 제어·IK·범위 계산
+│   ├── amr/                 # 배차·교통 제어·경로 탐색
+│   ├── pallet/              # 슬롯 예약·적재 상태·패킹 알고리즘
+│   ├── conveyor/            # 연결·길이·경로 계산
+│   ├── scanner/             # 검사 판정·집계
+│   └── simulation/          # FactorySimulator·시간 계산·렌더링 계약
+├── stores/                  # Zustand 공유 상태와 액션
+│   └── actions/             # 템플릿 적용·설정 명령 등 여러 상태 연결
+├── hooks/                   # 생명주기·구독·telemetry 등 React 연결 로직
+├── lib/                     # 외부 기술 설정·래퍼·어댑터
+│   ├── style.ts             # clsx + tailwind-merge를 묶는 cn()
+│   └── three/               # 모델 정규화·복제·캐시
+├── utils/                   # 포맷 등 작은 공용 함수
+├── constants/               # 공통 설정과 상수
+├── types/                   # 공유 타입
+├── mock/                    # 개발용 데이터
+├── legacy/                  # 기존 데모·검증용 엔진·전용 UI
+└── assets/                  # GLB·이미지·텍스처
 ```
-
-기본 장면은 `sceneMode: "simulator"`입니다. `useSimulationStore.setSceneMode()`의 `robot`, `conveyor`, `amr` 값은 레거시 기능 검증용으로 유지하며 해당 데모는 선택 시 지연 로드합니다. 레거시 전용 UI는 `src/legacy/Hud`에서 관리합니다. 실제 시뮬레이터가 사용하는 모델·제어·계산 코드는 공용 기능으로 유지합니다.
 
 ### 코드 배치 기준
 
-- **공용 UI**는 `components`, **기능별 패널**은 `features/Hud`에 둡니다. 3D 장비 모델은 `features/Viewport/models`에 둡니다.
-- **모델에만 필요한 코드**는 해당 모델 가까이에 둡니다. 팔레트는 `models/Pallet` 안에 표시 컴포넌트, 모델 생성 함수, 자체 동작 컨트롤러를 함께 관리합니다.
-- **여러 장비의 상호작용**은 `FactorySimulator`가 조정합니다. 로봇 작업 배정, 완성 팔레트 큐, AMR 운반 연결 등이 여기에 해당합니다. 경로 탐색 같은 계산은 `utils`를 사용합니다.
-- **데모**는 모델·시뮬레이터·상태 보고를 연결하는 장면 구성 코드입니다. 모델 정의나 HUD 구현은 각 담당 폴더에서 가져옵니다.
-- **공유 상태**는 Zustand 스토어에서 관리합니다. 프레임마다 바뀌는 Three.js 좌표와 관절 애니메이션은 모델·컨트롤러에서 처리하고, UI에 필요한 통계와 상태를 스토어에 전달합니다.
+- **components**: Radix 기반의 작은 재사용 UI를 둡니다. 장비나 시뮬레이션 규칙을 넣지 않습니다.
+- **ui**: Header·Hud·장비 상세처럼 컴포넌트를 조합한 화면을 둡니다. 표시 문구·Props·스타일은 사용하는 화면 가까이에 둡니다.
+- **viewport**: 카메라·조명·렌더링·선택·추적과 3D 편집 조작을 담당합니다. Ghost는 실제 설비가 아닌 배치 미리보기이므로 `viewport/editor`에 둡니다.
+- **objects**: 장비의 3D 표현을 담당합니다. 예를 들어 `Robot.tsx`는 모델을 표시하고 `domain/robot/SuctionRobotController.ts`가 관절·집기 동작을 계산합니다.
+- **domain**: IK·경로 탐색·적재·검사·시뮬레이션 규칙을 둡니다. React·UI·Zustand 스토어·구체적인 viewport 구현을 참조하지 않습니다. 기존 Three.js 기반 수학과 장면 상태는 유지합니다.
+- **stores/actions**: UI에서 받은 명령을 상태 계층으로 전달합니다. 여러 스토어를 함께 변경하는 작업도 여기서 조정합니다.
+- **hooks**: 도메인 결과와 React 생명주기·스토어 구독을 연결합니다. 프레임마다 바뀌는 좌표·관절 값은 컨트롤러와 ref에서 처리합니다.
+- **lib**: 외부 기술을 프로젝트에서 쓰기 위한 래퍼를 둡니다. 현재 `cn()`과 Three.js 모델 정규화·복제 코드가 해당합니다. API·WebSocket 클라이언트도 향후 이 계층에 둘 수 있으며, 배차·적재 규칙은 `domain`에 둡니다.
+- **utils**: 특정 장비 규칙이나 외부 기술 설정이 아닌 작은 공용 포맷·변환 함수를 둡니다.
 
-### 주요 코드의 역할과 연결
+## 주요 진입점과 실행 연결
 
-- SIMULATION의 `SideBar.tsx`는 Edit(에셋 배치) / Play(시뮬레이터 제어)를 전환합니다. `workspace/WorkspacePanel.tsx`는 왼쪽 패널, Header의 `InspectorTabs.tsx`와 `inspector/InspectorPanel.tsx`는 오른쪽 Equipments / Details / Dashboard를 관리합니다. Details는 선택 설비의 상태와 설정을 표시하며, 설비 더블클릭으로 진입하고 뒤로 가면 Equipments로 돌아갑니다. 패널 표시 상태는 `useHudStore`, 편집 상태는 `useSceneStore.editing`, 실행 상태는 `useSimulationStore.running`에서 각각 관리하므로 패널을 닫거나 탭을 전환해도 실행은 유지됩니다. MONITORING에서는 Edit/Play를 숨기고 공통 정보 탭만 표시합니다.
+[App.tsx](src/App.tsx)가 [Viewport](src/viewport/index.tsx)와 [Hud](src/ui/Hud/index.tsx)를 배치합니다. Header 아래 남은 flex 영역에 사이드바·패널을 조합하며 추적 오버레이는 헤더·사이드바를 제외한 영역을 사용합니다.
 
-- [App.tsx](src/App.tsx)는 전체 화면 Viewport와 그 위의 [Hud](src/features/Hud/index.tsx)를 배치합니다. HUD는 flex 세로 구조로 Header는 `h-14 shrink-0`, 본문은 `flex-1 min-h-0`로 나눕니다. 패널 열은 남은 높이 안에서 스크롤하며 calc()로 높이를 빼지 않습니다. 헤더와 패널만 포인터 입력을 받고 빈 영역은 3D 장면으로 전달합니다.
-- [Pallet/index.tsx](src/features/Viewport/models/Pallet/index.tsx)는 팔레트를 표시합니다. [PalletController.ts](src/features/Viewport/models/Pallet/PalletController.ts)는 슬롯 예약, 박스 부착, 적재 완료, 출고 잠금, 빈 팔레트 교체를 담당합니다. 로봇과 AMR은 `FactorySimulator`를 통해 이 동작과 팔레트 그룹을 사용합니다.
-- [EditableEquipment.tsx](src/features/simulator/editor/EditableEquipment.tsx)는 실제 장비 모델을 받는 편집용 래퍼입니다. 선택 이벤트와 이동·회전 조작을 붙이며, 모델 자체를 정의하지 않습니다.
-- [AMR.tsx](src/features/Viewport/models/AMR.tsx)는 AMR 모델과 월드 좌표의 경로 선을 함께 표시합니다. 이동과 운반은 `PalletDispatchController`, 차량 간 양보·우회는 `AMRTrafficController`가 처리합니다.
-- [SimulationPanel.tsx](src/features/Hud/simulation/SimulationPanel.tsx)는 하위 패널을 조립합니다. 각 하위 컴포넌트가 필요한 Zustand 값만 구독합니다. 상태 영역은 현재 기본 숨김이며, `<SimulationPanel showStatus />`로 표시할 수 있습니다.
-- 로봇 동작의 공통 계약은 [RobotController.ts](src/interface/RobotController.ts), 흡착 로봇 구현은 [SuctionRobotController.ts](src/features/robots/SuctionRobotController.ts)에 있습니다.
+[SimulatorScene](src/viewport/SimulatorScene.tsx)은 편집·실행 장면을 전환합니다. [useFactoryRuntime](src/viewport/simulation/useFactoryRuntime.ts)이 모델·상태·렌더러를 [FactorySimulator](src/domain/simulation/FactorySimulator.ts)에 연결합니다. 엔진은 로봇 작업 배정, 컨베이어 박스 이송, 팔레트 적재와 AMR 출고를 조정합니다.
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+[InstancedScene](src/viewport/instancing/InstancedScene.tsx)은 등록된 메쉬를 동일한 형상·재질별로 묶어 그리기 호출을 줄입니다. 원본 모델 계층은 IK·충돌·추적 계산을 위해 유지하고, 클릭한 인스턴스는 실제 설비 ID로 연결합니다. 도메인 엔진은 구체적인 인스턴싱 클래스 대신 [SimulationRenderer](src/domain/simulation/SimulationRenderer.ts) 인터페이스를 받습니다.
 
-Currently, two official plugins are available:
+### 장비별 책임
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **로봇**: [RobotController](src/domain/robot/RobotController.ts)가 공통 계약이며, [SuctionRobotController](src/domain/robot/SuctionRobotController.ts)가 흡착 집기 동작을 구현합니다. IK·관절·이동 계획 설정은 [simulation.ts](src/constants/simulation.ts)를 확인합니다.
+- **팔레트**: [PalletController](src/domain/pallet/PalletController.ts)가 슬롯 예약·적재·출고 잠금·빈 팔레트 교체를 담당하고, `domain/pallet/packing`에서 적재 위치를 계산합니다.
+- **AMR**: [PalletDispatchController](src/domain/amr/PalletDispatchController.ts)가 운반 상태를, [AMRTrafficController](src/domain/amr/AMRTrafficController.ts)가 차량 간 양보와 통행을 처리합니다. 경로 탐색은 `domain/amr/navigation`에 있습니다.
+- **컨베이어**: 모델은 `objects/conveyor`, 연결·경로 계산은 `domain/conveyor`가 담당합니다. 연결된 구간은 속도를 공유하고, 확장 버튼과 배치 미리보기는 [ConveyorExtensionControls](src/viewport/editor/ConveyorExtensionControls.tsx)에 있습니다.
+- **스캐너**: 모델의 `ScanPoint`를 통과하는 박스를 검사합니다. [ScannerInspection](src/domain/scanner/ScannerInspection.ts)이 판정·중복 방지·집계를 담당합니다. 표시와 집계 용도이며 불량 박스를 자동 배출하지 않습니다.
+- **Dock**: AMR이 적재 팔레트를 운반하는 출고 목적지의 바닥 표시입니다. 충전소 모델이 아닙니다.
+- **바닥/벽**: [FloorRoom](src/objects/room/FloorRoom.tsx)이 벽 패널·기둥·천장 트러스를 조합합니다. 구조 설정은 [factoryRoom.ts](src/constants/factoryRoom.ts)에 있습니다. 별도로 그린 공간 간 벽 병합과 구조물 충돌 계산은 지원하지 않습니다.
 
-## React Compiler
+## 상태와 설비 데이터
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+[useSceneStore](src/stores/useSceneStore.ts)는 배치·선택·장비 설정·편집 이력을, [useSimulationStore](src/stores/useSimulationStore.ts)는 실행·배속·통계·장비 상태를 관리합니다. 패널과 탭 표시 상태는 [useHudStore](src/stores/useHudStore.ts)가 담당합니다.
 
-## Expanding the ESLint configuration
+장비 정보·설정·실시간 지표는 `ui/Hud/equipment`의 장비별 상세 컴포넌트가 구성합니다. 공통 레이아웃과 입력 UI는 재사용하며, 값 적용은 [applyEquipmentSettings](src/stores/actions/applyEquipmentSettings.ts)를 통합니다.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+`SceneEquipment.metadata`는 제조사·모델·일련번호·설치 위치·IP 등을 선택적으로 담고, `EquipmentSnapshot.telemetry`는 연결·온도·전력·사이클 등의 값을 선택적으로 담습니다. 실제 telemetry가 있으면 우선 사용하며, 미연동 지표는 모의 표시를 붙입니다. 누락된 기본 정보는 임의로 생성하지 않습니다.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+기본 `sceneMode`는 `simulator`입니다. 기존 `robot`·`conveyor`·`amr` 데모는 `legacy`에 보존하고 선택 시 지연 로드합니다.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## 검증
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm run test:architecture    # 내부 import 경로·domain 의존 경계
+npm run test:editor-history  # 배치·설정·삭제·확장 실행 취소/다시 실행
+npm run test:scene-state     # 편집·실행 상태 분리와 바닥 크기 변경
+npm run test:templates       # 배치 교체·검증·실행 연결
+npm run test:instances       # 인스턴싱·부착·좌표 동기화·정리
+npm run test:flow-speed      # 연속 이송·연결 구간 속도·전체 배속
+npm run test:scanner         # 검사 판정·집계·표시 복원
+npm run test:amr             # 경로 탐색·교통·운반
+npm run test:fleet           # 다중 AMR·팔레트·출고 큐
+npm run test:ik              # 실제 GLB 기반 로봇 제어·IK·집기·적재
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+추가 레이아웃·패킹 검증 명령은 [package.json](package.json)의 `scripts`를 확인합니다. 검증 스크립트는 프로젝트 루트에서 실행하며, 일부는 실제 GLB를 읽어 `.tmp` 아래에 임시 모듈을 생성하므로 순서대로 실행합니다.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-## Palletizing demo
-
-Production uses robot.glb with a fixed robot root, a spline conveyor, a
-1.1×1.1m T11 pallet centred at X=-0.7m, and 0.22×0.2×0.275m boxes.
-FixedLayerPacker fills 20 slots per layer, farthest from the robot first,
-then repeats the same order in the next layer. A blocked slot is not skipped.
-The 5m stack limit is a packing limit, not a guarantee of physical robot reach.
-
-### Motion planning
-
-- robotKinematics.ts evaluates the actual GLB hierarchy in a separate FK model.
-  Adaptive damped least squares, finite-difference Jacobians and multiple
-  shoulder/elbow/roll starts solve position within 0.15mm. Numerical exploration
-  never mutates the rendered robot.
-- World downward orientation means the hand04-to-GripPoint shaft lies within
-  a 5-degree cone around world -Y. It is not a local hand04 angle or a full
-  world quaternion equality. Yaw is free. Transport does not impose this cone;
-  final contact/release does. Intermediate high descent points can relax tilt
-  when necessary, while the release pose must satisfy the cone.
-- The planner checks endpoint collisions separately from swept joint paths.
-  It tries short turns, collision-checked opposite turns for continuous joints,
-  small Cartesian steps, then deterministic joint-space RRT detours.
-  The hover pose is accepted only if it has a verified lowering route.
-  Final lowering and withdrawal follow Cartesian steps; they do not fall back
-  to arbitrary joint-space spins beside the load.
-- Robot.tsx runs approach/contact, lift, transport, lower/release and withdrawal.
-  A small contact offset is centred and collision-checked at pickup. Cargo
-  is rigidly attached to GripPoint: local position and quaternion are fixed.
-  Turning hand04 rotates both the gripper and the box together. There is no
-  world-upright counter-rotation. Planning and animation use the same attachment.
-  A release orientation mismatch is reported rather than snapping a substantially
-  rotated box to the grid.
-- Planning yields between numerical iterations and collision sample batches
-  under a soft 4ms frame budget. This is not a hard real-time bound.
-  Planning collision checks use denser angular samples and a small arm/pallet
-  clearance; actual animation checks collisions again and rolls back on a hit.
-
-hand01 uses Blender local X within -120..120 degrees. hand04 uses local X
-within -100..80 degrees. hand00 and hand03 use Blender local Z (Three.js local Y).
-hand00, hand02 and hand03 are continuous; hand03 is enabled. Limits and solver
-settings live in constants.ts. The left-bottom panel provides local-angle sliders,
-hand04 world Euler readings and the shaft's tilt from downward. Sliders pause
-automatic motion and enforce joint limits, but allow collision inspection.
-The right panel shows the real packing sequence and planning rejection reason.
-
-Collision policy is unchanged: held cargo versus robot, placed cargo and pallet
-is checked; arm versus other boxes and held cargo versus conveyor boxes is ignored.
-Arm versus pallet and floor clearance remain checked. Only intended hand05
-contact over the active box's top face is exempt. Failure messages distinguish
-position search, downward-pose search, endpoint collision and route collision.
-A search failure is not a proof that no geometric solution exists.
-
-### Validation and limits
-
-Run node scripts/verify-ik.mjs for the current production regression, or add
---packing-only for packing/kinematics/collision fixtures without moving pickups.
-IK_FPS selects a simulated frame rate; IK_STREAM_TARGET and IK_STREAM_SECONDS
-increase the target count and simulation duration. --legacy additionally runs
-the historical differently-scaled 10-box demo, which is not a passing regression
-for the current robot model.
-
-The new solver passes actual-GLB FK parity under a transformed parent, reachable
-and unreachable numerical targets, continuous-joint limits, collision rollback,
-packing, support, order and pallet exchange fixtures. The rigid-grasp regression sweeps hand04 from -100 to 80 degrees and verifies
-an invariant wrist/box relative transform and absence of new hand04 penetration.
-The previous world-upright transport model could create false wrist/box collisions;
-its successful 3/5-transfer runs are historical and do not validate rigid transport.
-With the current 0.22×0.2×0.275m footprint and rigid attachment, the continuous
-regression currently stops at a carried-box/pallet descent collision. The remaining
-placement-orientation planning is unresolved; a full-pallet run is not passing.
-Actual collisions and fixed far-to-near slot order remain enforced.
-
-### 코드 책임과 가독성
-
-- 장면 진입 컴포넌트는 화면 조합과 전환을 맡고, 편집 UI는 `simulator/editor`, 실행 표시와 엔진 생명주기는 `simulator/runtime`에 둡니다.
-- HUD는 패널 조합, 장비 상세, 종류별 상태 표시를 각각의 컴포넌트로 분리합니다. 한 기능에만 필요한 보조 파일은 해당 폴더에 둡니다.
-- 상태 구독, 파생 값 계산, 이벤트 처리, 렌더링은 논리 단위로 묶고 단위 사이에는 빈 줄을 둡니다. JSX도 서로 다른 역할의 블록 사이에 빈 줄을 둡니다.
-
-### 스캐너 검사
-
-에셋에서 스캐너를 추가하고 컨베이어 위에 배치합니다. 모델의 `ScanPoint` 위치를 기준으로 박스 중심이 검사 평면을 통과할 때 판정하며, 스캐너 폭 밖이나 높이 밖의 박스는 검사하지 않습니다. 스캐너 속성에서 불량률을 0~100%로 설정합니다(기본 10%). 박스의 첫 판정은 이후 스캐너에서도 유지합니다.
-
-`gradient` 재질은 `src/index.css`의 `--color-safe` 또는 `--color-fault`로 실제 시간 1초간 표시한 뒤 원래 색·발광색으로 복원합니다. 각 스캐너는 재질 사본을 소유하며, 정지·배속과 관계없이 표시 시간이 흐릅니다. 상세 화면에서 검사·통과·불량 개수를 확인할 수 있습니다. 판정은 표시와 집계 용도이며 불량 박스를 자동 배출하지 않습니다.
-
-`npm run test:scanner`로 실제 GLB의 ScanPoint·재질, 색상 복원·격리, 판정률 경계, 중복 검사 방지와 고속 이송을 검증합니다. 장비 카드는 한 번 클릭하면 선택하고, 더블클릭 또는 Enter/Space로 상세 정보를 엽니다.
-
-### 장비별 상세 화면
-
-`EquipmentDetails`는 장비 종류별 상세 컴포넌트를 선택하는 역할만 맡습니다. `robot/RobotDetails`, `amr/AMRDetails`, `pallet/PalletDetails`, `conveyor/ConveyorDetails`, `scanner/ScannerDetails`, `dock/DockDetails`가 각각 자신의 데이터 조회와 설정 구성을 소유합니다. 상세 화면에서 편집기용 `ObjectPropertiesPanel`을 사용하지 않습니다.
-
-이미지·이름·뒤로 가기와 배치 정보는 `details/_components/EquipmentDetailLayout`을 재사용합니다. 숫자 설정·속도·활성화 컨트롤만 공유하며, 각 장비는 필요한 컨트롤을 직접 조합합니다. 컨베이어는 연결과 생성 간격, 스캐너는 검사 결과와 불량률을 독립적으로 확장할 수 있습니다.
-
-### 장비 정보와 실시간 지표
-
-상세 화면은 이미지·장비명·상태 헤더, 기본 정보, 실시간 지표, 펼칠 수 있는 설정으로 구성합니다. 각 장비 상세는 공통 `DetailRows`에 자신의 항목만 전달하며, 가동률·적재율·통과율은 실제 값으로 게이지를 표시합니다.
-
-`SceneEquipment.metadata`는 제조사·모델·일련번호·설치 위치·IP 주소를, `EquipmentSnapshot.telemetry[id]`는 연결 상태·지연 시간·온도·사이클 시간·소비 전력·프로그램·부품·동작 횟수를 선택적으로 담습니다. 기본 정보의 미등록 값은 `—`로 표시합니다. 실제 장비 통신은 별도 연동이 필요하며, 미연동 지표의 모의 값과 연결 상태에는 모의 표시를 붙입니다.
-
-로봇 관절 각도는 실제 컨트롤러에서 로봇 ID별로 0.1초마다 읽습니다. 온도·전력 등 미연동 지표는 모의 값으로 표시하며 1초마다 갱신하고, 재생을 멈추면 유지합니다. 실제 telemetry가 있으면 우선 사용합니다. 제조사·모델 등 기본 정보는 임의로 생성하지 않습니다.
-
-장비 Detail은 이미지·이름·상태 아래에 설정값을 바로 표시합니다. 뒤로 가면 설비 목록으로 복귀하며 실행 상태는 유지됩니다. 값 적용은 src/utils/equipment/applyEquipmentSettings.ts에서 관리합니다. 현재 시뮬레이션에서만 값을 적용하고 모니터링은 읽기 전용입니다. 실제 설비 명령 전송과 응답 처리는 아직 연결하지 않았습니다.
-
-### 바닥·벽·천장 구조
-
-Asset의 **바닥/벽**을 선택하고 바닥을 드래그한 뒤, 마우스로 벽 높이를 정해 클릭하면 공장 공간을 만듭니다. 벽 높이가 0이면 바닥만 생성합니다. 크기와 벽 높이는 선택한 오브젝트 속성에서 수정할 수 있습니다.
-
-`Viewport/models/FloorRoom.tsx`가 바닥과 `RoomWall`, `RoomRoof`를 조합합니다. 벽 패널·하단 보호 띠·상부 창, 기둥·천장 트러스·조명은 영역 크기에 맞춰 생성합니다. `RoomFrame`은 철골 부재를 인스턴스 메시로 묶습니다. 위에서 내려다보면 지붕이 숨겨지고, 카메라 쪽 벽은 단면처럼 숨겨 내부 배치를 확인할 수 있습니다.
-
-마감 색상과 구조 간격은 `src/constants/factoryRoom.ts`, 반복 텍스처 생성은 `src/utils/scene/roomTextures.ts`에서 관리합니다. 텍스처는 코드로 생성하며 외부 이미지 다운로드가 필요 없습니다. 현재 구조는 직사각형 바닥 하나에 연결되는 시각적 구조물이며, 별개로 그린 여러 공간의 벽을 자동 병합하거나 구조물 충돌을 계산하지 않습니다.
+설정과 코드 작성 규칙은 [AGENTS.md](AGENTS.md)를 따릅니다.

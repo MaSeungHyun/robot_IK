@@ -1,5 +1,5 @@
-import Hud from "@/features/Hud";
-import Viewport from "@/features/Viewport";
+import Hud from "@/ui/Hud/index";
+import Viewport from "@/viewport/index";
 
 function App() {
   return (
