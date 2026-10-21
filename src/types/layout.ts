@@ -7,4 +7,16 @@ export type FactoryLayout=Record<Exclude<EquipmentKind,"scanner"|"floor">,Equipm
 export type FloorSize={width:number;depth:number;wallHeight:number};
 export type ConveyorTurn="straight"|"left"|"right";
 export type SceneEquipment=EquipmentPose&{id:string;kind:EquipmentKind;name:string;metadata?:EquipmentMetadata;conveyorTurn?:ConveyorTurn;floor?:FloorSize};
-export type EquipmentSettings={speed:number;reach:number;capacity:number;spawnInterval:number;enabled:boolean;defectRate?:number};
+/** Inspection grade of a box (unscanned boxes count as normal) and of the pallet that collects it. */
+export type CargoGrade="normal"|"defect";
+/** Which boxes a robot picks; "all" keeps the original behaviour. */
+export type PickFilter="all"|CargoGrade;
+/** Pallet grades a dock receives; "any" keeps the original behaviour. */
+export type DockAcceptGrade="any"|CargoGrade;
+export type EquipmentSettings={speed:number;reach:number;capacity:number;spawnInterval:number;enabled:boolean;defectRate?:number;
+  /** Robot only; default "all". */
+  pickFilter?:PickFilter;
+  /** Pallet only; default "normal". */
+  grade?:CargoGrade;
+  /** Dock only; default "any". */
+  acceptGrade?:DockAcceptGrade};

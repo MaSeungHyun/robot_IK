@@ -2,6 +2,7 @@ import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 import Badge from "@/components/Badge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
+import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
@@ -22,6 +23,17 @@ export default function DockDetails({ object }: EquipmentDetailProps) {
       ]} />
     } settings={
       <DetailSection title="출고 구역 설정">
+        <EquipmentChoiceSetting
+          id={object.id}
+          field="acceptGrade"
+          label="수신 등급"
+          fallback="any"
+          options={[
+            { value: "any", label: "전체" },
+            { value: "normal", label: "정상품 팔레트만" },
+            { value: "defect", label: "불량품 팔레트만" },
+          ]}
+        />
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
     }>

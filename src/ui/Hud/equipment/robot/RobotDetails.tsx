@@ -9,6 +9,7 @@ import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/Equipm
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
 import EquipmentSpeedSetting from "@/ui/Hud/equipment/details/_components/EquipmentSpeedSetting";
 import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
+import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
@@ -74,6 +75,17 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
             min={0.5}
             max={SIMULATOR_CONFIG.reach}
             step={0.1}
+          />
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="pickFilter"
+            label="집기 대상"
+            fallback="all"
+            options={[
+              { value: "all", label: "전체" },
+              { value: "normal", label: "정상품만" },
+              { value: "defect", label: "불량품만" },
+            ]}
           />
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>

@@ -1,10 +1,11 @@
 import { ScannerInspection } from "@/domain/scanner/ScannerInspection";
 import { SCANNER_CONFIG } from "@/constants/scanner";
-import { Group, Vector3 } from "three";
+import { Euler, Group, Vector3 } from "three";
 import type {
   SceneEquipment,
   EquipmentSettings,
   FactoryLayout,
+  CargoGrade,
 } from "@/types/layout";
 import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
@@ -60,6 +61,10 @@ type Shipment = {
   cargo: Set<Cargo>;
   agent: FactoryAgent;
   replaced: boolean;
+  /** Destination dock; booked from dispatch until the dropped pallet is cleared. */
+  dock: SceneEquipment;
+  /** Set once the pallet has been lowered onto the dock and released. */
+  dropped: boolean;
 };
 // Deterministic per-id starting charge so AMR cards differ but runs repeat.
 const initialBattery = (id: string) => {
@@ -69,6 +74,8 @@ const initialBattery = (id: string) => {
 };
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }) =>
   Math.hypot(a.x - b.x, a.z - b.z);
+const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
+  config?.grade ?? "normal";
 export class FactorySimulator {
   readonly root = new Group();
   readonly inspection: ScannerInspection;
@@ -347,6 +354,16 @@ export class FactorySimulator {
     for (const robot of this.robots) {
       const config = settings[robot.object.id];
       if (robot.busy || !config.enabled) continue;
+      const filter = config.pickFilter ?? "all";
+      // Grades that have a pallet within this robot's reach. With the "all" filter a box
+      // goes to a pallet of its own grade when one exists, otherwise to any pallet (legacy).
+      const reachable = new Set<CargoGrade>();
+      for (const pallet of this.palletOrder.get(robot.object.id)!)
+        if (
+          settings[pallet.object.id].enabled &&
+          pallet.slots.some((slot) => distance(robot.object, slot) <= config.reach)
+        )
+          reachable.add(palletGrade(settings[pallet.object.id]));
       let assigned = false;
       for (const pallet of this.palletOrder.get(robot.object.id)!) {
         if (
@@ -356,11 +373,20 @@ export class FactorySimulator {
         )
           continue;
         const slot = pallet.availableSlot,
-          target = pallet.slots[slot];
+          target = pallet.slots[slot],
+          grade = palletGrade(settings[pallet.object.id]);
         if (distance(robot.object, target) > config.reach) continue;
         for (const box of this.boxes) {
+          if (box.state !== "moving") continue;
+          const boxGrade = this.grade(box);
+          // Non-matching boxes are left on the belt and continue downstream.
+          if (filter !== "all" && boxGrade !== filter) continue;
           if (
-            box.state !== "moving" ||
+            boxGrade !== grade &&
+            (filter !== "all" || reachable.has(boxGrade))
+          )
+            continue;
+          if (
             box.attempted.has(robot.object.id) ||
             box.distance > beltLength(box.belt) - 0.5 ||
             distance(robot.object, box.node.position) > config.reach - 0.05
@@ -457,6 +483,19 @@ export class FactorySimulator {
       });
       if (cleared && !occupied) this.replacePallet(shipment);
     }
+    // A dropped pallet stays on its dock until the delivering AMR has driven clear.
+    for (const shipment of [...this.shipments]) {
+      if (!shipment.dropped) continue;
+      const at = shipment.agent.dispatch.carrier.position;
+      if (
+        shipment.agent.dispatch.phase === "idle" ||
+        distance(at, shipment.dock) >
+          Math.hypot(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletDepth) / 2 +
+            shipment.agent.dispatch.radius +
+            AMR_TRAFFIC.safetyMargin
+      )
+        this.clearDock(shipment);
+    }
     this.dispatchRetry -= dt;
     if (this.dispatchRetry > 0) return;
     this.dispatchRetry = 1;
@@ -507,6 +546,10 @@ export class FactorySimulator {
       // A transfer in progress always finishes; charging starts once the AMR is idle again.
       if (idle && agent.battery < AMR_BATTERY.chargeBelow) agent.charging = true;
     }
+  }
+  /** Scanner result recorded on the box; boxes that passed no scanner count as normal. */
+  private grade(box: Cargo): CargoGrade {
+    return this.inspection.resultOf(box.node) === "fault" ? "defect" : "normal";
   }
   private assign(
     robot: FactoryRobot,
@@ -564,11 +607,26 @@ export class FactorySimulator {
       (a, b) =>
         distance(a.object, pallet.object) - distance(b.object, pallet.object),
     )[0];
-    const docks = this.docks
-      .filter((dock) => this.settings()[dock.id].enabled)
+    const settings = this.settings(),
+      grade = palletGrade(settings[pallet.object.id]);
+    const accepting = this.docks.filter((dock) => {
+      const config = settings[dock.id],
+        accepts = config.acceptGrade ?? "any";
+      return config.enabled && (accepts === "any" || accepts === grade);
+    });
+    // One pallet per dock: skip docks booked by another delivery or still holding a drop.
+    const docks = accepting
+      .filter((dock) => !this.shipments.some((s) => s.dock.id === dock.id))
       .sort((a, b) => distance(a, pallet.object) - distance(b, pallet.object));
+    if (robot && belt && accepting.length && !docks.length) {
+      agent.waitingReason = "출고 구역에 내려놓은 팔레트를 비우는 중입니다.";
+      return false;
+    }
     if (!robot || !belt || !docks.length) {
-      agent.waitingReason = "운반할 로봇·컨베이어·출고 구역을 확인해 주세요.";
+      agent.waitingReason =
+        robot && belt && this.docks.length
+          ? `${grade === "defect" ? "불량" : "정상"} 팔레트를 받을 출고 구역이 없습니다.`
+          : "운반할 로봇·컨베이어·출고 구역을 확인해 주세요.";
       return false;
     }
     const layout: FactoryLayout = {
@@ -649,6 +707,7 @@ export class FactorySimulator {
         continue;
       }
       routes = { pickup, dispatch: outbound, returning };
+      layout.dock = dock;
       break;
     }
     if (!routes) return false;
@@ -664,6 +723,8 @@ export class FactorySimulator {
         ),
       ),
       replaced: false,
+      dock: layout.dock as SceneEquipment,
+      dropped: false,
     };
     this.shipments.push(shipment);
     agent.waiting = false;
@@ -675,13 +736,21 @@ export class FactorySimulator {
     agent.dispatch.request(
       shipment.group,
       () => {
-        this.unrender(shipment.group);
-        for (const box of shipment.cargo) this.unrender(box.node);
-        shipment.group.removeFromParent();
-        shipment.group.clear();
-        this.boxes = this.boxes.filter((box) => !shipment.cargo.has(box));
-        this.replacePallet(shipment);
-        this.shipments.splice(this.shipments.indexOf(shipment), 1);
+        // Release the lowered pallet onto the dock, square to it; removed once the AMR clears.
+        const group = shipment.group,
+          dock = shipment.dock;
+        group.parent?.updateWorldMatrix(true, false);
+        this.root.updateWorldMatrix(true, false);
+        this.root.attach(group);
+        group.position.y = 0;
+        // Read yaw in YXZ so headings past ±90° don't decompose into X/Z flips.
+        const yaw = new Euler().setFromQuaternion(group.quaternion, "YXZ").y;
+        group.rotation.set(
+          0,
+          dock.yaw + (Math.PI / 2) * Math.round((yaw - dock.yaw) / (Math.PI / 2)),
+          0,
+        );
+        shipment.dropped = true;
         this.dispatched++;
         agent.completed++;
         agent.target = null;
@@ -689,6 +758,15 @@ export class FactorySimulator {
       routes,
     );
     return true;
+  }
+  private clearDock(shipment: Shipment) {
+    this.unrender(shipment.group);
+    for (const box of shipment.cargo) this.unrender(box.node);
+    shipment.group.removeFromParent();
+    shipment.group.clear();
+    this.boxes = this.boxes.filter((box) => !shipment.cargo.has(box));
+    this.replacePallet(shipment);
+    this.shipments.splice(this.shipments.indexOf(shipment), 1);
   }
   private replacePallet(shipment: Shipment) {
     if (shipment.replaced) return;

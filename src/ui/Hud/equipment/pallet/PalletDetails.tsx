@@ -5,6 +5,7 @@ import PalletStatusBadge from "@/ui/Hud/equipment/pallet/PalletStatusBadge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
 import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
+import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
@@ -64,6 +65,16 @@ export default function PalletDetails({ object }: EquipmentDetailProps) {
             integer
           />
           <p className="text-xs">변경하면 현재 적재가 초기화됩니다.</p>
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="grade"
+            label="적재 등급"
+            fallback="normal"
+            options={[
+              { value: "normal", label: "정상품" },
+              { value: "defect", label: "불량품" },
+            ]}
+          />
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>
       }

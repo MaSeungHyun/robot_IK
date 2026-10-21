@@ -50,6 +50,11 @@ export class ScannerInspection {
     return sensor && this.now() < sensor.signalUntil ? sensor.snapshot.lastResult : null;
   }
 
+  /** Result recorded on the box by the first scanner it passed, or null if unscanned. */
+  resultOf(box: Object3D): ScanResult | null {
+    return this.boxes.get(box)?.result ?? null;
+  }
+
   inspectMovement(box: Object3D, from: Vector3, to: Vector3) {
     if (from.distanceToSquared(to) < 1e-16) return;
 
