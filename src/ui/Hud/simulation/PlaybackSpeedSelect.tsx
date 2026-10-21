@@ -7,12 +7,12 @@ const SPEED_OPTIONS = PLAYBACK_SPEEDS.map((speed) => ({
   label: `x ${speed}`,
 }));
 
+/** Compact playback speed picker for the header, next to PLAY/STOP. */
 export default function PlaybackSpeedSelect() {
   const speed = useSimulationStore((state) => state.speed);
   const setSpeed = useSimulationStore((state) => state.setSpeed);
   return (
-    <div className="mt-4">
-      <p className="mb-2 text-xs text-text-secondary">전체 속도</p>
+    <div className="w-24">
       <Select
         label="전체 속도"
         value={String(speed)}
