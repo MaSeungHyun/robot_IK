@@ -80,8 +80,9 @@ export default function TrackingLiveInfo({ id, amr }: Props) {
 
   const row = "flex justify-between gap-3 whitespace-nowrap";
   const label = "text-text-secondary whitespace-nowrap";
+
   return (
-    <dl className="mt-1.5 grid gap-0.5 border-t border-brand-primary/30 pt-1.5 text-[10px] tabular-nums text-text-primary pb-1">
+    <dl className="mt-1.5 grid gap-0.5 border-t border-brand-primary/30 pt-1.5 text-xs tabular-nums text-text-primary pb-1 gap-1">
       <div className={row}>
         <dt className={label}>POS</dt>
         <dd>
