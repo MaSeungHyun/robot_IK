@@ -20,6 +20,7 @@ export class SceneInstances {
       let selected=false,visible=true,identified=false;
       for(let node:Object3D|null=entry.owner;node;node=node.parent){
         if(!node.visible&&!this.sources.has(node)){visible=false;break;}
+        if(!identified&&node.userData.cargo){identified=true;selected=node.userData.boxId===id;}
         if(!identified&&node.userData.sceneId){identified=true;selected=node.userData.sceneId===id;}
       }
       if(selected&&visible)visit(entry.node);

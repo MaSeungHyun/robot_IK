@@ -27,8 +27,12 @@ import {
   beltPoint,
 } from "@/domain/conveyor/conveyorLayout";
 import type { SimulationRenderer } from "@/domain/simulation/SimulationRenderer";
+import { CargoRegistry } from "@/domain/cargo/CargoRegistry";
+import { log } from "@/stores/useLogStore";
 
 type Cargo = {
+  /** Registry id (B-0001...). */
+  id: string;
   node: Group;
   belt: SceneEquipment;
   distance: number;
@@ -71,6 +75,8 @@ type Shipment = {
   slot?: number;
   /** Set once the pallet sits in its rack slot; it stays there. */
   stored?: boolean;
+  /** Pallet record (P-001...) travelling with this shipment. */
+  palletId?: string;
 };
 // Deterministic per-id starting charge so AMR cards differ but runs repeat.
 const initialBattery = (id: string) => {
@@ -85,6 +91,8 @@ const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
 export class FactorySimulator {
   readonly root = new Group();
   readonly inspection: ScannerInspection;
+  /** Per-box / per-pallet records; a new registry per run (cleared on STOP). */
+  readonly cargo = new CargoRegistry((message) => log("warning", "박스 추적", message));
   private scanFrom = new Vector3();
   private scanTo = new Vector3();
   readonly robots: FactoryRobot[] = [];
@@ -190,6 +198,14 @@ export class FactorySimulator {
             distance(robot.object, a.object) - distance(robot.object, b.object),
         ),
       );
+    this.inspection.onScan = (node, scannerId, result) => {
+      if (node.userData.boxId)
+        this.cargo.scanBox({ t: this.elapsed, boxId: node.userData.boxId, scannerId, result: result === "fault" ? "defect" : "normal" });
+    };
+    for (const pallet of this.pallets) this.startPalletRecord(pallet);
+  }
+  private startPalletRecord(pallet: PalletController) {
+    this.cargo.startPallet({ t: this.elapsed, stationId: pallet.object.id, grade: palletGrade(this.settings()[pallet.object.id]) });
   }
   private docks: SceneEquipment[] = [];
   private racks: SceneEquipment[] = [];
@@ -228,8 +244,12 @@ export class FactorySimulator {
     model.scale.copy(BOX_SIZES[0]);
     node.add(model);
     node.rotation.y = belt.yaw;
-    node.userData.sceneId = belt.id;
+    // Boxes are cargo, not part of the belt: no sceneId (see viewport/scene/sceneOwner).
+    node.userData.cargo = true;
+    const id = this.cargo.spawnBox({ t: this.elapsed, beltId: belt.id });
+    node.userData.boxId = id;
     const item: Cargo = {
+      id,
       node,
       belt,
       distance: offset,
@@ -251,7 +271,6 @@ export class FactorySimulator {
       c = Math.cos(point.yaw);
     box.node.position.set(point.x, 0.25 + BOX_SIZES[0].y, point.z);
     box.node.rotation.y = point.yaw;
-    box.node.userData.sceneId = box.belt.id;
     if (box.job && box.state === "reserved") {
       box.job.pickup.copy(box.node.position);
       box.job
@@ -327,11 +346,13 @@ export class FactorySimulator {
         scanStart = 0;
         box.distance -= beltLength(box.belt);
         box.belt = next;
+        this.cargo.moveBox(box.id, next.id);
       }
       this.scanBeltTravel(box, scanStart, Math.min(box.distance, beltLength(box.belt)));
       this.move(box);
       if (box.distance > beltLength(box.belt) && box.state === "moving") {
         box.state = "passed";
+        this.cargo.passBox({ t: this.elapsed, boxId: box.id, beltId: box.belt.id });
         box.node.removeFromParent();
         this.unrender(box.node);
         this.passed++;
@@ -552,6 +573,7 @@ export class FactorySimulator {
   ) {
     if (!pallet.reserve(slot)) return;
     box.state = "reserved";
+    this.cargo.reserveBox({ t: this.elapsed, robotId: robot.object.id, boxId: box.id });
     robot.busy = true;
     robot.status = "집기 준비";
     const job: Transfer = {
@@ -565,17 +587,20 @@ export class FactorySimulator {
         box.state === "reserved" && box.distance < beltLength(box.belt),
       onPick: () => {
         box.state = "held";
+        this.cargo.pickBox({ t: this.elapsed, robotId: robot.object.id, boxId: box.id });
       },
       onPlace: () => {
         box.state = "placed";
         box.pallet = pallet.object.id;
         pallet.place(slot, box.node, this.elapsed);
+        this.cargo.placeBox({ t: this.elapsed, robotId: robot.object.id, boxId: box.id, stationId: pallet.object.id });
         this.placed++;
         robot.count++;
       },
       onMiss: () => {
         box.state = "moving";
         box.attempted.add(robot.object.id);
+        this.cargo.missBox({ t: this.elapsed, robotId: robot.object.id, boxId: box.id, beltId: box.belt.id });
         pallet.release(slot);
         robot.busy = false;
       },
@@ -743,8 +768,11 @@ export class FactorySimulator {
       dock: target,
       dropped: false,
       slot: targetSlot,
+      palletId: this.cargo.currentPallet(pallet.object.id)?.id,
     };
     this.shipments.push(shipment);
+    if (shipment.palletId)
+      this.cargo.dispatchPallet({ t: this.elapsed, palletId: shipment.palletId, amrId: agent.object.id, destinationId: target.id });
     agent.waiting = false;
     agent.waitingReason = null;
     agent.target = pallet.object.name;
@@ -765,7 +793,13 @@ export class FactorySimulator {
           group.position.copy(rackSlotPoint(dock, shipment.slot));
           this.rackStored.get(dock.id)![shipment.slot] = true;
           shipment.stored = true;
-        } else group.position.y = 0;
+          if (shipment.palletId)
+            this.cargo.storePallet({ t: this.elapsed, palletId: shipment.palletId, rackId: dock.id, slot: shipment.slot });
+        } else {
+          group.position.y = 0;
+          if (shipment.palletId)
+            this.cargo.dropPallet({ t: this.elapsed, palletId: shipment.palletId, dockId: dock.id });
+        }
         // Read yaw in YXZ so headings past ±90° don't decompose into X/Z flips.
         const yaw = new Euler().setFromQuaternion(group.quaternion, "YXZ").y;
         group.rotation.set(
@@ -789,6 +823,8 @@ export class FactorySimulator {
     this.shipments.splice(this.shipments.indexOf(shipment), 1);
   }
   private clearDock(shipment: Shipment) {
+    if (shipment.palletId)
+      this.cargo.shipPallet({ t: this.elapsed, palletId: shipment.palletId, dockId: shipment.dock.id });
     this.unrender(shipment.group);
     for (const box of shipment.cargo) this.unrender(box.node);
     shipment.group.removeFromParent();
@@ -803,6 +839,7 @@ export class FactorySimulator {
     const pallet = shipment.pallet;
     this.root.add(pallet.replace());
     this.render(pallet.group);
+    this.startPalletRecord(pallet);
   }
   get status() {
     const active = this.agents.find((agent) => agent.dispatch.phase !== "idle");

@@ -1,9 +1,9 @@
 import FloorRoom from "@/objects/room/FloorRoom";
 import { useEffect } from "react";
-import { clickEquipment, inspectEquipment, playHover, resetCursor } from "@/viewport/selection/inspectEquipment";
+import { clickBox, clickEquipment, inspectEquipment, playHover, resetCursor } from "@/viewport/selection/inspectEquipment";
 import Scanner from "@/objects/scanner/Scanner";
 import type { ThreeEvent } from "@react-three/fiber";
-import type { Object3D } from "three";
+import { cargoBoxId, sceneOwner } from "@/viewport/scene/sceneOwner";
 import FactoryArm from "@/viewport/simulation/FactoryArm";
 import useFactoryRuntime from "@/viewport/simulation/useFactoryRuntime";
 import type { SimulatorRunProps } from "@/viewport/simulation/types";
@@ -16,13 +16,16 @@ import Rack from "@/objects/rack/Rack";
 const handleEquipmentSelect = clickEquipment;
 
 function handleCargoSelect(event: ThreeEvent<MouseEvent>, inspect = false) {
-  let node: Object3D | null = event.object;
-  while (node && !node.userData.sceneId) node = node.parent;
+  const box = cargoBoxId(event.object);
+  if (box) {
+    if (!inspect) clickBox(event, box);
+    return;
+  }
+  const id = sceneOwner(event.object);
+  if (!id) return;
 
-  if (!node) return;
-
-  if (inspect) inspectEquipment(event, node.userData.sceneId);
-  else handleEquipmentSelect(event, node.userData.sceneId);
+  if (inspect) inspectEquipment(event, id);
+  else handleEquipmentSelect(event, id);
 }
 
 export default function FactoryRun(props: SimulatorRunProps) {

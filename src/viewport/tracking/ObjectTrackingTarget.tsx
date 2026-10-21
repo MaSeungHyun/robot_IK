@@ -113,7 +113,7 @@ export default function ObjectTrackingTarget() {
       // Non-batched models keep their own visible geometry (for example a room).
       if (bounds.isEmpty())
         state.scene.traverse((node) => {
-          if (node.userData.sceneId === id)
+          if (node.userData.sceneId === id || node.userData.boxId === id)
             node.traverseVisible((child) => {
               if (child instanceof Mesh && !child.userData.trackingDecoration)
                 include(child);
@@ -200,7 +200,8 @@ export default function ObjectTrackingTarget() {
           while (
             owner &&
             owner !== object &&
-            owner.userData.sceneId === undefined
+            owner.userData.sceneId === undefined &&
+            !owner.userData.cargo
           )
             owner = owner.parent;
           if (owner === object) arm.meshes.push(node);
