@@ -14,6 +14,7 @@ import ThumbnailBaker from "@/viewport/thumbnails/ThumbnailBaker";
 import CameraTracker from "@/viewport/camera/CameraTracker";
 import CameraRig from "@/viewport/camera/CameraRig";
 import ShadowLight from "@/viewport/shadows/ShadowLight";
+import WorldAxes from "@/viewport/WorldAxes";
 
 import PostProcessing from "./PostProcessing";
 
@@ -71,6 +72,7 @@ export default function Viewport() {
             fadeDistance={1100}
             position={[0, -0.01, 0]}
           />
+          <WorldAxes />
 
           <CameraRig />
           <CameraTracker />
