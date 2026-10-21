@@ -783,23 +783,7 @@ export class FactorySimulator {
     return true;
   }
   /** A racked pallet keeps rendering with its boxes; it only leaves the live box list. */
-  private lastEquipment: EquipmentSnapshot | null = null;
-  /** Snapshot with structural sharing: unchanged items and arrays keep their identity. */
   private finishStorage(shipment: Shipment) {
-    const next = this.buildEquipment(), prev = this.lastEquipment;
-    const snapshot: EquipmentSnapshot = prev
-      ? {
-          ...next,
-          scanners: shareItems(prev.scanners, next.scanners),
-          robots: shareItems(prev.robots, next.robots)!,
-          agents: shareItems(prev.agents, next.agents)!,
-          pallets: shareItems(prev.pallets, next.pallets)!,
-        }
-      : next;
-    this.lastEquipment = snapshot;
-    return snapshot;
-  }
-  private buildEquipment(): EquipmentSnapshot {
     this.boxes = this.boxes.filter((box) => !shipment.cargo.has(box));
     this.replacePallet(shipment);
     this.shipments.splice(this.shipments.indexOf(shipment), 1);
@@ -829,7 +813,23 @@ export class FactorySimulator {
       return "팔레트 적재 완료 · 운반 가능한 AMR 대기";
     return `${this.robots.length}대 로봇 · 범위 내 박스 대기`;
   }
+  private lastEquipment: EquipmentSnapshot | null = null;
+  /** Snapshot with structural sharing: unchanged items and arrays keep their identity. */
   get equipment(): EquipmentSnapshot {
+    const next = this.buildEquipment(), prev = this.lastEquipment;
+    const snapshot: EquipmentSnapshot = prev
+      ? {
+          ...next,
+          scanners: shareItems(prev.scanners, next.scanners),
+          robots: shareItems(prev.robots, next.robots)!,
+          agents: shareItems(prev.agents, next.agents)!,
+          pallets: shareItems(prev.pallets, next.pallets)!,
+        }
+      : next;
+    this.lastEquipment = snapshot;
+    return snapshot;
+  }
+  private buildEquipment(): EquipmentSnapshot {
     const settings = this.settings();
     return {
       elapsed: this.elapsed,
@@ -863,24 +863,6 @@ export class FactorySimulator {
         status: agent.charging
           ? `제자리 충전 중 · ${AMR_BATTERY.chargedAt}%까지 출고 배정 제외`
           : agent.waiting && agent.dispatch.phase === "idle"
-
-function shallowEqual(a: object, b: object) {
-  const ka = Object.keys(a);
-  if (ka.length !== Object.keys(b).length) return false;
-  return ka.every((k) => Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
-}
-
-function shareItems<T extends object>(prev: T[] | undefined, next: T[] | undefined): T[] | undefined {
-  if (!prev || !next) return next;
-  let changed = prev.length !== next.length;
-  const out = next.map((item, i) => {
-    const old = prev[i];
-    if (old && shallowEqual(old, item)) return old;
-    changed = true;
-    return item;
-  });
-  return changed ? out : prev;
-}
             ? (agent.waitingReason ?? "운반 가능한 안전 경로를 기다립니다.")
             : agent.dispatch.status,
         target: agent.target,
@@ -910,4 +892,22 @@ function shareItems<T extends object>(prev: T[] | undefined, next: T[] | undefin
       size: "",
     };
   }
+}
+
+function shallowEqual(a: object, b: object) {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+function shareItems<T extends object>(prev: T[] | undefined, next: T[] | undefined): T[] | undefined {
+  if (!prev || !next) return next;
+  let changed = prev.length !== next.length;
+  const out = next.map((item, i) => {
+    const old = prev[i];
+    if (old && shallowEqual(old, item)) return old;
+    changed = true;
+    return item;
+  });
+  return changed ? out : prev;
 }
