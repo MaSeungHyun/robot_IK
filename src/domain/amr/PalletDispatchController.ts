@@ -108,6 +108,10 @@ export class PalletDispatchController {
   private payload: Group | null = null;
   private complete: (() => void) | null = null;
   private cursor = 1;
+  /** Index of the next waypoint on `path`; earlier points are already travelled. */
+  get pathCursor() {
+    return this.cursor;
+  }
   private elapsed = 0;
   private routes: DispatchRoutes | null = null;
   /** In-place turn target (rad); null when not turning. */
