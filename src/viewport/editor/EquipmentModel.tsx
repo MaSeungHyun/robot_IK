@@ -31,7 +31,7 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
       return <Scanner entity={object} />;
 
     case "dock":
-      return <Dock />;
+      return <Dock id={object.id} />;
 
     case "floor":
       return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} />;

@@ -60,7 +60,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
           onClick={(event) => handleEquipmentSelect(event, object.id)}
           onDoubleClick={(event) => inspectEquipment(event, object.id)}
         >
-          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "floor" ? <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} /> : <Dock />}
+          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "floor" ? <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} /> : <Dock id={object.id} />}
         </group>
       ))}
     </>
