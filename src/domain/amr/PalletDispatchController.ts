@@ -196,8 +196,12 @@ export class PalletDispatchController {
     if (this.phase === "blocked") return;
     if (this.phase === "loading" || this.phase === "unloading") {
       this.elapsed += delta;
-      if (this.phase === "loading" && this.payload)
-        this.payload.position.y = Math.min(1, this.elapsed / 0.6) * 0.27;
+      // Lift on loading; the same curve reversed lowers the pallet onto the dock.
+      if (this.payload) {
+        const lift = Math.min(1, this.elapsed / 0.6);
+        this.payload.position.y =
+          (this.phase === "loading" ? lift : 1 - lift) * 0.27;
+      }
       if (this.elapsed < 0.6) return;
       if (this.phase === "loading") {
         if (this.routes) this.follow(this.routes.dispatch, "dispatch");
@@ -257,6 +261,12 @@ export class PalletDispatchController {
       }
       if (!this.turn(delta)) return;
       this.aligned = true;
+    }
+    // At the dock: turn in place to the nearest 90° of the dock's heading before
+    // releasing, so the pallet (held at a 90° multiple) lands square to the dock.
+    if (this.phase === "dispatch") {
+      this.turnTarget ??= this.nearestHeading(this.layout.dock.yaw, Math.PI / 2);
+      if (!this.turn(delta)) return;
     }
     this.elapsed = 0;
     if (this.phase === "returning") {
