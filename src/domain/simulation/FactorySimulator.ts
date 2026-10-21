@@ -176,41 +176,7 @@ export class FactorySimulator {
     const connections = beltConnections(objects);
     this.connections = connections.next;
     this.incoming = connections.incoming;
-    const visited = new Set<string>();
-    const seed = (object: SceneEquipment) => {
-      const chain: SceneEquipment[] = [];
-      let current: SceneEquipment | undefined = object;
-      while (current && !visited.has(current.id)) {
-        visited.add(current.id);
-        chain.push(current);
-        current = this.connections.get(current.id);
-      }
-      if (chain.length === 1 || this.incoming.has(object.id)) {
-        for (const distance of [0, 0.5, 1]) this.spawn(object, distance);
-      } else {
-        // Populate the whole connected line immediately, with one inlet feeding it continuously.
-        const spacing = Math.max(
-          BOX_SIZES[0].z + 0.08,
-          STREAM_CONFIG.speed * this.settings()[object.id].spawnInterval,
-        );
-        let offset = 0;
-        for (const segment of chain) {
-          const length = beltLength(segment);
-          while (offset < length) {
-            this.spawn(segment, offset);
-            offset += spacing;
-          }
-          offset -= length;
-        }
-      }
-    };
-    for (const belt of this.belts.filter(
-      (belt) => !this.incoming.has(belt.object.id),
-    ))
-      seed(belt.object);
-    // Closed loops have no inlet: seed once, then circulate existing boxes.
-    for (const belt of this.belts)
-      if (!visited.has(belt.object.id)) seed(belt.object);
+    // Belts start empty; boxes only come from regular inlet spawning in advance().
     this.docks = objects.filter((o) => o.kind === "dock");
     this.racks = objects.filter((o) => o.kind === "rack");
     for (const rack of this.racks)

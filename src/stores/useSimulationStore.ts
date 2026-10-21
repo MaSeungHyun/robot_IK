@@ -42,7 +42,7 @@ interface SimulationState {
   reset: () => void;
 }
 const initialStats = (mode: SimulationSceneMode = "simulator"): StreamStats => ({
-  spawned: mode === "conveyor" ? 3 : 0,
+  spawned: 0,
   placed: 0,
   passed: 0,
   live: mode === "conveyor" ? 3 : 0,

@@ -1,10 +1,9 @@
 import { useEffect, useMemo } from "react";
 import type { ConveyorTurn } from "@/types/layout";
-import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
-import { translucentClone } from "@/lib/three/translucentClone";
+import { buildConveyorGhost } from "@/viewport/editor/ghostModels";
 
 export default function ConveyorGhost({ turn = "straight" }: { turn?: ConveyorTurn }) {
-  const ghost = useMemo(() => translucentClone(conveyorTemplate(turn)), [turn]);
+  const ghost = useMemo(() => buildConveyorGhost(turn), [turn]);
 
   useEffect(() => ghost.dispose, [ghost]);
 

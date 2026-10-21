@@ -1,5 +1,6 @@
 import Hud from "@/ui/Hud/index";
 import Viewport from "@/viewport/index";
+import StartupOverlay from "@/ui/Hud/StartupOverlay";
 
 function App() {
   return (
@@ -9,6 +10,7 @@ function App() {
     >
       <Viewport />
       <Hud />
+      <StartupOverlay />
     </main>
   );
 }

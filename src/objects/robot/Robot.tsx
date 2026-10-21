@@ -2,7 +2,8 @@ import useRobotJointReadings from "@/hooks/robot/useRobotJointReadings";
 import { useGLTF } from "@react-three/drei";
 import { useFrame, type ThreeElements } from "@react-three/fiber";
 import { useEffect, useId, useMemo, useRef, type RefObject } from "react";
-import type { BufferGeometry, Mesh } from "three";
+import type { Mesh } from "three";
+import { geometryAtScale } from "@/lib/three/geometryAtScale";
 import type {
   Transfer,
   JointAngleRef,
@@ -16,24 +17,6 @@ import { useSimulationStore } from "../../stores/useSimulationStore";
 import { simulationDelta } from "@/domain/simulation/simulationTime";
 import { planningScheduler } from "@/domain/robot/ik/planningScheduler";
 
-const scaledGeometries = new WeakMap<
-  BufferGeometry,
-  Map<number, BufferGeometry>
->();
-function geometryAtScale(source: BufferGeometry, scale: number) {
-  let scales = scaledGeometries.get(source);
-  if (!scales) {
-    scales = new Map();
-    scaledGeometries.set(source, scales);
-  }
-  let geometry = scales.get(scale);
-  if (!geometry) {
-    geometry = source.clone();
-    geometry.scale(scale, scale, scale);
-    scales.set(scale, geometry);
-  }
-  return geometry;
-}
 
 type Props = ThreeElements["group"] & {
   robotId?: string;
