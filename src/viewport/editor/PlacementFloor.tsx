@@ -14,6 +14,7 @@ import FloorRoom from "@/objects/room/FloorRoom";
 import type { EquipmentKind } from "@/types/layout";
 import { snapBelt } from "@/domain/conveyor/conveyorLayout";
 import PlacementGhost from "@/viewport/editor/PlacementGhost";
+import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 
 const KINDS: readonly EquipmentKind[] = [
@@ -283,9 +284,11 @@ export default function PlacementFloor() {
       )}
       <group ref={ghost} visible={false}>
         {pending && (
-          <Suspense fallback={null}>
-            <PlacementGhost key={pending} kind={pending} />
-          </Suspense>
+          <ModelErrorBoundary key={pending} label={`${pending} 고스트`}>
+            <Suspense fallback={null}>
+              <PlacementGhost kind={pending} />
+            </Suspense>
+          </ModelErrorBoundary>
         )}
       </group>
       <mesh

@@ -9,6 +9,8 @@ import { useSimulationStore } from "@/stores/useSimulationStore";
 import SimulatorScene from "@/viewport/SimulatorScene";
 import { useSceneStore } from "@/stores/useSceneStore";
 import ModelWarmup from "@/viewport/ModelWarmup";
+import ModelLoader from "@/viewport/models/ModelLoader";
+import ThumbnailBaker from "@/viewport/thumbnails/ThumbnailBaker";
 import CameraTracker from "@/viewport/camera/CameraTracker";
 import ShadowLight from "@/viewport/shadows/ShadowLight";
 
@@ -86,9 +88,9 @@ export default function Viewport() {
             <ambientLight ref={ambientLight} intensity={1.5} />
             <ShadowLight />
 
-            <Suspense fallback={null}>
-              <ModelWarmup />
-            </Suspense>
+            <ModelLoader />
+            <ModelWarmup />
+            <ThumbnailBaker />
             <Suspense fallback={null}>
               <SimulatorScene
                 simulationRun={run}
