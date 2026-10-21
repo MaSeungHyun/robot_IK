@@ -4,27 +4,28 @@ import { Collapsible } from "radix-ui";
 
 type Props = { title: string; children: ReactNode; collapsible?: boolean };
 
-export default function DetailSection({ title, children, collapsible = false }: Props) {
-  const content = <div className="text-xs text-text-secondary">{children}</div>;
+const SECTION = "mt-2 rounded-[3px] border border-white/10 px-2.5 py-2";
+const TITLE = "mb-1.5 text-xs font-semibold text-text-primary";
 
+export default function DetailSection({ title, children, collapsible = false }: Props) {
   if (collapsible) {
     return (
-      <Collapsible.Root className="mt-3 border-t border-brand-primary/15 pt-2">
+      <Collapsible.Root className={SECTION}>
         <h3>
-          <Collapsible.Trigger className="group flex w-full items-center justify-between rounded-sm py-1 text-left text-xs font-medium text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand-primary">
+          <Collapsible.Trigger className="group flex w-full items-center justify-between text-left text-xs font-semibold text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-brand-primary">
             {title}
             <ChevronDown size={12} className="text-text-secondary transition-transform group-data-[state=open]:rotate-180" />
           </Collapsible.Trigger>
         </h3>
-        <Collapsible.Content className="mt-2 space-y-3 text-xs text-text-secondary">{children}</Collapsible.Content>
+        <Collapsible.Content className="mt-1.5 space-y-2 text-[11px] text-text-secondary">{children}</Collapsible.Content>
       </Collapsible.Root>
     );
   }
 
   return (
-    <section className="mt-3 border-t border-brand-primary/15 pt-2" aria-label={title}>
-      <h3 className="mb-1 text-xs font-medium text-text-primary">{title}</h3>
-      {content}
+    <section className={SECTION} aria-label={title}>
+      <h3 className={TITLE}>{title}</h3>
+      <div className="text-[11px] text-text-secondary">{children}</div>
     </section>
   );
 }

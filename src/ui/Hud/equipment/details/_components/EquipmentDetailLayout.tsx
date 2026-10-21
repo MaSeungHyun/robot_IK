@@ -31,7 +31,7 @@ export default function EquipmentDetailLayout({
 
   return (
     <div className="min-w-0 pb-2">
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <Button
           type="button"
           onClick={() => {
@@ -39,7 +39,7 @@ export default function EquipmentDetailLayout({
             selectTab("equipments");
           }}
           aria-label="장비 현황으로 돌아가기"
-          className="h-7 w-fit px-2 text-xs"
+          className="h-6 w-fit rounded-[3px] px-2 text-[11px]"
         >
           <Icon icon="ArrowLeft" size={12} />
         </Button>
@@ -50,7 +50,7 @@ export default function EquipmentDetailLayout({
           aria-label={tracking ? "카메라 추적 해제" : "카메라로 추적"}
           title={tracking ? "카메라 추적 해제" : "카메라로 추적 (회전·줌 유지, 이동하면 해제)"}
           onClick={() => toggleTracking(object.id)}
-          className="h-7 w-fit gap-1 px-2 text-xs"
+          className="h-6 w-fit gap-1 rounded-[3px] px-2 text-[11px]"
         >
           <Icon icon="LocateFixed" size={12} className="size-3" />
           {tracking ? "추적 중" : "추적"}
@@ -61,7 +61,7 @@ export default function EquipmentDetailLayout({
       {settings && (
         <>
           {readOnly && (
-            <p className="mt-3 text-xs text-text-secondary">
+            <p className="mt-2 text-[11px] text-text-secondary">
               모니터링에서는 설정을 조회할 수 있습니다.
             </p>
           )}

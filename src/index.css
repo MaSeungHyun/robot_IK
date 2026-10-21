@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme static {
-  --color-bg-primary: #071621;
+  --color-bg-primary: #1b1c1f;
   --color-bg-secondary: #0b202d;
   
   --color-text-primary: #f0f0f0; 
