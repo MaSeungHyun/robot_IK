@@ -11,6 +11,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import AxisGizmo from "@/viewport/camera/AxisGizmo";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
+import { focusSphere, selectedFocusId } from "@/viewport/camera/frameSelected";
 
 const TARGET: [number, number, number] = [0, 0.45, 0];
 const MAX_POLAR = Math.PI / 2.05;
@@ -37,6 +38,9 @@ const easeInOutCubic = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 const wrap = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
 const tweenSpherical = new Spherical();
+/** Frame-selected (F) tween length (s) and the fit margin around the bounding sphere. */
+const FOCUS_DURATION = 0.5;
+const FOCUS_MARGIN = 1.3;
 
 const halfTan = (camera: PerspectiveCamera) =>
   Math.tan((camera.fov * Math.PI) / 360);
@@ -219,13 +223,94 @@ export default function CameraRig() {
     };
   };
 
+  /** Frame selected (F): one-shot ease of target + camera (distance, or zoom in ortho); not tracking. */
+  const focus = useRef<null | {
+    t: number;
+    fromTarget: Vector3;
+    toTarget: Vector3;
+    fromPosition: Vector3;
+    toPosition: Vector3;
+    fromZoom: number;
+    toZoom: number;
+  }>(null);
+  const cancelFocus = useMemo(() => () => { focus.current = null; }, []);
+
   // Any user orbit/pan/zoom cancels a running tween.
   useEffect(() => {
     const c = controls.current;
     if (!c) return;
     c.addEventListener("start", cancelTween);
-    return () => c.removeEventListener("start", cancelTween);
-  }, [cancelTween]);
+    c.addEventListener("start", cancelFocus);
+    return () => {
+      c.removeEventListener("start", cancelTween);
+      c.removeEventListener("start", cancelFocus);
+    };
+  }, [cancelTween, cancelFocus]);
+
+  // F: frame the selected equipment / box at its current position. Ignored while camera tracking
+  // (tracking owns the camera), while typing and with nothing selected.
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "f" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return;
+      if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]')) return;
+      if (document.querySelector('[role="dialog"],[role="listbox"],[role="menu"]')) return;
+      if (useCameraTrackingStore.getState().trackedId) return;
+      const c = controls.current, id = selectedFocusId();
+      if (!c || !id) return;
+      const sphere = focusSphere(id);
+      if (!sphere) return;
+      event.preventDefault();
+      cancelTween();
+      const camera = get().camera as PerspectiveCamera | OrthographicCamera;
+      const dir = new Vector3().subVectors(camera.position, c.target);
+      const current = dir.length();
+      dir.normalize();
+      const { width, height } = get().size;
+      let toPosition: Vector3, toZoom = camera.zoom;
+      if (camera === orthoRef.current) {
+        // Ortho: keep the camera distance, fit by zoom.
+        toPosition = sphere.center.clone().addScaledVector(dir, current);
+        toZoom = Math.min(width, height) / (2 * sphere.radius * FOCUS_MARGIN);
+      } else {
+        const perspective = camera as PerspectiveCamera;
+        const vertical = halfTan(perspective), horizontal = vertical * (width / Math.max(1, height));
+        const distance = (sphere.radius * FOCUS_MARGIN) / Math.sin(Math.atan(Math.min(vertical, horizontal)));
+        toPosition = sphere.center.clone().addScaledVector(dir, distance);
+      }
+      focus.current = {
+        t: 0,
+        fromTarget: c.target.clone(),
+        toTarget: sphere.center.clone(),
+        fromPosition: camera.position.clone(),
+        toPosition,
+        fromZoom: camera.zoom,
+        toZoom,
+      };
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [get, cancelTween]);
+
+  // Tracking takes over the camera: drop a running focus.
+  useEffect(() => useCameraTrackingStore.subscribe((state) => { if (state.trackedId) focus.current = null; }), []);
+
+  useFrame((_, delta) => {
+    const run = focus.current,
+      c = controls.current;
+    if (!run || !c) return;
+    run.t = Math.min(1, run.t + delta / FOCUS_DURATION);
+    const e = easeInOutCubic(run.t);
+    const camera = get().camera as PerspectiveCamera | OrthographicCamera;
+    c.target.lerpVectors(run.fromTarget, run.toTarget, e);
+    camera.position.lerpVectors(run.fromPosition, run.toPosition, e);
+    if (camera === orthoRef.current) {
+      camera.zoom = run.fromZoom + (run.toZoom - run.fromZoom) * e;
+      camera.updateProjectionMatrix();
+    }
+    camera.lookAt(c.target);
+    c.update();
+    if (run.t >= 1) focus.current = null;
+  });
 
   // After OrbitControls' own update (priority -1), so the tween pose is what renders.
   useFrame((_, delta) => {
