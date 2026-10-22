@@ -43,11 +43,10 @@ function LedPanels({ panels, y }: { panels: [number, number][]; y: number }) {
  * down, deep Warren girders along Z every ~9 m, open-web joists along X every ~3 m and one LED
  * panel (1.2 × 0.6 m) per 3 m bay cell. All members are one instanced box mesh (1 draw call), the
  * panels one instanced unlit quad mesh (1 draw call). Hidden while the camera is above the roof or
- * when the ceiling setting is off; the "performance" tier keeps only the plain deck.
+ * when the ceiling setting is off. The trusses and panels (2 draw calls) render on every tier; only the deck maps fall back to flat on "performance".
  */
 export default function RoomRoof({ width, depth, wallHeight: height }: FloorSize) {
   const enabled = useViewportSettingsStore((state) => state.ceiling);
-  const lowQuality = useViewportSettingsStore((state) => state.renderQuality === "performance");
   const group = useRef<Group>(null);
   const cameraPoint = useMemo(() => new Vector3(), []);
   // Deck PBR set (null on the performance tier). Plane U = world X, so the deck lines run
@@ -114,11 +113,11 @@ export default function RoomRoof({ width, depth, wallHeight: height }: FloorSize
           <meshStandardMaterial key="flat" color="#8f9091" roughness={0.8} metalness={0.1} />
         )}
       </mesh>
-      {!lowQuality && <>
+      <>
         <RoomFrame beams={beams} />
         {/* Panels sit in the bay cells just under the deck, above the joist bottom chords. */}
         <LedPanels panels={panels} y={Math.max(bottom + 0.05, height - 0.12)} />
-      </>}
+      </>
     </group>
   );
 }
