@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Billboard, Line } from "@react-three/drei";
-import { CanvasTexture, OrthographicCamera, SRGBColorSpace, Vector3, type Group } from "three";
+import { CanvasTexture, Mesh, OrthographicCamera, SRGBColorSpace, Vector3, type Group } from "three";
 import type { EquipmentKind, SceneEquipment } from "@/types/layout";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 import { LINK_COLOR, linkPoint } from "@/viewport/editor/links/linkPoints";
@@ -82,6 +82,11 @@ function Marker({ object, isSource, valid, picking, register }: MarkerState & { 
   const stem = useMemo(() => [new Vector3(p.x, 0.02, p.z), new Vector3(p.x, height, p.z)], [p.x, p.z, height]);
   useEffect(() => () => { if (hover) document.body.style.cursor = ""; }, [hover]);
   const ignore = () => {};
+  // R3F skips props set to `undefined`, so `raycast={undefined}` never restores picking after a
+  // marker was disabled (source picked → Esc/clear left the other markers unclickable for good).
+  const pick = disabled ? ignore : Mesh.prototype.raycast;
+  // A marker disabled under the cursor never gets pointerout: drop the stale hover with it.
+  if (disabled && hover) setHover(false);
 
   return (
     <>
@@ -89,7 +94,7 @@ function Marker({ object, isSource, valid, picking, register }: MarkerState & { 
       <Billboard position={[p.x, height, p.z]} ref={register}>
         {/* Generous invisible hit disc (1.6× the badge). */}
         <mesh
-          raycast={disabled ? ignore : undefined}
+          raycast={pick}
           onClick={(event) => {
             if (!isSelectionClick(event)) return;
             event.stopPropagation();
