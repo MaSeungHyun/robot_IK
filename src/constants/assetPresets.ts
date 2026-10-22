@@ -70,6 +70,14 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     ],
   },
   {
+    kind: "door",
+    icon: "DoorOpen",
+    presets: [
+      { id: "closed", label: "롤러 셔터 (닫힘)", description: "4 × 4.5 m. 벽 근처(0.5 m)에 놓으면 벽에 붙고 개구부가 뚫립니다." },
+      { id: "open", label: "롤러 셔터 (열림)", description: "열린 상태로 시작합니다.", settings: { doorOpen: true } },
+    ],
+  },
+  {
     kind: "floor",
     icon: "BrickWall",
     presets: [{ id: "default", label: "바닥/벽", description: "바닥을 드래그해 영역 지정 → 마우스로 벽 높이 → 클릭 확정 (Esc: 벽 없이 확정)" }],
@@ -80,5 +88,6 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
 export function thumbnailKey(kind: EquipmentKind, preset: AssetPreset) {
   if (kind === "floor") return null;
   if (kind === "dock") return preset.tone === "defect" ? "dock-defect" : "dock";
+  if (kind === "door") return "door";
   return kind;
 }

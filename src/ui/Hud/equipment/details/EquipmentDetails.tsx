@@ -7,6 +7,7 @@ import ScannerDetails from "@/ui/Hud/equipment/scanner/ScannerDetails";
 import DockDetails from "@/ui/Hud/equipment/dock/DockDetails";
 import RackDetails from "@/ui/Hud/equipment/rack/RackDetails";
 import FloorDetails from "@/ui/Hud/equipment/floor/FloorDetails";
+import DoorDetails from "@/ui/Hud/equipment/door/DoorDetails";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import type { EquipmentKind } from "@/types/layout";
 
@@ -19,6 +20,7 @@ const DETAIL_COMPONENTS = {
   dock: DockDetails,
   floor: FloorDetails,
   rack: RackDetails,
+  door: DoorDetails,
 } satisfies Record<EquipmentKind, ComponentType<EquipmentDetailProps>>;
 
 export default function EquipmentDetails({ object }: EquipmentDetailProps) {

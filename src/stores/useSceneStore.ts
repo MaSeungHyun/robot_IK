@@ -10,10 +10,12 @@ import { migrateSettings, unrealisticWarning } from "@/domain/simulation/equipme
 import { log } from "@/stores/useLogStore";
 import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
+import { DOOR_CONFIG } from "@/constants/door";
+import { snapDoorToWall } from "@/domain/room/roomWalls";
 
 /** select: pick only (no gizmo); translate/rotate: gizmo mode on the selection. */
 export type EditorTool="select"|"translate"|"rotate";
-export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙"};
+export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙",door:"문"};
 /** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
 export function snapFloorCenter(value:number,size:number){const cell=FLOOR_CONFIG.cell,offset=(size/cell)%2?cell/2:0;return Math.round((value-offset)/cell)*cell+offset;}
 export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSize={width:1,depth:1,wallHeight:0}):FloorSize|null{
@@ -25,7 +27,10 @@ export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSi
 const snapFloor=(object:SceneEquipment):SceneEquipment=>object.kind==="floor"&&object.floor?{...object,x:snapFloorCenter(object.x,object.floor.width),z:snapFloorCenter(object.z,object.floor.depth)}:object;
 const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:20,spawnInterval:8,enabled:true});
 /** Defaults (and legacy/preset values) in real units for `kind`. Exported for the template export snippet (scripts/export-scene-template.devtools.js). */
-export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...values});
+const DOOR_DEFAULTS:Partial<EquipmentSettings>={doorWidth:DOOR_CONFIG.width,doorHeight:DOOR_CONFIG.height,doorOpen:false};
+export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...(kind==="door"?DOOR_DEFAULTS:{}),...values});
+/** Doors snap flush to a nearby wall plane (see snapDoorToWall). */
+const snapDoor=(object:SceneEquipment,config:EquipmentSettings|undefined,objects:SceneEquipment[]):SceneEquipment=>object.kind==="door"?{...object,...snapDoorToWall(object,config?.doorWidth??DOOR_CONFIG.width,objects)}:object;
 interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
   past:SceneSnapshot[];future:SceneSnapshot[];undo:()=>void;redo:()=>void;
@@ -58,8 +63,9 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     set(state=>{
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
-      const object=kind==="conveyor"?snapBelt(initial,state.objects):snapFloor(initial);
-      return {...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:settingsFor(kind,state.pending===kind?state.pendingPreset:null)},selected:id,pending:null,pendingPreset:null,nextId:state.nextId+1,errors:[]};
+      const config=settingsFor(kind,state.pending===kind?state.pendingPreset:null);
+      const object=kind==="conveyor"?snapBelt(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
+      return {...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:config},selected:id,pending:null,pendingPreset:null,nextId:state.nextId+1,errors:[]};
     });
   },
   duplicate:(source,config)=>{
@@ -81,7 +87,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(!get().editing)return;
     const object=get().objects.find(object=>object.id===id);
     if(!object||Object.entries(pose).every(([key,value])=>Math.abs(object[key as keyof EquipmentPose]-value)<1e-8))return;
-    const changed={...object,...pose},next=object.kind==="conveyor"?snapBelt(changed,get().objects):snapFloor(changed);
+    const changed={...object,...pose},next=object.kind==="conveyor"?snapBelt(changed,get().objects):object.kind==="door"?snapDoor(changed,get().settings[id],get().objects):snapFloor(changed);
     set(state=>({...history(state),objects:state.objects.map(object=>object.id===id?next:object),errors:[]}));
   },
   updateFloor:(id,size)=>{
@@ -98,6 +104,8 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const state = get(), current = state.settings[id];
     if (!current) return;
     if (values.defectRate !== undefined && (!Number.isFinite(values.defectRate) || values.defectRate < 0 || values.defectRate > 1)) return;
+    const size = (value: number | undefined, max: number) => value === undefined || (Number.isFinite(value) && value >= DOOR_CONFIG.minSize && value <= max);
+    if (!size(values.doorWidth, DOOR_CONFIG.maxWidth) || !size(values.doorHeight, DOOR_CONFIG.maxHeight)) return;
     const connected = values.beltSpeed !== undefined && state.objects.some(object => object.id === id && object.kind === "conveyor")
       ? connectedBeltIds(state.objects, id) : new Set([id]);
     const nextSettings = { ...state.settings };

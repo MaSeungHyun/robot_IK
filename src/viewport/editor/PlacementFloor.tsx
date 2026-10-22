@@ -17,6 +17,8 @@ import PlacementGhost from "@/viewport/editor/PlacementGhost";
 import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
+import { DOOR_CONFIG } from "@/constants/door";
+import { snapDoorToWall } from "@/domain/room/roomWalls";
 
 const KINDS: readonly EquipmentKind[] = [
   "robot",
@@ -26,6 +28,7 @@ const KINDS: readonly EquipmentKind[] = [
   "dock",
   "rack",
   "scanner",
+  "door",
 ];
 const snap = (value: number) => Math.round(value / C.snap) * C.snap;
 // Intersect the mathematical ground plane rather than a bounded mesh.
@@ -86,8 +89,13 @@ export default function PlacementFloor() {
         name: "미리보기",
         kind,
       };
+      const state = useSceneStore.getState();
+      if (kind === "door") {
+        const width = (state.pending === "door" ? state.pendingPreset?.doorWidth : undefined) ?? DOOR_CONFIG.width;
+        return { ...object, ...snapDoorToWall(object, width, state.objects) };
+      }
       return kind === "conveyor"
-        ? snapBelt(object, useSceneStore.getState().objects)
+        ? snapBelt(object, state.objects)
         : object;
     };
     const pointAt = (event: MouseEvent) => {
@@ -311,6 +319,7 @@ export default function PlacementFloor() {
               x: snap(event.point.x),
               z: snap(event.point.z),
             });
+            // (doors are snapped to a nearby wall inside add())
           } else {
             event.stopPropagation();
             state.select(null);

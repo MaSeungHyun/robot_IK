@@ -9,9 +9,17 @@ import { useSimulationStore } from "@/stores/useSimulationStore";
 import Panel from "@/ui/Hud/_components/Panel";
 import NumberField from "@/components/NumberField";
 import LinkSection from "@/ui/Hud/equipment/details/_components/LinkSection";
+import DoorSettings from "@/ui/Hud/equipment/door/DoorSettings";
 import {
-  SPEED_LIMITS, amrSpeedOf, beltSpeedOf, fromBoxesPerHour, fromMetersPerMinute, spawnIntervalOf, speedPatch,
-  toBoxesPerHour, toMetersPerMinute,
+  SPEED_LIMITS,
+  amrSpeedOf,
+  beltSpeedOf,
+  fromBoxesPerHour,
+  fromMetersPerMinute,
+  spawnIntervalOf,
+  speedPatch,
+  toBoxesPerHour,
+  toMetersPerMinute,
 } from "@/domain/simulation/equipmentSpeeds";
 
 export default function ObjectPropertiesPanel({
@@ -44,8 +52,35 @@ export default function ObjectPropertiesPanel({
   const connectedInput =
     object.kind === "conveyor" &&
     beltConnections(state.objects).incoming.has(object.id);
+  // Same look as the shared Select trigger (flat compact field).
   const input =
-    "mt-1 h-9 w-full rounded-md border border-white/10 bg-white/5 px-2 text-xs text-white outline-none focus:border-sky-400 disabled:opacity-40";
+    "h-6 w-full min-w-0 rounded-[3px] border border-[#2c2e33] bg-[#1b1c1f] px-2 text-xs tabular-nums text-text-primary outline-none hover:border-[#3a3d43] focus:border-brand-primary disabled:opacity-40 disabled:hover:border-[#2c2e33] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+  const row = "grid grid-cols-[56px_1fr] items-center gap-2";
+  const rowLabel = "text-xs text-text-secondary";
+  // Scene pose is planar (x, z, yaw); the other axes are shown fixed.
+  const fixed = (value: number, axis: string, group: string) => (
+    <input key={axis} aria-label={`${group} ${axis}`} className={input} value={value} disabled readOnly />
+  );
+  const pose = (axis: "x" | "z" | "yaw", label: string) => (
+    <input
+      key={label}
+      aria-label={label}
+      type="number"
+      disabled={!state.editing}
+      step={axis === "yaw" ? 15 : 0.1}
+      value={Number(
+        (axis === "yaw" ? (object.yaw * 180) / Math.PI : object[axis]).toFixed(2),
+      )}
+      onChange={(e) => {
+        const value = e.currentTarget.valueAsNumber;
+        if (Number.isFinite(value))
+          state.updatePose(object.id, {
+            [axis]: axis === "yaw" ? (value * Math.PI) / 180 : value,
+          });
+      }}
+      className={input}
+    />
+  );
 
   return (
     <Panel
@@ -79,60 +114,34 @@ export default function ObjectPropertiesPanel({
           options={state.objects.map((o) => ({ value: o.id, label: o.name }))}
           onValueChange={state.select}
         />
-        <p className="mt-4 text-xs text-text-secondary">위치와 회전</p>
-        {state.editing && (
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {(["translate", "rotate"] as const).map((tool) => (
-              <Button
-                key={tool}
-                fill={state.tool === tool}
-                onClick={() => state.setTool(tool)}
-              >
-                {tool === "translate" ? "이동" : "회전"}
-              </Button>
-            ))}
-          </div>
-        )}
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          {(["x", "z", "yaw"] as const).map((axis) => (
-            <label key={axis} className="text-xs text-text-secondary">
-              {axis === "yaw" ? "회전 °" : `${axis.toUpperCase()} m`}
-              <input
-                aria-label={`오브젝트 ${axis}`}
-                type="number"
-                disabled={!state.editing}
-                step={axis === "yaw" ? 15 : 0.1}
-                value={Number(
-                  (axis === "yaw"
-                    ? (object.yaw * 180) / Math.PI
-                    : object[axis]
-                  ).toFixed(2),
-                )}
-                onChange={(e) => {
-                  const value = e.currentTarget.valueAsNumber;
-                  if (Number.isFinite(value))
-                    state.updatePose(object.id, {
-                      [axis]: axis === "yaw" ? (value * Math.PI) / 180 : value,
-                    });
-                }}
-                className={input}
-              />
-            </label>
+
+        <div className="mt-3 flex flex-col gap-2">
+          {(
+            [
+              ["position", [pose("x", "position x"), fixed(0, "y", "position"), pose("z", "position z")]],
+              ["rotation", [fixed(0, "x", "rotation"), pose("yaw", "rotation y °"), fixed(0, "z", "rotation")]],
+              ["scale", [fixed(1, "x", "scale"), fixed(1, "y", "scale"), fixed(1, "z", "scale")]],
+            ] as const
+          ).map(([label, fields]) => (
+            <div key={label} className={row}>
+              <span className={rowLabel}>{label}</span>
+              <div className="grid grid-cols-3 gap-1">{fields}</div>
+            </div>
           ))}
         </div>
         {object.kind === "floor" && object.floor && (
           <section className="mt-5 border-t border-white/10 pt-4">
             <h3 className="mb-3 text-xs text-text-primary">바닥 / 벽</h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="flex flex-col gap-2">
               {(
                 [
-                  ["width", "너비 m", 1],
-                  ["depth", "깊이 m", 1],
-                  ["wallHeight", "벽 높이 m", FLOOR_CONFIG.wallStep],
+                  ["width", "너비", 1],
+                  ["depth", "깊이", 1],
+                  ["wallHeight", "높이", FLOOR_CONFIG.wallStep],
                 ] as const
               ).map(([key, label, step]) => (
-                <label key={key} className="text-xs text-text-secondary">
-                  {label}
+                <label key={key} className={row}>
+                  <span className={rowLabel}>{label}</span>
                   <input
                     aria-label={`바닥 ${label}`}
                     className={input}
@@ -162,69 +171,155 @@ export default function ObjectPropertiesPanel({
             </p>
           </section>
         )}
-        {object.kind !== "dock" && object.kind !== "rack" && object.kind !== "floor" && (
+        {object.kind === "door" && (
           <section className="mt-5 border-t border-white/10 pt-4">
-            <h3 className="mb-3 text-xs text-text-primary">시뮬레이션 설정</h3>
-            {object.kind === "robot" && (
-              <>
-                <NumberField label="작동 속도" unit="×" min={0} exclusiveMin value={settings.speed} inputClassName={input}
-                  onCommit={(value) => state.updateSettings(object.id, { speed: value })} />
-                <p className="mt-1 text-xs text-text-secondary">
-                  개별 {settings.speed}× · 전체 {playbackSpeed}× → 실제{" "}
-                  {Number((settings.speed * playbackSpeed).toFixed(2))}×
-                </p>
-              </>
-            )}
-            {object.kind === "amr" && (
-              <NumberField label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} value={amrSpeedOf(settings)} inputClassName={input}
-                onCommit={(value) => state.updateSettings(object.id, speedPatch("amrSpeed", value, settings))} />
-            )}
-            {object.kind === "conveyor" && (
-              <NumberField label="연결 컨베이어 속도" unit="m/min" decimals={2} {...SPEED_LIMITS.beltSpeed} value={toMetersPerMinute(beltSpeedOf(settings))} inputClassName={input}
-                onCommit={(value) => state.updateSettings(object.id, speedPatch("beltSpeed", fromMetersPerMinute(value), settings))} />
-            )}
-            {object.kind === "scanner" && (
-              <ScannerSettings id={object.id} inputClassName={input} />
-            )}
-
-            {object.kind === "robot" && (
-              <NumberField className="mt-3" label="집기 범위" unit="m" min={0} exclusiveMin value={settings.reach} inputClassName={input}
-                onCommit={(value) => state.updateSettings(object.id, { reach: value })} />
-            )}
-            {object.kind === "pallet" && (
-              <NumberField label="적재 개수" unit="개" integer min={1} value={settings.capacity} inputClassName={input}
-                onCommit={(value) => state.updateSettings(object.id, { capacity: value })} />
-            )}
-            {object.kind === "conveyor" &&
-              (connectedInput ? (
-                <p className="mt-3 text-xs text-text-secondary">
-                  앞 구간에서 넘어오는 박스를 이송합니다.
-                </p>
-              ) : (
-                <NumberField className="mt-3" label="박스 투입량" unit="개/h" decimals={2} {...SPEED_LIMITS.spawnInterval} value={toBoxesPerHour(spawnIntervalOf(settings))} inputClassName={input}
-                  onCommit={(value) => state.updateSettings(object.id, speedPatch("spawnInterval", fromBoxesPerHour(value), settings))} />
-              ))}
-            <label className="mt-4 flex items-center gap-2 text-xs text-text-primary">
-              <input
-                type="checkbox"
-                checked={settings.enabled}
-                onChange={(e) =>
-                  state.updateSettings(object.id, {
-                    enabled: e.currentTarget.checked,
-                  })
-                }
-              />
-              작동 활성화
-            </label>
+            <h3 className="mb-1 text-xs text-text-primary">문</h3>
+            <DoorSettings id={object.id} inputClassName={input} />
+            <p className="mt-2 text-[11px] text-text-secondary">벽에서 0.5 m 안으로 옮기면 벽면에 붙고 개구부가 뚫립니다.</p>
           </section>
         )}
+        {object.kind !== "dock" &&
+          object.kind !== "rack" &&
+          object.kind !== "floor" &&
+          object.kind !== "door" && (
+            <section className="mt-5 border-t border-white/10 pt-4">
+              <h3 className="mb-3 text-xs text-text-primary">
+                시뮬레이션 설정
+              </h3>
+              {object.kind === "robot" && (
+                <>
+                  <NumberField
+                    label="작동 속도"
+                    unit="×"
+                    min={0}
+                    exclusiveMin
+                    value={settings.speed}
+                    inputClassName={input}
+                    onCommit={(value) =>
+                      state.updateSettings(object.id, { speed: value })
+                    }
+                  />
+                  <p className="mt-1 text-xs text-text-secondary">
+                    개별 {settings.speed}× · 전체 {playbackSpeed}× → 실제{" "}
+                    {Number((settings.speed * playbackSpeed).toFixed(2))}×
+                  </p>
+                </>
+              )}
+              {object.kind === "amr" && (
+                <NumberField
+                  label="최대 주행 속도"
+                  unit="m/s"
+                  {...SPEED_LIMITS.amrSpeed}
+                  value={amrSpeedOf(settings)}
+                  inputClassName={input}
+                  onCommit={(value) =>
+                    state.updateSettings(
+                      object.id,
+                      speedPatch("amrSpeed", value, settings),
+                    )
+                  }
+                />
+              )}
+              {object.kind === "conveyor" && (
+                <NumberField
+                  label="연결 컨베이어 속도"
+                  unit="m/min"
+                  decimals={2}
+                  {...SPEED_LIMITS.beltSpeed}
+                  value={toMetersPerMinute(beltSpeedOf(settings))}
+                  inputClassName={input}
+                  onCommit={(value) =>
+                    state.updateSettings(
+                      object.id,
+                      speedPatch(
+                        "beltSpeed",
+                        fromMetersPerMinute(value),
+                        settings,
+                      ),
+                    )
+                  }
+                />
+              )}
+              {object.kind === "scanner" && (
+                <ScannerSettings id={object.id} inputClassName={input} />
+              )}
+
+              {object.kind === "robot" && (
+                <NumberField
+                  className="mt-3"
+                  label="집기 범위"
+                  unit="m"
+                  min={0}
+                  exclusiveMin
+                  value={settings.reach}
+                  inputClassName={input}
+                  onCommit={(value) =>
+                    state.updateSettings(object.id, { reach: value })
+                  }
+                />
+              )}
+              {object.kind === "pallet" && (
+                <NumberField
+                  label="적재 개수"
+                  unit="개"
+                  integer
+                  min={1}
+                  value={settings.capacity}
+                  inputClassName={input}
+                  onCommit={(value) =>
+                    state.updateSettings(object.id, { capacity: value })
+                  }
+                />
+              )}
+              {object.kind === "conveyor" &&
+                (connectedInput ? (
+                  <p className="mt-3 text-xs text-text-secondary">
+                    앞 구간에서 넘어오는 박스를 이송합니다.
+                  </p>
+                ) : (
+                  <NumberField
+                    className="mt-3"
+                    label="박스 투입량"
+                    unit="개/h"
+                    decimals={2}
+                    {...SPEED_LIMITS.spawnInterval}
+                    value={toBoxesPerHour(spawnIntervalOf(settings))}
+                    inputClassName={input}
+                    onCommit={(value) =>
+                      state.updateSettings(
+                        object.id,
+                        speedPatch(
+                          "spawnInterval",
+                          fromBoxesPerHour(value),
+                          settings,
+                        ),
+                      )
+                    }
+                  />
+                ))}
+              <label className="mt-4 flex items-center gap-2 text-xs text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={settings.enabled}
+                  onChange={(e) =>
+                    state.updateSettings(object.id, {
+                      enabled: e.currentTarget.checked,
+                    })
+                  }
+                />
+                작동 활성화
+              </label>
+            </section>
+          )}
         {state.editing && object.kind === "conveyor" && (
           <p className="mt-4 text-[11px] leading-relaxed text-sky-300/80">
             끝점의 +를 눌러 좌회전 · 직진 · 우회전 구간을 연결하세요. 끝점끼리
             가까이 놓으면 자동으로 붙습니다.
           </p>
         )}
-        <div className="mt-3"><LinkSection object={object} /></div>
+        <div className="mt-3">
+          <LinkSection object={object} />
+        </div>
         {state.editing && (
           <Button
             type="button"

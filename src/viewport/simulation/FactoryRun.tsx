@@ -13,6 +13,7 @@ import AMR from "@/objects/amr/AMR";
 import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
 import Rack from "@/objects/rack/Rack";
+import Door from "@/objects/door/Door";
 
 // Play mode: a click opens the object's Details (see clickEquipment).
 const handleEquipmentSelect = clickEquipment;
@@ -33,7 +34,7 @@ function handleCargoSelect(event: ThreeEvent<MouseEvent>, inspect = false) {
 export default function FactoryRun(props: SimulatorRunProps) {
   const { world, objects, settings } = useFactoryRuntime(props);
   useEffect(() => resetCursor, []);
-  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || object.kind === "rack" || object.kind === "scanner" || object.kind === "floor");
+  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || object.kind === "rack" || object.kind === "scanner" || object.kind === "floor" || object.kind === "door");
 
   return (
     <>
@@ -59,20 +60,20 @@ export default function FactoryRun(props: SimulatorRunProps) {
       {staticObjects.map((object) => object.kind === "floor" ? (
         // Floors/walls are scenery while simulating: not selectable, hoverable or trackable.
         <group key={object.id} position={[object.x, 0, object.z]} rotation={[0, object.yaw, 0]}>
-          <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={false} />
+          <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={false} pose={object} />
         </group>
       ) : (
         <group
           key={object.id}
-          // Racks, docks and conveyors never move while running (scanners animate, so they stay dynamic).
-          userData={{ sceneId: object.id, instanceStatic: object.kind !== "scanner" }}
+          // Racks, docks and conveyors never move while running (scanners and doors animate, so they stay dynamic).
+          userData={{ sceneId: object.id, instanceStatic: object.kind !== "scanner" && object.kind !== "door" }}
           position={[object.x, 0, object.z]}
           rotation={[0, object.yaw, 0]}
           {...playHover}
           onClick={(event) => handleEquipmentSelect(event, object.id)}
           onDoubleClick={(event) => inspectEquipment(event, object.id)}
         >
-          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "rack" ? <Rack /> : <Dock id={object.id} />}
+          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "rack" ? <Rack /> : object.kind === "door" ? <Door id={object.id} /> : <Dock id={object.id} />}
         </group>
       ))}
     </>

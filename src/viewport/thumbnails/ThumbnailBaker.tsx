@@ -16,6 +16,8 @@ import { log } from "@/stores/useLogStore";
 import { useModelStore } from "@/stores/useModelStore";
 import { useModelsSettled } from "@/stores/useModelStore";
 import { MODEL } from "@/viewport/models/modelUrls";
+import { createDoorModel } from "@/objects/door/doorModel";
+import { DOOR_CONFIG } from "@/constants/door";
 
 const WIDTH = 192, HEIGHT = 144;
 let baked = false;
@@ -79,6 +81,12 @@ export default function ThumbnailBaker() {
     build("rack", rack, () => rack!.clone(true));
     models.dock = dockPlane("#075985");
     models["dock-defect"] = dockPlane("#f94258");
+    build("door", undefined, () => {
+      const door = createDoorModel(DOOR_CONFIG.width, DOOR_CONFIG.height);
+      door.setOpen(0.35);
+      disposers.push(door.dispose);
+      return door.group;
+    });
 
     const scene = new Scene(),
       camera = new PerspectiveCamera(30, WIDTH / HEIGHT, 0.01, 100);

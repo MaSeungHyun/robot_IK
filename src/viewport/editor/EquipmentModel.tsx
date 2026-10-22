@@ -3,6 +3,7 @@ import AMR from "@/objects/amr/AMR";
 import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
 import Rack from "@/objects/rack/Rack";
+import Door from "@/objects/door/Door";
 import Pallet from "@/objects/pallet/index";
 import RobotPreview from "@/objects/robot/RobotPreview";
 import FloorRoom from "@/objects/room/FloorRoom";
@@ -41,11 +42,14 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
     case "floor":
       return <EditorFloor object={object} />;
 
+    case "door":
+      return <Door id={object.id} />;
+
   }
 }
 
 /** Floors, walls and roof are not link targets: they ignore pointer rays while link mode is on. */
 function EditorFloor({ object }: { object: SceneEquipment }) {
   const linking = useLinkModeStore((state) => state.active);
-  return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={!linking} />;
+  return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={!linking} pose={object} />;
 }

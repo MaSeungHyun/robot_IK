@@ -1,6 +1,7 @@
 import type { EquipmentKind } from "@/types/layout";
 import ConveyorGhost from "@/viewport/editor/ConveyorGhost";
 import ModelGhost from "@/viewport/editor/ModelGhost";
+import { DOOR_CONFIG } from "@/constants/door";
 
 export default function PlacementGhost({ kind }: { kind: EquipmentKind }) {
   return (
@@ -20,6 +21,11 @@ export default function PlacementGhost({ kind }: { kind: EquipmentKind }) {
             opacity={0.3}
             depthWrite={false}
           />
+        </mesh>
+      ) : kind === "door" ? (
+        <mesh position={[0, DOOR_CONFIG.height / 2, 0]} raycast={() => { }}>
+          <boxGeometry args={[DOOR_CONFIG.width, DOOR_CONFIG.height, 0.1]} />
+          <meshBasicMaterial color="#38bdf8" transparent opacity={0.3} depthWrite={false} />
         </mesh>
       ) : kind === "dock" ? (
         <mesh

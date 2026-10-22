@@ -23,6 +23,7 @@ const EQUIPMENT_VISUALS: Record<EquipmentKind, EquipmentVisual> = {
   dock: { icon: "MapPin" },
   floor: { icon: "BrickWall" },
   rack: { icon: "Warehouse" },
+  door: { icon: "DoorOpen" },
 };
 
 export default function EquipmentIdentity({ object, status }: Props) {
