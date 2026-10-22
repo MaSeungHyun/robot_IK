@@ -10,7 +10,11 @@ export const SCENE_TEMPLATES = [
     equipment: [
       { kind: "robot", x: 0, z: 0, yaw: 0 },
       { kind: "pallet", x: -1.15, z: 0, yaw: 0 },
-      { kind: "conveyor", ...DEFAULT_LAYOUT.conveyor, settings: { spawnInterval: 5 } },
+      {
+        kind: "conveyor",
+        ...DEFAULT_LAYOUT.conveyor,
+        settings: { spawnInterval: 5 },
+      },
     ],
   },
   {
@@ -268,7 +272,7 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "robot",
-        x: -4.6,
+        x: -4.5,
         z: -2.7,
         yaw: 0,
         settings: {
@@ -277,25 +281,25 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "robot",
-        x: -4.6,
+        x: -4.5,
         z: 1.5,
         yaw: 0,
       },
       {
         kind: "robot",
-        x: -4.6,
+        x: -4.5,
         z: 5.7,
         yaw: 0,
       },
       {
         kind: "robot",
-        x: -4.7,
+        x: -4.5,
         z: 9.9,
         yaw: 0,
       },
       {
         kind: "robot",
-        x: -0.2,
+        x: 0,
         z: -2.7,
         yaw: 0,
         settings: {
@@ -304,19 +308,19 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "robot",
-        x: -0.2,
+        x: 0,
         z: 1.5,
         yaw: 0,
       },
       {
         kind: "robot",
-        x: -0.2,
+        x: 0,
         z: 5.7,
         yaw: 0,
       },
       {
         kind: "robot",
-        x: -0.2,
+        x: 0,
         z: 9.9,
         yaw: 0,
       },
@@ -331,19 +335,19 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "robot",
-        x: 3.9,
+        x: 4.1,
         z: 1.5,
         yaw: 0,
       },
       {
         kind: "robot",
-        x: 3.9,
+        x: 4.1,
         z: 5.7,
         yaw: 0,
       },
       {
         kind: "robot",
-        x: 4,
+        x: 4.1,
         z: 9.9,
         yaw: 0,
       },
