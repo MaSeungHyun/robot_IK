@@ -82,6 +82,11 @@ export type CargoLogEntry = {
 };
 /** Rows kept in the log (oldest dropped); totals below stay exact. */
 const LOG_LIMIT = 5000;
+/** Misses kept (oldest dropped). */
+const MISS_LIMIT = 500;
+/** Finished (passed/shipped) records kept for lookup; older ones are evicted, totals stay exact. */
+const FINISHED_BOX_LIMIT = 1000;
+const FINISHED_PALLET_LIMIT = 100;
 
 const pad = (value: number, size: number) => String(value).padStart(size, "0");
 
@@ -91,6 +96,10 @@ export class CargoRegistry {
   readonly misses: CargoMiss[] = [];
   readonly log: CargoLogEntry[] = [];
   /** Exact cumulative counts (independent of the bounded log). */
+  /** Ids of boxes still in the scene (not passed/shipped): bounded by the line, not by run time. */
+  readonly activeBoxes = new Set<string>();
+  private finishedBoxes: string[] = [];
+  private finishedPallets: string[] = [];
   readonly totals = { inbound: 0, scanned: 0, defects: 0, loaded: 0, palletsFull: 0, pickups: 0, outboundPallets: 0, outboundBoxes: 0, leadTimeSum: 0 };
   private nextLog = 1;
   /** Bumped on every change; the UI polls it at a throttled rate. */
@@ -108,6 +117,22 @@ export class CargoRegistry {
   private record(entry: Omit<CargoLogEntry, "no">) {
     this.log.push({ no: this.nextLog++, ...entry });
     if (this.log.length > LOG_LIMIT) this.log.splice(0, this.log.length - LOG_LIMIT);
+  }
+  private addMiss(miss: CargoMiss) {
+    this.misses.push(miss);
+    if (this.misses.length > MISS_LIMIT) this.misses.splice(0, this.misses.length - MISS_LIMIT);
+  }
+  /** A box left the scene: drop it from the active set and evict the oldest finished records. */
+  private finishBox(id: string) {
+    if (!this.activeBoxes.delete(id)) return;
+    this.finishedBoxes.push(id);
+    if (this.finishedBoxes.length > FINISHED_BOX_LIMIT)
+      for (const old of this.finishedBoxes.splice(0, this.finishedBoxes.length - FINISHED_BOX_LIMIT)) this.boxes.delete(old);
+  }
+  private finishPallet(id: string) {
+    this.finishedPallets.push(id);
+    if (this.finishedPallets.length > FINISHED_PALLET_LIMIT)
+      for (const old of this.finishedPallets.splice(0, this.finishedPallets.length - FINISHED_PALLET_LIMIT)) this.pallets.delete(old);
   }
   private touch() {
     this.version++;
@@ -156,6 +181,7 @@ export class CargoRegistry {
       destination: e.destination,
       history: [{ t: e.t, type: "spawn", equipmentId: e.beltId }],
     });
+    this.activeBoxes.add(id);
     this.totals.inbound++;
     this.record({ t: e.t, type: "inbound", targetId: id, to: e.beltId, equipmentId: e.beltId, status: "완료" });
     this.touch();
@@ -181,9 +207,11 @@ export class CargoRegistry {
   pickBox(e: { t: number; robotId: string; boxId?: string; reachable?: (box: BoxRecord) => boolean }) {
     let box = this.box(e.boxId);
     if (!box && !e.boxId)
-      for (const candidate of this.boxes.values())
-        if (candidate.state === "conveyor" && (!e.reachable || e.reachable(candidate)) && (!box || candidate.spawnedAt < box.spawnedAt))
-          box = candidate;
+      for (const candidate of this.activeBoxes) {
+        const record = this.boxes.get(candidate);
+        if (record && record.state === "conveyor" && (!e.reachable || e.reachable(record)) && (!box || record.spawnedAt < box.spawnedAt))
+          box = record;
+      }
     if (!box || (box.state !== "conveyor" && box.state !== "robot"))
       return this.missing(e.t, e.robotId, e.boxId, "집을 박스가 없습니다");
     box.state = "robot";
@@ -216,7 +244,7 @@ export class CargoRegistry {
   /** A pick attempt failed; the box stays on (or returns to) its belt. */
   missBox(e: { t: number; robotId: string; boxId: string; beltId: string; reason?: string }) {
     const box = this.boxes.get(e.boxId);
-    this.misses.push({ t: e.t, equipmentId: e.robotId, boxId: e.boxId, reason: e.reason ?? "집기 실패" });
+    this.addMiss({ t: e.t, equipmentId: e.robotId, boxId: e.boxId, reason: e.reason ?? "집기 실패" });
     if (!box) return;
     box.state = "conveyor";
     box.holder = e.beltId;
@@ -230,6 +258,7 @@ export class CargoRegistry {
     box.state = "passed";
     box.holder = null;
     this.push(box, { t: e.t, type: "pass", equipmentId: e.beltId });
+    this.finishBox(box.id);
   }
 
   /** Belt-to-belt hand-over keeps the holder current (no history entry). */
@@ -251,7 +280,9 @@ export class CargoRegistry {
       box.state = boxState;
       box.holder = holder;
       box.history.push({ ...event, palletId });
+      if (boxState === "shipped") this.finishBox(id);
     }
+    if (state === "shipped") this.finishPallet(palletId);
     this.touch();
   }
   /** The loading pallet on `stationId` reached capacity (waits for transport). */
@@ -301,7 +332,7 @@ export class CargoRegistry {
 
   private missing(t: number, equipmentId: string, boxId: string | undefined, what: string) {
     const reason = boxId ? `${what}: 박스 ${boxId}를 찾을 수 없습니다` : what;
-    this.misses.push({ t, equipmentId, boxId, reason });
+    this.addMiss({ t, equipmentId, boxId, reason });
     this.warn(`[${equipmentId}] ${reason} (t=${t.toFixed(1)}s)`);
     this.touch();
     return null;

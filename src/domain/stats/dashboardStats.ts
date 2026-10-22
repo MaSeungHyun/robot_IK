@@ -162,7 +162,7 @@ export class DashboardSampler {
     const assigned = tasks.filter((task) => task.assignedAt !== undefined);
     const average = (values: number[]) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
     let conveyorQueued = 0;
-    if (cargo) for (const box of cargo.boxes.values()) if (box.state === "conveyor") conveyorQueued++;
+    if (cargo) for (const id of cargo.activeBoxes) if (cargo.boxes.get(id)?.state === "conveyor") conveyorQueued++;
 
     const equipment: DashboardEquipment[] = [];
     const perHour = (count: number) => (elapsed >= 60 ? (count / elapsed) * 3600 : null);
