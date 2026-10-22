@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import Button from "@/components/Button";
 import Icon from "@/components/Icon";
+import SideTooltip from "@/components/SideTooltip";
 import { ASSET_PRESETS, thumbnailKey } from "@/constants/assetPresets";
 import type { AssetPreset } from "@/constants/assetPresets";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
@@ -79,40 +80,45 @@ export default function AssetRail() {
         className="flex h-full w-12 flex-col items-center gap-1.5 border-r border-brand-primary/20 bg-bg-primary/85 py-2 backdrop-blur-md"
       >
         {items.map(({ id, label, icon }, index) => (
-          <button
-            key={id}
-            type="button"
-            aria-label={label}
-            aria-expanded={open === id}
-            title={label}
-            onClick={() => toggle(id)}
-            className={cn(
-              railButton,
-              index === 1 && "mt-1.5 border-t border-white/10 pt-1.5",
-              (open === id || pending === id) &&
-                "bg-brand-primary/10 text-brand-primary",
+          <Fragment key={id}>
+            {/* Divider is its own element so it doesn't eat into the fixed-size button and push the icon down. */}
+            {index === 1 && (
+              <span aria-hidden className="h-px w-7 shrink-0 bg-white/10" />
             )}
-          >
-            <Icon
-              icon={icon as IconName}
-              aria-hidden="true"
-              className="size-5"
-            />
-          </button>
+            <button
+              type="button"
+              aria-label={label}
+              aria-expanded={open === id}
+              onClick={() => toggle(id)}
+              className={cn(
+                railButton,
+                "group/tip relative",
+                (open === id || pending === id) &&
+                  "bg-brand-primary/10 text-brand-primary",
+              )}
+            >
+              <Icon
+                icon={icon as IconName}
+                aria-hidden="true"
+                className="size-5"
+              />
+              <SideTooltip label={label} />
+            </button>
+          </Fragment>
         ))}
         <button
           type="button"
           aria-label="로그"
           aria-expanded={logOpen}
-          title="로그"
           onClick={() => toggle("log")}
           className={cn(
             railButton,
-            "relative mt-auto",
+            "group/tip relative mt-auto",
             logOpen && "bg-brand-primary/10 text-brand-primary",
           )}
         >
           <Icon icon="Terminal" aria-hidden="true" className="size-5" />
+          <SideTooltip label="로그" />
           {/* Red (errors) takes precedence over yellow (warnings). */}
           {errors > 0 ? (
             <span
