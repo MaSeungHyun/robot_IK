@@ -5,8 +5,6 @@ import { Group, InstancedMesh, Object3D, Vector3 } from "three";
 import { useRoomMaps } from "@/objects/room/roomMaterials";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
 import RoomFrame from "./RoomFrame";
-import useSceneGlow from "@/viewport/useSceneGlow";
-import { GLOW_GAIN } from "@/constants/viewport";
 import type { RoomBeam } from "./RoomFrame";
 
 const noRaycast = () => {};
@@ -15,10 +13,9 @@ const PANEL = { width: 1.2, depth: 0.6 } as const;
 /** Primary lattice girders run along Z at ~9 m; open-web joists run along X every 3 m. */
 const GRID = { girderSpacing: 9, joistSpacing: 3, cell: 3 } as const;
 
-/** Rectangular LED panels: one instanced, unlit quad set (no real lights; glow only via the "high" scene bloom). */
+/** Rectangular LED panels: one instanced, unlit quad set (no real lights; never blooms: below the scene-bloom threshold). */
 function LedPanels({ panels, y }: { panels: [number, number][]; y: number }) {
   const mesh = useRef<InstancedMesh>(null);
-  const glow = useSceneGlow();
   useLayoutEffect(() => {
     if (!mesh.current) return;
     const transform = new Object3D();
@@ -35,13 +32,8 @@ function LedPanels({ panels, y }: { panels: [number, number][]; y: number }) {
   return (
     <instancedMesh key={panels.length} ref={mesh} args={[undefined, undefined, panels.length]} raycast={noRaycast}>
       <planeGeometry args={[PANEL.width, PANEL.depth]} />
-      {/* Unlit near-white; HDR only while scene bloom is on. */}
-      {glow ? (
-        // HDR white above the scene-bloom threshold ("high" tier only).
-        <meshBasicMaterial key="glow" color={[GLOW_GAIN.led, GLOW_GAIN.led, GLOW_GAIN.led]} toneMapped={false} />
-      ) : (
-        <meshBasicMaterial key="flat" color="#f4f7f8" />
-      )}
+      {/* Unlit near-white, tone-mapped: stays below the bloom threshold on every tier. */}
+      <meshBasicMaterial color="#f4f7f8" />
     </instancedMesh>
   );
 }

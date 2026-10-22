@@ -5,8 +5,6 @@ import { FACTORY_ROOM as C } from "@/constants/factoryRoom";
 import { createRoomTexture } from "@/objects/room/roomTextures";
 import { useRoomMaps } from "@/objects/room/roomMaterials";
 import RoomFrame from "./RoomFrame";
-import useSceneGlow from "@/viewport/useSceneGlow";
-import { GLOW_GAIN } from "@/constants/viewport";
 import type { RoomBeam } from "./RoomFrame";
 import type { WallOpening } from "@/domain/room/roomWalls";
 import { clipBeams, cutBand, rectsGeometry } from "./wallCut";
@@ -16,7 +14,6 @@ const NO_OPENINGS: WallOpening[] = [];
 /** `openings`: door cuts in wall-local metres; the wall, bands and frame are rebuilt around them. */
 export default function RoomWall({ length, height, preview, openings = NO_OPENINGS }: { length: number; height: number; preview: boolean; openings?: WallOpening[] }) {
   const group = useRef<Group>(null);
-  const glow = useSceneGlow();
   const cameraPoint = useMemo(() => new Vector3(), []);
   const texture = useMemo(() => createRoomTexture("wall", length / C.panelWidth, 1), [length]);
   useEffect(() => () => texture.dispose(), [texture]);
@@ -96,19 +93,11 @@ export default function RoomWall({ length, height, preview, openings = NO_OPENIN
           <meshStandardMaterial map={pbr ? null : texture} color={C.baseColor} roughness={0.65} metalness={pbr ? 0.2 : 0} />
         </mesh>
         <mesh geometry={surfaces.window} position={[0, 0, 0.012]} raycast={noRaycast}>
-          {glow ? (
-            <meshBasicMaterial key="glow" color={[0.86 * GLOW_GAIN.window, 0.92 * GLOW_GAIN.window, 0.94 * GLOW_GAIN.window]} toneMapped={false} />
-          ) : (
-            <meshStandardMaterial key="flat" color="#dcebf0" emissive="#b9d4e0" emissiveIntensity={0.3} roughness={0.25} metalness={0.15} />
-          )}
+          <meshStandardMaterial color="#dcebf0" emissive="#b9d4e0" emissiveIntensity={0.3} roughness={0.25} metalness={0.15} />
         </mesh>
         {/* Continuous bright clerestory strip under the eaves (unlit, no real light). */}
         <mesh geometry={surfaces.eave} position={[0, 0, 0.012]} raycast={noRaycast}>
-          {glow ? (
-            <meshBasicMaterial key="glow" color={[GLOW_GAIN.eave, GLOW_GAIN.eave, GLOW_GAIN.eave]} toneMapped={false} />
-          ) : (
-            <meshBasicMaterial key="flat" color="#eef3f5" />
-          )}
+          <meshBasicMaterial color="#eef3f5" />
         </mesh>
         <RoomFrame beams={frameBeams} />
         {pbr && <RoomFrame beams={jointBeams} color="#8e979b" metalness={0} />}

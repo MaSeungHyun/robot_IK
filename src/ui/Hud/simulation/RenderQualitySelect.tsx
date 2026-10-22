@@ -25,8 +25,8 @@ export default function RenderQualitySelect() {
         <Select label="렌더링 품질" value={quality} options={OPTIONS} onValueChange={setQuality} />
       </div>
       <div className="mt-4">
-        <p className="mb-2 text-xs text-text-secondary">빛 번짐</p>
-        <Select label="빛 번짐 (높음: 조명·창, 그 외: AMR)" value={bloom ? "on" : "off"} options={BLOOM_OPTIONS} onValueChange={(value) => setBloom(value === "on")} />
+        <p className="mb-2 text-xs text-text-secondary">AMR 빛 번짐</p>
+        <Select label="AMR 빛 번짐" value={bloom ? "on" : "off"} options={BLOOM_OPTIONS} onValueChange={(value) => setBloom(value === "on")} />
       </div>
     </>
   );
