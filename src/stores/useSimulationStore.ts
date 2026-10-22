@@ -48,22 +48,34 @@ const resolve = <T>(value: Update<T>, current: T): T =>
 
 export const useSimulationStore = create<SimulationState>((set) => ({
   robotJointAngles: {},
-  setRobotJointAngles: (id, readings) => set((state) => {
-    const current = state.robotJointAngles[id];
-    const unchanged = current?.length === readings.length && current.every((joint, index) => {
-      const next = readings[index];
-      return joint.name === next.name && joint.axis === next.axis && joint.locked === next.locked
-        && Math.abs(joint.degrees - next.degrees) < 0.0001 && joint.min === next.min && joint.max === next.max;
-    });
-    return unchanged ? state : { robotJointAngles: { ...state.robotJointAngles, [id]: readings } };
-  }),
-  removeRobotJointAngles: (id) => set((state) => {
-    if (!state.robotJointAngles[id]) return state;
+  setRobotJointAngles: (id, readings) =>
+    set((state) => {
+      const current = state.robotJointAngles[id];
+      const unchanged =
+        current?.length === readings.length &&
+        current.every((joint, index) => {
+          const next = readings[index];
+          return (
+            joint.name === next.name &&
+            joint.axis === next.axis &&
+            joint.locked === next.locked &&
+            Math.abs(joint.degrees - next.degrees) < 0.0001 &&
+            joint.min === next.min &&
+            joint.max === next.max
+          );
+        });
+      return unchanged
+        ? state
+        : { robotJointAngles: { ...state.robotJointAngles, [id]: readings } };
+    }),
+  removeRobotJointAngles: (id) =>
+    set((state) => {
+      if (!state.robotJointAngles[id]) return state;
 
-    const readings = { ...state.robotJointAngles };
-    delete readings[id];
-    return { robotJointAngles: readings };
-  }),
+      const readings = { ...state.robotJointAngles };
+      delete readings[id];
+      return { robotJointAngles: readings };
+    }),
   mockTelemetry: {},
   setMockTelemetry: (mockTelemetry) => set({ mockTelemetry }),
   equipment: null,
@@ -75,12 +87,12 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   progress: initialProgress(),
   speed: 1,
   setSpeed: (speed) => {
-    if (
-      Number.isFinite(speed) &&
-      speed >= PLAYBACK_LIMITS.min &&
-      speed <= PLAYBACK_LIMITS.max
-    )
-      set({ speed });
+    // if (
+    //   Number.isFinite(speed) &&
+    //   speed >= PLAYBACK_LIMITS.min &&
+    //   speed <= PLAYBACK_LIMITS.max
+    // )
+    set({ speed });
   },
   setStats: (stats) => set({ stats }),
   setRunning: (value) =>
