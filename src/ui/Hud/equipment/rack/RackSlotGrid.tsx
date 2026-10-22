@@ -16,10 +16,13 @@ type Slot = NonNullable<
  * from the loading face), rows = distinct shelf heights (top level first).
  */
 function rackLayout() {
-  const xs = [...new Set(RACK_CONFIG.slots.map(([x]) => x))].sort((a, b) => a - b);
-  const ys = [...new Set(RACK_CONFIG.slots.map(([, y]) => y))].sort((a, b) => b - a);
+  // PalletPoint coordinates come from the model and differ by a few mm between bays, so exact
+  // Set() matching split one shelf into several rows. Snap to 5 cm before grouping.
+  const snap = (value: number) => Math.round(value / 0.05);
+  const xs = [...new Set(RACK_CONFIG.slots.map(([x]) => snap(x)))].sort((a, b) => a - b);
+  const ys = [...new Set(RACK_CONFIG.slots.map(([, y]) => snap(y)))].sort((a, b) => b - a);
   const cells = ys.flatMap((y) =>
-    xs.map((x) => RACK_CONFIG.slots.findIndex(([sx, sy]) => sx === x && sy === y)),
+    xs.map((x) => RACK_CONFIG.slots.findIndex(([sx, sy]) => snap(sx) === x && snap(sy) === y)),
   );
   return { columns: xs.length, levels: ys.length, cells };
 }
