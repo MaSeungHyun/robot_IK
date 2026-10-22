@@ -4,7 +4,7 @@ import type { TransformControls as TransformControlsImpl } from "three-stdlib";
 import type { Group } from "three";
 import type { ReactNode } from "react";
 import type { SceneEquipment } from "@/types/layout";
-import { useSceneStore } from "@/stores/useSceneStore";
+import { selectedIds, useSceneStore } from "@/stores/useSceneStore";
 import { useShallow } from "zustand/react/shallow";
 import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
@@ -24,7 +24,8 @@ export default function EditableEquipment({
 }) {
   const { active, editing, tool, updatePose, select } = useSceneStore(
     useShallow((s) => ({
-      active: s.selected === entity.id && s.editing,
+      // Multi-select: GroupTransform owns the gizmo (pivot at the selection centre).
+      active: s.selected === entity.id && s.editing && selectedIds(s).length < 2,
       editing: s.editing,
       tool: s.selected === entity.id ? s.tool : ("translate" as const),
       updatePose: s.updatePose,
@@ -82,7 +83,9 @@ export default function EditableEquipment({
           }
           {
             event.stopPropagation();
-            select(entity.id);
+            const e = event.nativeEvent;
+            if (e.shiftKey || e.ctrlKey || e.metaKey) useSceneStore.getState().toggleSelect(entity.id);
+            else select(entity.id);
           }
         }}
       >

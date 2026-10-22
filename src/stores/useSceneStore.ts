@@ -15,6 +15,12 @@ import { snapDoorToWall } from "@/domain/room/roomWalls";
 
 /** select: pick only (no gizmo); translate/rotate: gizmo mode on the selection. */
 export type EditorTool="select"|"translate"|"rotate";
+/** All selected ids (multi-select), primary/active (`selected`) last. Falls back to `selected` alone when `selection` is stale. */
+export function selectedIds(state:{objects:SceneEquipment[];selected:string|null;selection:string[]}):string[]{
+  if(!state.selected)return [];
+  const ids=state.selection.includes(state.selected)?state.selection.filter(id=>id!==state.selected&&state.objects.some(o=>o.id===id)):[];
+  return [...ids,state.selected];
+}
 export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙",door:"문"};
 /** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
 export function snapFloorCenter(value:number,size:number){const cell=FLOOR_CONFIG.cell,offset=(size/cell)%2?cell/2:0;return Math.round((value-offset)/cell)*cell+offset;}
@@ -35,7 +41,17 @@ interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
   past:SceneSnapshot[];future:SceneSnapshot[];undo:()=>void;redo:()=>void;
   objects:SceneEquipment[];settings:Record<string,EquipmentSettings>;selected:string|null;pending:EquipmentKind|null;/** Settings applied to the next placed `pending` object (asset rail presets). */pendingPreset:Partial<EquipmentSettings>|null;editing:boolean;tool:EditorTool;errors:string[];nextId:number;
-  select:(id:string|null)=>void;setPending:(kind:EquipmentKind|null,preset?:Partial<EquipmentSettings>|null)=>void;setTool:(tool:EditorTool)=>void;
+  select:(id:string|null)=>void;
+  /** Multi-select ids (see selectedIds; `selected` stays the primary/active one for the single-select API). */
+  selection:string[];
+  /** Shift/Ctrl+click: add/remove `id`; the clicked one becomes primary, removing it promotes the previous one. */
+  toggleSelect:(id:string)=>void;
+  /** One undo step: removes all ids. */
+  removeMany:(ids:string[])=>void;
+  /** One undo step: patch per id (object or function of that id's current settings); returns the changed count. */
+  updateSettingsMany:(ids:string[],values:Partial<EquipmentSettings>|((config:EquipmentSettings,id:string)=>Partial<EquipmentSettings>))=>number;
+  /** One undo step: several pose changes (group move). */
+  updatePoses:(changes:{id:string;pose:Partial<EquipmentPose>}[])=>void;setPending:(kind:EquipmentKind|null,preset?:Partial<EquipmentSettings>|null)=>void;setTool:(tool:EditorTool)=>void;
   add:(kind:EquipmentKind,pose:Partial<EquipmentPose>&{floor?:FloorSize})=>void;updateFloor:(id:string,size:Partial<FloorSize>)=>void;updatePose:(id:string,pose:Partial<EquipmentPose>)=>void;
   extendConveyor:(id:string,turn:ConveyorTurn)=>void;
   /** Adds a copy (new id/name, same pose/props/settings) and selects it; returns its id. */
@@ -48,16 +64,59 @@ interface SceneState{
   /** Adds a link (edit mode, valid kind pair, no duplicate); returns whether it was added. */
   addLink:(link:Omit<SceneLink,"id">)=>boolean;removeLink:(id:string)=>void;
 }
-type SceneSnapshot=Pick<SceneState,"objects"|"settings"|"selected"|"nextId"|"links"|"nextLinkId">;
-const snapshot=(state:SceneState):SceneSnapshot=>({objects:state.objects,settings:state.settings,selected:state.selected,nextId:state.nextId,links:state.links,nextLinkId:state.nextLinkId});
+type SceneSnapshot=Pick<SceneState,"objects"|"settings"|"selected"|"selection"|"nextId"|"links"|"nextLinkId">;
+const snapshot=(state:SceneState):SceneSnapshot=>({objects:state.objects,settings:state.settings,selected:state.selected,selection:state.selection,nextId:state.nextId,links:state.links,nextLinkId:state.nextLinkId});
 const history=(state:SceneState)=>state.editing?{past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:[]}:{};
 export const useSceneStore=create<SceneState>((set,get)=>({
   past:[],future:[],
   inspected:null,inspect:id=>set(id?{inspected:id,selected:id}:{inspected:null}),
   undo:()=>{const state=get();if(!state.editing||!state.past.length)return;set({...state.past[state.past.length-1],past:state.past.slice(0,-1),future:[snapshot(state),...state.future],pending:null,errors:[]});},
   redo:()=>{const state=get();if(!state.editing||!state.future.length)return;set({...state.future[0],past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:state.future.slice(1),pending:null,errors:[]});},
-  objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
-  select:selected=>{if(get().selected!==selected||get().inspected!==null)set({selected,inspected:null});},setPending:(pending,preset=null)=>{const next=pending?preset:null;if(get().pending!==pending||get().pendingPreset!==next)set({pending,pendingPreset:next});},setTool:tool=>{if(get().tool!==tool)set({tool});},
+  objects:[],settings:{},links:[],nextLinkId:1,selected:null,selection:[],pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
+  select:selected=>{const state=get();if(state.selected!==selected||state.inspected!==null||state.selection.length>1)set({selected,selection:selected?[selected]:[],inspected:null});},
+  toggleSelect:id=>{
+    const state=get(),ids=selectedIds(state);
+    if(!ids.includes(id)){set({selected:id,selection:[...ids,id],inspected:null});return;}
+    const rest=ids.filter(entry=>entry!==id);
+    set({selected:rest[rest.length-1]??null,selection:rest,inspected:null});
+  },
+  removeMany:ids=>{
+    const state=get();if(!state.editing)return;
+    const gone=new Set(ids.filter(id=>state.settings[id]));if(!gone.size)return;
+    const next={...state.settings};for(const id of gone)delete next[id];
+    set({...history(state),objects:state.objects.filter(o=>!gone.has(o.id)),links:state.links.filter(l=>!gone.has(l.from)&&!gone.has(l.to)),settings:next,selected:state.selected&&gone.has(state.selected)?null:state.selected,selection:state.selection.filter(id=>!gone.has(id)),errors:[]});
+  },
+  updateSettingsMany:(ids,values)=>{
+    const state=get(),next={...state.settings};let count=0,capacity=false;
+    const size=(value:number|undefined,max:number)=>value===undefined||(Number.isFinite(value)&&value>=DOOR_CONFIG.minSize&&value<=max);
+    for(const id of ids){
+      const config=state.settings[id];if(!config)continue;
+      const patch=typeof values==="function"?values(config,id):values;
+      if(patch.defectRate!==undefined&&(!Number.isFinite(patch.defectRate)||patch.defectRate<0||patch.defectRate>1))continue;
+      if(!size(patch.doorWidth,DOOR_CONFIG.maxWidth)||!size(patch.doorHeight,DOOR_CONFIG.maxHeight))continue;
+      if(Object.entries(patch).every(([key,value])=>config[key as keyof EquipmentSettings]===value))continue;
+      next[id]={...config,...patch};count++;if(patch.capacity!==undefined)capacity=true;
+    }
+    if(!count)return 0;
+    set({...history(state),settings:next,errors:[]});
+    const first=state.objects.find(o=>ids.includes(o.id));
+    const warning=typeof values==="function"?null:unrealisticWarning(first?.kind,values);
+    if(warning)log("warning",`${count}개 설비: 비현실적인 설정값`,warning);
+    if(!get().editing&&capacity)useSimulationStore.getState().reset();
+    return count;
+  },
+  updatePoses:changes=>{
+    const state=get();if(!state.editing)return;
+    const byId=new Map(changes.map(c=>[c.id,c.pose]));
+    let changed=false;
+    const objects=state.objects.map(object=>{
+      const pose=byId.get(object.id);if(!pose)return object;
+      if(Object.entries(pose).every(([key,value])=>Math.abs(object[key as keyof EquipmentPose]-value)<1e-8))return object;
+      changed=true;const moved={...object,...pose};
+      return object.kind==="conveyor"?snapBelt(moved,state.objects):object.kind==="door"?snapDoor(moved,state.settings[object.id],state.objects):snapFloor(moved);
+    });
+    if(changed)set({...history(state),objects,errors:[]});
+  },setPending:(pending,preset=null)=>{const next=pending?preset:null;if(get().pending!==pending||get().pendingPreset!==next)set({pending,pendingPreset:next});},setTool:tool=>{if(get().tool!==tool)set({tool});},
   add:(kind,pose)=>{
     if(!get().editing)return;
     set(state=>{

@@ -17,6 +17,8 @@ type Props = {
   inputClassName?: string;
   /** Max decimals shown (default 4). Commits only when the typed value differs from the shown one. */
   decimals?: number;
+  /** Multi-edit with differing values: the field shows an empty "혼합" placeholder and any valid entry commits. */
+  mixed?: boolean;
 };
 
 const DRAFT = /^\d*\.?\d*$/;
@@ -29,7 +31,7 @@ const format = (value: number, decimals: number) => String(Number(value.toFixed(
  */
 export default function NumberField({
   label, value, onCommit, unit, min = 0, max = Number.POSITIVE_INFINITY, exclusiveMin = false,
-  integer = false, disabled = false, className, inputClassName, decimals = 4,
+  integer = false, disabled = false, className, inputClassName, decimals = 4, mixed = false,
 }: Props) {
   const shown = format(value, decimals);
   const [draft, setDraft] = useState<string | null>(null);
@@ -41,7 +43,7 @@ export default function NumberField({
       && (exclusiveMin ? next > min : next >= min) && next <= max && (!integer || Number.isInteger(next));
     setDraft(null);
     // Unchanged (rounded) text keeps the stored value as is: no drift from display rounding.
-    if (valid && next !== Number(shown)) onCommit(next);
+    if (valid && (mixed || next !== Number(shown))) onCommit(next);
   };
 
   return (
@@ -53,7 +55,8 @@ export default function NumberField({
           type="text"
           inputMode={integer ? "numeric" : "decimal"}
           disabled={disabled}
-          value={draft ?? shown}
+          value={draft ?? (mixed ? "" : shown)}
+          placeholder={mixed ? "혼합" : undefined}
           className={cn(inputClassName, unit && "pr-10")}
           onChange={(event) => {
             const text = event.currentTarget.value;

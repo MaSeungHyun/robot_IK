@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useSceneStore } from "../stores/useSceneStore";
+import { selectedIds, useSceneStore } from "../stores/useSceneStore";
 import { useModalTransformStore, type ModalMode } from "../stores/useModalTransformStore";
 import { useLinkModeStore } from "../stores/useLinkModeStore";
 
@@ -46,11 +46,12 @@ export default function useEditorShortcuts(enabled:boolean){
         event.preventDefault();if(link.source||link.selectedLink){link.setSource(null);link.selectLink(null);}else link.setActive(false);
       }else if((event.key==="Delete"||event.key==="Backspace")&&useLinkModeStore.getState().selectedLink){
         event.preventDefault();state.removeLink(useLinkModeStore.getState().selectedLink!);
-      }else if(event.key==="Escape"&&(state.selected||state.tool!=="select")){
-        // Last step of the Esc chain: end work on the selection and fall back to the Select tool.
-        event.preventDefault();state.select(null);state.setTool("select");
+      }else if(event.key==="Escape"&&state.tool!=="select"){
+        // Last step of the Esc chain: fall back to the Select tool. The (multi-)selection is kept;
+        // clicking empty space clears it.
+        event.preventDefault();state.setTool("select");
       }else if((event.key==="Delete"||event.key==="Backspace")&&state.selected){
-        event.preventDefault();state.remove(state.selected);
+        event.preventDefault();state.removeMany(selectedIds(state));
       }
     };
     window.addEventListener("keydown",keydown);

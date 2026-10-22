@@ -1,7 +1,9 @@
-import { applyEquipmentSettings } from "@/stores/actions/applyEquipmentSettings";
+import { bulkTargets } from "@/stores/actions/applyEquipmentSettings";
+import { useShallow } from "zustand/react/shallow";
+import { BulkNumber } from "@/ui/Hud/object/BulkField";
 import { DETAIL_INPUT_CLASS_NAME } from "@/ui/Hud/equipment/details/styles";
 import { useSceneStore } from "@/stores/useSceneStore";
-import NumberField from "@/components/NumberField";
+
 import {
   amrSpeedOf, beltSpeedOf, fromBoxesPerHour, fromMetersPerMinute, spawnIntervalOf, speedPatch,
   toBoxesPerHour, toMetersPerMinute,
@@ -30,34 +32,32 @@ function read(field: Field, config: EquipmentSettings) {
   return config[field];
 }
 
+function write(field: Field, value: number, config: EquipmentSettings): Partial<EquipmentSettings> {
+  if (field === "beltSpeed") return speedPatch(field, fromMetersPerMinute(value), config);
+  if (field === "spawnInterval") return speedPatch(field, fromBoxesPerHour(value), config);
+  if (field === "amrSpeed") return speedPatch(field, value, config);
+  return { [field]: value };
+}
+
+/** Number setting with "혼합" multi-edit (same-kind selection) and a per-field "일괄 적용" button. */
 export default function EquipmentNumberSetting({ id, field, label, unit, min, max, exclusiveMin, integer = false }: Props) {
-  const config = useSceneStore((state) => state.settings[id]);
-
-  if (!config) return null;
-
+  const ids = useSceneStore(useShallow((state) => bulkTargets(state, id)));
+  const kind = useSceneStore((state) => state.objects.find((o) => o.id === id)?.kind);
+  if (!kind) return null;
   return (
-    <NumberField
+    <BulkNumber
+      ids={ids}
+      kind={kind}
       label={label}
       unit={unit}
-      value={read(field, config)}
       min={min}
       max={max}
       exclusiveMin={exclusiveMin}
       integer={integer}
       decimals={2}
       inputClassName={DETAIL_INPUT_CLASS_NAME}
-      onCommit={(value) =>
-        applyEquipmentSettings(
-          id,
-          field === "beltSpeed"
-            ? speedPatch(field, fromMetersPerMinute(value), config)
-            : field === "spawnInterval"
-              ? speedPatch(field, fromBoxesPerHour(value), config)
-              : field === "amrSpeed"
-                ? speedPatch(field, value, config)
-            : { [field]: value },
-        )
-      }
+      read={(config) => read(field, config)}
+      write={(value, config) => write(field, value, config)}
     />
   );
 }

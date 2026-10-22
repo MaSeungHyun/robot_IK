@@ -1,37 +1,33 @@
-import { applyEquipmentSettings } from "@/stores/actions/applyEquipmentSettings";
 import { SCANNER_CONFIG } from "@/constants/scanner";
-import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
-import NumberField from "@/components/NumberField";
+import { BulkNumber } from "@/ui/Hud/object/BulkField";
 import { formatDefectRate, scannerResults } from "@/ui/Hud/equipment/scanner/scannerResults";
 
-type Props = { id: string; inputClassName: string; showResults?: boolean };
+/** `ids`: multi-edit targets (default just `id`; the primary should be last). */
+type Props = { id: string; ids?: string[]; inputClassName: string; showResults?: boolean };
 
 export default function ScannerSettings({
   id,
+  ids,
   inputClassName,
   showResults = true,
 }: Props) {
-  const rate = useSceneStore(
-    (state) =>
-      state.settings[id]?.defectRate ?? SCANNER_CONFIG.defaultDefectRate,
-  );
   const snapshot = useSimulationStore((state) =>
     state.equipment?.scanners?.find((scanner) => scanner.id === id),
   );
 
   return (
     <div className="mt-3">
-      <NumberField
+      <BulkNumber
+        ids={ids ?? [id]}
+        kind="scanner"
         label="불량률"
         unit="%"
         inputClassName={inputClassName}
         min={0}
         max={100}
-        value={Number((rate * 100).toFixed(2))}
-        onCommit={(value) =>
-          applyEquipmentSettings(id, { defectRate: value / 100 })
-        }
+        read={(config) => Number(((config.defectRate ?? SCANNER_CONFIG.defaultDefectRate) * 100).toFixed(2))}
+        write={(value) => ({ defectRate: value / 100 })}
       />
 
       {showResults && snapshot && (

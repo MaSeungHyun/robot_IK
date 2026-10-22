@@ -33,7 +33,10 @@ export function clickEquipment(event: ThreeEvent<MouseEvent>, id: string) {
   if (scene.editing) {
     if (scene.pending) return;
     event.stopPropagation();
-    scene.select(id);
+    // Shift/Ctrl(Cmd)+click toggles the object in the multi-selection.
+    const e = event.nativeEvent;
+    if (e.shiftKey || e.ctrlKey || e.metaKey) scene.toggleSelect(id);
+    else scene.select(id);
     return;
   }
   event.stopPropagation();

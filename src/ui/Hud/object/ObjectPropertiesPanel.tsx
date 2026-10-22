@@ -1,13 +1,21 @@
 import ScannerSettings from "@/ui/Hud/equipment/scanner/ScannerSettings";
 import { useShallow } from "zustand/react/shallow";
-import { useSceneStore } from "@/stores/useSceneStore";
+import {
+  EQUIPMENT_NAMES,
+  selectedIds,
+  useSceneStore,
+} from "@/stores/useSceneStore";
+import { ApplyAllButton, BulkNumber } from "@/ui/Hud/object/BulkField";
+import { applyToIds } from "@/stores/actions/applyEquipmentSettings";
 import Select from "@/components/Select";
 import Button from "@/components/Button";
 import { FLOOR_CONFIG } from "@/constants/simulatorLayout";
-import { beltConnections } from "@/domain/conveyor/conveyorLayout";
+import {
+  beltConnections,
+  connectedBeltIds,
+} from "@/domain/conveyor/conveyorLayout";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import Panel from "@/ui/Hud/_components/Panel";
-import NumberField from "@/components/NumberField";
 import LinkSection from "@/ui/Hud/equipment/details/_components/LinkSection";
 import DoorSettings from "@/ui/Hud/equipment/door/DoorSettings";
 import {
@@ -41,6 +49,7 @@ export default function ObjectPropertiesPanel({
       updateSettings: state.updateSettings,
       updateFloor: state.updateFloor,
       remove: state.remove,
+      selection: state.selection,
     })),
   );
 
@@ -49,6 +58,34 @@ export default function ObjectPropertiesPanel({
   if (!object) return null;
 
   const settings = state.settings[object.id];
+  // Multi-select: same kind → every field edits all of them; mixed kinds → only the common "작동 활성화".
+  const ids = selectedIds({
+    objects: state.objects,
+    selected: object.id,
+    selection: state.selection,
+  });
+  const multi = ids.length > 1;
+  const kinds = new Set(
+    ids.map((id) => state.objects.find((o) => o.id === id)?.kind),
+  );
+  const mixedKinds = kinds.size > 1;
+  const targets = mixedKinds ? [object.id] : ids;
+  const incoming = beltConnections(state.objects).incoming;
+  // Belt speed is shared along a connected line: multi-edit expands to every connected segment.
+  const beltTargets =
+    object.kind === "conveyor"
+      ? [
+          ...new Set(
+            targets.flatMap((id) => [...connectedBeltIds(state.objects, id)]),
+          ),
+        ]
+          .filter((id) => id !== object.id)
+          .concat(object.id)
+      : targets;
+  const enabledValues = ids.map((id) => state.settings[id]?.enabled);
+  const enabledMixed = enabledValues.some(
+    (value) => value !== settings.enabled,
+  );
   const connectedInput =
     object.kind === "conveyor" &&
     beltConnections(state.objects).incoming.has(object.id);
@@ -81,7 +118,6 @@ export default function ObjectPropertiesPanel({
       className={input}
     />
   );
-
   return (
     <Panel
       aria-label="오브젝트 속성"
@@ -115,12 +151,44 @@ export default function ObjectPropertiesPanel({
           onValueChange={state.select}
         />
 
+        {multi && (
+          <div className="mt-2 rounded-[3px] border border-[#2c2e33] bg-[#1b1c1f] px-2 py-1.5 text-[11px] text-text-secondary">
+            <span className="text-text-primary">{ids.length}개 선택됨</span>
+            {mixedKinds
+              ? ` · ${[...kinds].map((kind) => (kind ? EQUIPMENT_NAMES[kind] : "")).join(", ")} 혼합: 공통 설정만 표시`
+              : ` · ${EQUIPMENT_NAMES[object.kind]} 일괄 편집`}
+            <span className="mt-0.5 block">
+              위치·회전은 활성 오브젝트({object.name}) 기준
+            </span>
+          </div>
+        )}
         <div className="mt-3 flex flex-col gap-2">
           {(
             [
-              ["position", [pose("x", "position x"), fixed(0, "y", "position"), pose("z", "position z")]],
-              ["rotation", [fixed(0, "x", "rotation"), pose("yaw", "rotation y °"), fixed(0, "z", "rotation")]],
-              ["scale", [fixed(1, "x", "scale"), fixed(1, "y", "scale"), fixed(1, "z", "scale")]],
+              [
+                "position",
+                [
+                  pose("x", "position x"),
+                  fixed(0, "y", "position"),
+                  pose("z", "position z"),
+                ],
+              ],
+              [
+                "rotation",
+                [
+                  fixed(0, "x", "rotation"),
+                  pose("yaw", "rotation y °"),
+                  fixed(0, "z", "rotation"),
+                ],
+              ],
+              [
+                "scale",
+                [
+                  fixed(1, "x", "scale"),
+                  fixed(1, "y", "scale"),
+                  fixed(1, "z", "scale"),
+                ],
+              ],
             ] as const
           ).map(([label, fields]) => (
             <div key={label} className={row}>
@@ -129,7 +197,7 @@ export default function ObjectPropertiesPanel({
             </div>
           ))}
         </div>
-        {object.kind === "floor" && object.floor && (
+        {!multi && object.kind === "floor" && object.floor && (
           <section className="mt-5 border-t border-white/10 pt-4">
             <h3 className="mb-3 text-xs text-text-primary">바닥 / 벽</h3>
             <div className="flex flex-col gap-2">
@@ -171,14 +239,36 @@ export default function ObjectPropertiesPanel({
             </p>
           </section>
         )}
-        {object.kind === "door" && (
+        {!mixedKinds && object.kind === "door" && (
           <section className="mt-5 border-t border-white/10 pt-4">
             <h3 className="mb-1 text-xs text-text-primary">문</h3>
-            <DoorSettings id={object.id} inputClassName={input} />
+            <DoorSettings id={object.id} ids={targets} inputClassName={input} />
             <p className="mt-2 text-[11px] text-text-secondary">벽에서 0.5 m 안으로 옮기면 벽면에 붙고 개구부가 뚫립니다.</p>
           </section>
         )}
-        {object.kind !== "dock" &&
+        {mixedKinds && (
+          <section className="mt-5 border-t border-white/10 pt-4">
+            <h3 className="mb-3 text-xs text-text-primary">공통 설정</h3>
+            <label className="flex items-center gap-2 text-xs text-text-primary">
+              <input
+                type="checkbox"
+                checked={settings.enabled}
+                ref={(el) => {
+                  if (el) el.indeterminate = enabledMixed;
+                }}
+                onChange={(e) =>
+                  applyToIds(ids, () => ({ enabled: e.currentTarget.checked }))
+                }
+              />
+              작동 활성화
+              {enabledMixed && (
+                <span className="text-text-secondary">(혼합)</span>
+              )}
+            </label>
+          </section>
+        )}
+        {!mixedKinds &&
+          object.kind !== "dock" &&
           object.kind !== "rack" &&
           object.kind !== "floor" &&
           object.kind !== "door" && (
@@ -188,16 +278,16 @@ export default function ObjectPropertiesPanel({
               </h3>
               {object.kind === "robot" && (
                 <>
-                  <NumberField
+                  <BulkNumber
+                    ids={targets}
+                    kind="robot"
                     label="작동 속도"
                     unit="×"
                     min={0}
                     exclusiveMin
-                    value={settings.speed}
                     inputClassName={input}
-                    onCommit={(value) =>
-                      state.updateSettings(object.id, { speed: value })
-                    }
+                    read={(c) => c.speed}
+                    write={(value) => ({ speed: value })}
                   />
                   <p className="mt-1 text-xs text-text-secondary">
                     개별 {settings.speed}× · 전체 {playbackSpeed}× → 실제{" "}
@@ -206,69 +296,65 @@ export default function ObjectPropertiesPanel({
                 </>
               )}
               {object.kind === "amr" && (
-                <NumberField
+                <BulkNumber
+                  ids={targets}
+                  kind="amr"
                   label="최대 주행 속도"
                   unit="m/s"
                   {...SPEED_LIMITS.amrSpeed}
-                  value={amrSpeedOf(settings)}
                   inputClassName={input}
-                  onCommit={(value) =>
-                    state.updateSettings(
-                      object.id,
-                      speedPatch("amrSpeed", value, settings),
-                    )
-                  }
+                  read={amrSpeedOf}
+                  write={(value, c) => speedPatch("amrSpeed", value, c)}
                 />
               )}
               {object.kind === "conveyor" && (
-                <NumberField
+                <BulkNumber
+                  ids={beltTargets}
+                  kind="conveyor"
                   label="연결 컨베이어 속도"
                   unit="m/min"
                   decimals={2}
                   {...SPEED_LIMITS.beltSpeed}
-                  value={toMetersPerMinute(beltSpeedOf(settings))}
                   inputClassName={input}
-                  onCommit={(value) =>
-                    state.updateSettings(
-                      object.id,
-                      speedPatch(
-                        "beltSpeed",
-                        fromMetersPerMinute(value),
-                        settings,
-                      ),
-                    )
+                  read={(c) => toMetersPerMinute(beltSpeedOf(c))}
+                  write={(value, c) =>
+                    speedPatch("beltSpeed", fromMetersPerMinute(value), c)
                   }
                 />
               )}
               {object.kind === "scanner" && (
-                <ScannerSettings id={object.id} inputClassName={input} />
+                <ScannerSettings
+                  id={object.id}
+                  ids={targets}
+                  inputClassName={input}
+                />
               )}
 
               {object.kind === "robot" && (
-                <NumberField
+                <BulkNumber
                   className="mt-3"
+                  ids={targets}
+                  kind="robot"
                   label="집기 범위"
                   unit="m"
                   min={0}
                   exclusiveMin
-                  value={settings.reach}
                   inputClassName={input}
-                  onCommit={(value) =>
-                    state.updateSettings(object.id, { reach: value })
-                  }
+                  read={(c) => c.reach}
+                  write={(value) => ({ reach: value })}
                 />
               )}
               {object.kind === "pallet" && (
-                <NumberField
+                <BulkNumber
+                  ids={targets}
+                  kind="pallet"
                   label="적재 개수"
                   unit="개"
                   integer
                   min={1}
-                  value={settings.capacity}
                   inputClassName={input}
-                  onCommit={(value) =>
-                    state.updateSettings(object.id, { capacity: value })
-                  }
+                  read={(c) => c.capacity}
+                  write={(value) => ({ capacity: value })}
                 />
               )}
               {object.kind === "conveyor" &&
@@ -277,38 +363,50 @@ export default function ObjectPropertiesPanel({
                     앞 구간에서 넘어오는 박스를 이송합니다.
                   </p>
                 ) : (
-                  <NumberField
+                  <BulkNumber
                     className="mt-3"
+                    ids={targets.filter((id) => !incoming.has(id))}
+                    kind="conveyor"
+                    applyFilter={(id) =>
+                      !beltConnections(
+                        useSceneStore.getState().objects,
+                      ).incoming.has(id)
+                    }
                     label="박스 투입량"
                     unit="개/h"
                     decimals={2}
                     {...SPEED_LIMITS.spawnInterval}
-                    value={toBoxesPerHour(spawnIntervalOf(settings))}
                     inputClassName={input}
-                    onCommit={(value) =>
-                      state.updateSettings(
-                        object.id,
-                        speedPatch(
-                          "spawnInterval",
-                          fromBoxesPerHour(value),
-                          settings,
-                        ),
-                      )
+                    read={(c) => toBoxesPerHour(spawnIntervalOf(c))}
+                    write={(value, c) =>
+                      speedPatch("spawnInterval", fromBoxesPerHour(value), c)
                     }
                   />
                 ))}
-              <label className="mt-4 flex items-center gap-2 text-xs text-text-primary">
-                <input
-                  type="checkbox"
-                  checked={settings.enabled}
-                  onChange={(e) =>
-                    state.updateSettings(object.id, {
-                      enabled: e.currentTarget.checked,
-                    })
-                  }
+              <div className="mt-4 flex items-center justify-between gap-2">
+                <label className="flex items-center gap-2 text-xs text-text-primary">
+                  <input
+                    type="checkbox"
+                    checked={settings.enabled}
+                    ref={(el) => {
+                      if (el) el.indeterminate = enabledMixed;
+                    }}
+                    onChange={(e) =>
+                      applyToIds(targets, () => ({
+                        enabled: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  작동 활성화
+                  {enabledMixed && (
+                    <span className="text-text-secondary">(혼합)</span>
+                  )}
+                </label>
+                <ApplyAllButton
+                  kind={object.kind}
+                  patch={() => ({ enabled: settings.enabled })}
                 />
-                작동 활성화
-              </label>
+              </div>
             </section>
           )}
         {state.editing && object.kind === "conveyor" && (
@@ -323,10 +421,10 @@ export default function ObjectPropertiesPanel({
         {state.editing && (
           <Button
             type="button"
-            onClick={() => state.remove(object.id)}
+            onClick={() => useSceneStore.getState().removeMany(ids)}
             className="mt-auto self-end w-full border-fault text-fault"
           >
-            Delete
+            {multi ? `Delete (${ids.length})` : "Delete"}
           </Button>
         )}
       </div>

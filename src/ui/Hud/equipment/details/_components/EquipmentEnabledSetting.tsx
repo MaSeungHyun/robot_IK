@@ -1,21 +1,32 @@
-import { applyEquipmentSettings } from "@/stores/actions/applyEquipmentSettings";
+import { applyToIds, bulkTargets } from "@/stores/actions/applyEquipmentSettings";
 import { useSceneStore } from "@/stores/useSceneStore";
+import { useShallow } from "zustand/react/shallow";
+import { ApplyAllButton } from "@/ui/Hud/object/BulkField";
 
+/** 작동 활성화: edits the same-kind multi-selection (indeterminate when mixed) and offers "일괄 적용". */
 export default function EquipmentEnabledSetting({ id }: { id: string }) {
+  const ids = useSceneStore(useShallow((state) => bulkTargets(state, id)));
   const enabled = useSceneStore((state) => state.settings[id]?.enabled);
+  const kind = useSceneStore((state) => state.objects.find((o) => o.id === id)?.kind);
+  const mixed = useSceneStore((state) => ids.some((target) => state.settings[target]?.enabled !== enabled));
 
-  if (enabled === undefined) return null;
+  if (enabled === undefined || !kind) return null;
 
   return (
-    <label className="mt-2 flex items-center gap-2 text-xs text-text-secondary">
-      <input
-        type="checkbox"
-        checked={enabled}
-        onChange={(event) =>
-          applyEquipmentSettings(id, { enabled: event.currentTarget.checked })
-        }
-      />
-      작동 활성화
-    </label>
+    <div className="mt-2 flex items-center justify-between gap-2">
+      <label className="flex items-center gap-2 text-xs text-text-secondary">
+        <input
+          type="checkbox"
+          checked={enabled}
+          ref={(el) => { if (el) el.indeterminate = mixed; }}
+          onChange={(event) => {
+            const checked = event.currentTarget.checked;
+            applyToIds(ids, () => ({ enabled: checked }));
+          }}
+        />
+        작동 활성화{mixed && " (혼합)"}
+      </label>
+      <ApplyAllButton kind={kind} patch={() => ({ enabled })} />
+    </div>
   );
 }
