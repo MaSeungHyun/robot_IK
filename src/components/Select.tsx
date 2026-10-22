@@ -39,7 +39,7 @@ export default function Select<T extends string>({
         <RadixSelect.Content
           position="popper"
           sideOffset={4}
-          className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[3px] border border-[#2c2e33] bg-[#1b1c1f] py-1 text-xs text-text-primary"
+          className="z-1000 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[3px] border  bg-bg-primary/90 py-1 text-xs text-text-primary border-brand-primary/20"
         >
           <RadixSelect.ScrollUpButton className="flex justify-center py-0.5 text-[#a0a4ab]">
             <ChevronUp size={12} />
