@@ -52,10 +52,25 @@ export default function AutoLayoutPanel() {
             {field("depth", "깊이", "m", { min: 5, max: 500 })}
             {field("height", "높이", "m", { min: 0, max: 30 })}
           </Section>
-          <Section title="생산 · 보관">
-            {field("targetPerHour", "목표 처리량", "박스/h", { integer: true, min: 1, max: 20000 })}
-            {field("storageHours", "랙 보관 시간", "h", { min: 0.1, max: 72 })}
+          <Section title="설계 방식">
+            <ModeToggle value={form.mode} disabled={running} onChange={(mode) => setForm({ mode })} />
+            <p className="text-[11px] text-text-secondary">
+              {form.mode === "fixed" ? "입력한 장비를 공장 안에 모두 배치하고 처리량이 가장 높은 배치를 찾습니다." : "목표 처리량을 가장 적은 장비로 만족하는 배치를 찾습니다."}
+            </p>
           </Section>
+          {form.mode === "fixed" ? (
+            <Section title="장비 수량">
+              {field("fixedRobots", "로봇", "대", { integer: true, min: 1, max: 60 })}
+              {field("fixedAmrs", "AMR", "대", { integer: true, min: 1, max: 30 })}
+              {field("fixedRacks", "랙", "대", { integer: true, min: 0, max: 80 })}
+              {field("fixedDocks", "도크", "대", { integer: true, min: 1, max: 6 })}
+            </Section>
+          ) : (
+            <Section title="생산 · 보관">
+              {field("targetPerHour", "목표 처리량", "박스/h", { integer: true, min: 1, max: 20000 })}
+              {field("storageHours", "랙 보관 시간", "h", { min: 0.1, max: 72 })}
+            </Section>
+          )}
           <Section title="출입문 (선택)">
             <label className="flex items-center justify-between text-xs text-text-secondary">
               <span>위치</span>
@@ -64,11 +79,11 @@ export default function AutoLayoutPanel() {
             {form.door !== "none" && field("doorOffset", "벽 중심에서", "m", { min: -250, max: 250 })}
             {form.door !== "none" && field("doorWidth", "폭", "m", { min: 1, max: 20 })}
           </Section>
-          <Section title="장비 한도 (선택)">
+          {form.mode === "target" && <Section title="장비 한도 (선택)">
             {field("maxRobots", "최대 로봇", "대", { integer: true, min: 1, max: 40 })}
             {field("maxAmrs", "최대 AMR", "대", { integer: true, min: 1, max: 20 })}
             {field("maxRacks", "최대 랙 (0=제한 없음)", "대", { integer: true, min: 0, max: 60 })}
-          </Section>
+          </Section>}
           {running ? (
             <div className="mt-2 flex flex-col gap-1.5">
               <ProgressBar label="후보 평가 진행률" value={progress.total ? (progress.evaluated / progress.total) * 100 : 0} tone="info" />
@@ -89,6 +104,27 @@ export default function AutoLayoutPanel() {
   );
 }
 
+const MODES: { value: AutoLayoutForm["mode"]; label: string }[] = [{ value: "target", label: "목표 처리량" }, { value: "fixed", label: "장비 수량 고정" }];
+/** Segmented toggle; active segment uses the brand accent (never blue). */
+function ModeToggle({ value, disabled, onChange }: { value: AutoLayoutForm["mode"]; disabled?: boolean; onChange: (mode: AutoLayoutForm["mode"]) => void }) {
+  return (
+    <div role="radiogroup" aria-label="설계 방식" className="grid grid-cols-2 gap-0.5 rounded-[4px] border border-[#2c2e33] bg-[#1b1c1f] p-0.5">
+      {MODES.map((mode) => (
+        <button
+          key={mode.value} type="button" role="radio" aria-checked={value === mode.value} disabled={disabled}
+          onClick={() => onChange(mode.value)}
+          className={cn(
+            "h-6 rounded-[3px] text-xs transition-colors outline-none disabled:opacity-40", RING,
+            value === mode.value ? "bg-brand-primary/15 text-brand-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary",
+          )}
+        >
+          {mode.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <fieldset className="flex flex-col gap-1.5 border-t border-white/5 pt-2 first:border-0 first:pt-0">
@@ -101,23 +137,25 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function Results() {
   const result = useAutoLayoutStore((state) => state.result)!;
   const ok = result.diagnosis.code === "ok";
+  const fixedMode = result.constraints.mode === "fixed";
   return (
     <div className="flex flex-col gap-2 border-t border-white/10 px-3 py-3">
       <div className="flex items-center justify-between text-xs text-text-secondary">
         <span>후보 {int(result.evaluated)}개 평가{result.cancelled ? " (취소됨)" : ""}</span>
         <span className="tabular-nums">랙 필요 {int(result.storage.needed)}대 · {int(result.storage.pallets)}팔레트</span>
       </div>
+      {ok && fixedMode && <p role="status" className="text-[11px] text-text-secondary">{result.diagnosis.message}</p>}
       {!ok && (
         <p role="status" className="rounded-lg border border-warning/25 bg-warning/10 p-2 text-xs text-warning">{result.diagnosis.message}</p>
       )}
       {!ok && result.closest && <p className="text-[11px] text-text-secondary">가장 가까운 후보:</p>}
       {!ok && result.closest && <CandidateCard entry={result.closest} rank={0} />}
-      {result.ranked.filter((entry) => entry !== result.closest).map((entry, i) => <CandidateCard key={entry.candidate.template.id} entry={entry} rank={i + 1} />)}
+      {result.ranked.filter((entry) => entry !== result.closest).map((entry, i) => <CandidateCard key={entry.candidate.template.id} entry={entry} rank={i + 1} fixedMode={fixedMode} />)}
     </div>
   );
 }
 
-function CandidateCard({ entry, rank }: { entry: EvaluatedCandidate; rank: number }) {
+function CandidateCard({ entry, rank, fixedMode = false }: { entry: EvaluatedCandidate; rank: number; fixedMode?: boolean }) {
   const m = entry.metrics!, c = entry.candidate;
   const apply = () => {
     const scene = useSceneStore.getState();
@@ -128,14 +166,14 @@ function CandidateCard({ entry, rank }: { entry: EvaluatedCandidate; rank: numbe
     ["처리량", `${int(m.placedPerHour)}/h`], ["로봇 가동률", `${fixed1(m.robotUtilization * 100)}%`],
     ["로봇 · AMR · 컨베이어", `${int(c.counts.robots)} · ${int(c.counts.amrs)} · ${int(c.counts.conveyors)}`],
     ["랙 · 보관 슬롯", `${int(c.counts.racks)} · ${int(c.storage.slots)}/${int(c.storage.required)}`],
-    ["면적", `${fixed1(c.usedArea)}m²`], ["교차 · AMR 이동", `${int(c.crossings)} · ${fixed1(c.travel)}m`],
+    ["면적", `${fixed1(c.usedArea)}m²`], ["교차 · AMR 이동", `${int(c.crossings)} · ${fixed1(c.travel)}m`], ["팔레트→랙 거리", `${fixed1(c.rackDistance)}m`],
   ];
   return (
     <article className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[.035] p-2">
       <div className="flex items-center justify-between gap-2">
         <h3 className="truncate text-xs font-medium">{rank ? `#${rank} ` : ""}{c.template.name}</h3>
         <div className="flex shrink-0 items-center gap-1">
-          <Badge tone={entry.met ? "safe" : "warning"}>{entry.met ? "목표 달성" : "미달"}</Badge>
+          {fixedMode ? <Badge tone="safe">고정 장비</Badge> : <Badge tone={entry.met ? "safe" : "warning"}>{entry.met ? "목표 달성" : "미달"}</Badge>}
           <span className="text-[11px] tabular-nums text-text-secondary" title="점수 (낮을수록 좋음)">{fixed1(entry.score)}</span>
         </div>
       </div>
