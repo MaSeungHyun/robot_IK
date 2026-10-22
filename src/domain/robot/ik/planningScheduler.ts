@@ -1,7 +1,14 @@
 import { IK_CONFIG } from "@/constants/simulation";
 
 /** Per-frame planning allowance handed to one robot controller. */
-export type PlanningBudget = { take(wanted: number): number };
+export type PlanningBudget = {
+  /** `priority` (moving-box tracking) may use whatever is left of the frame total, ignoring share and turn. */
+  take(wanted: number, priority?: boolean): number;
+  /** Report time actually used beyond what `take` granted, so later planners this frame get less. */
+  charge?(ms: number): void;
+};
+/** Grants smaller than this (ms) are refused: one generator step would overrun them anyway. */
+const MIN_SLICE_MS = 0.25;
 
 /**
  * Shares one IK planning budget per rendered frame between the robots that plan.
@@ -50,16 +57,22 @@ export class PlanningScheduler {
   budget(id: string, frameKey: number): PlanningBudget {
     if (frameKey !== this.frameKey) this.beginFrame(frameKey);
     return {
-      take: (wanted) => {
+      take: (wanted, priority = false) => {
         if (frameKey !== this.frameKey) return 0;
         this.requested.add(id);
         // Robots that were not planning last frame join the rotation from the next frame.
-        if (this.turn && !this.turn.has(id) && this.previous.includes(id)) return 0;
+        if (!priority && this.turn && !this.turn.has(id) && this.previous.includes(id)) return 0;
         const used = this.used.get(id) ?? 0;
-        const granted = Math.max(0, Math.min(wanted, this.share - used, this.remaining));
+        let granted = Math.max(0, Math.min(wanted, priority ? Infinity : this.share - used, this.remaining));
+        if (granted < Math.min(wanted, MIN_SLICE_MS)) granted = 0;
         this.used.set(id, used + granted);
         this.remaining -= granted;
         return granted;
+      },
+      charge: (ms) => {
+        if (frameKey !== this.frameKey || !(ms > 0)) return;
+        this.used.set(id, (this.used.get(id) ?? 0) + ms);
+        this.remaining -= ms;
       },
     };
   }
