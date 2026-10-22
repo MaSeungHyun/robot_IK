@@ -1,9 +1,11 @@
 import { DynamicDrawUsage, Group, InstancedMesh, Matrix4, Mesh, Vector3 } from "three";
 import type { BufferGeometry, Material, Object3D } from "three";
 import { INSTANCE_SECTOR_SIZE } from "@/constants/viewport";
+import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
 
-type Entry={node:Mesh;owner:Object3D;visible:boolean;raycast:Mesh["raycast"];previous:Matrix4};
-type Batch={geometry:BufferGeometry;material:Material|Material[];entries:Set<Entry>;mesh:InstancedMesh|null;capacity:number;ordered:Entry[];castShadow:boolean};
+type Entry={node:Mesh;owner:Object3D;visible:boolean;raycast:Mesh["raycast"];previous:Matrix4;batch:Batch};
+/** dirty: entries changed since the last sync; only those batches are reordered/rewritten. */
+type Batch={geometry:BufferGeometry;material:Material|Material[];entries:Set<Entry>;mesh:InstancedMesh|null;capacity:number;ordered:Entry[];castShadow:boolean;dirty:boolean};
 /** Per-owner frame state: static owners whose world matrix and visibility did not change are skipped. */
 type OwnerFrame={visible:boolean;skip:boolean;previous:Matrix4;seen:boolean};
 const noRaycast:Mesh["raycast"]=()=>{};
@@ -53,9 +55,9 @@ export class SceneInstances {
       const key=`${node.geometry.userData.instanceGeometryKey??node.geometry.uuid}:${materials.map(m=>m.uuid).join(":")}:${!node.userData.noCastShadow}:${sector}`;
       let batch=this.batches.get(key);
       // Meshes tagged userData.noCastShadow (boxes, pallets) only receive shadows.
-      if(!batch){batch={geometry:node.geometry,material:node.material,entries:new Set(),mesh:null,capacity:0,ordered:[],castShadow:!node.userData.noCastShadow};this.batches.set(key,batch);}
-      const entry={node,owner,visible:node.visible,raycast:node.raycast,previous:new Matrix4()};
-      entries.push(entry);batch.entries.add(entry);this.sources.set(node,entry);node.visible=false;node.raycast=noRaycast;
+      if(!batch){batch={geometry:node.geometry,material:node.material,entries:new Set(),mesh:null,capacity:0,ordered:[],castShadow:!node.userData.noCastShadow,dirty:true};this.batches.set(key,batch);}
+      const entry={node,owner,visible:node.visible,raycast:node.raycast,previous:new Matrix4(),batch};
+      entries.push(entry);batch.entries.add(entry);batch.dirty=true;this.sources.set(node,entry);node.visible=false;node.raycast=noRaycast;
       for(const child of node.children)visit(child);
     };
     visit(owner);
@@ -68,14 +70,15 @@ export class SceneInstances {
     for(const entry of registration.entries){
       entry.node.visible=entry.visible;entry.node.raycast=entry.raycast;
       this.sources.delete(entry.node);
-      for(const batch of this.batches.values())batch.entries.delete(entry);
+      entry.batch.entries.delete(entry);entry.batch.dirty=true;
     }
     this.owners.delete(owner);this.dirty=true;
   }
   sync(){
-    const topologyChanged=this.dirty;
     if(this.dirty){
+      const rebuildStart=profileStart();
       for(const [key,batch] of this.batches){
+        if(!batch.dirty)continue;
         batch.ordered=[...batch.entries];
         if(!batch.ordered.length){batch.mesh?.removeFromParent();batch.mesh?.dispose();this.batches.delete(key);continue;}
         if(batch.ordered.length>batch.capacity){
@@ -91,11 +94,13 @@ export class SceneInstances {
         batch.mesh!.userData.instanceOwners=batch.ordered.map(entry=>entry.owner);
       }
       this.dirty=false;
+      profileEnd("rebuild",rebuildStart);
     }
     this.root.updateWorldMatrix(true,false);this.inverse.copy(this.root.matrixWorld).invert();
     // One ancestor walk per owner (not per entry): visibility + whether it is tagged static
     // (userData.instanceStatic on it or an ancestor: racks, docks, conveyors, stored pallets).
-    // A static owner whose world matrix and visibility are unchanged keeps last frame's instances.
+    // A static owner whose world matrix and visibility are unchanged keeps last frame's instances;
+    // its matrices are still rewritten when its batch was reordered (batch.dirty).
     for(const [owner,registration] of this.owners){
       const frame=registration.frame;
       let visible=true,isStatic=false;
@@ -103,7 +108,7 @@ export class SceneInstances {
         if(!node.visible&&!this.sources.has(node))visible=false;
         if(node.userData.instanceStatic)isStatic=true;
       }
-      if(isStatic&&frame.seen&&!topologyChanged){
+      if(isStatic&&frame.seen){
         owner.updateWorldMatrix(true,false);
         if(frame.visible===visible&&frame.previous.equals(owner.matrixWorld)){frame.skip=true;continue;}
         owner.updateWorldMatrix(false,true);
@@ -111,17 +116,18 @@ export class SceneInstances {
       frame.skip=false;frame.seen=true;frame.visible=visible;frame.previous.copy(owner.matrixWorld);
     }
     for(const batch of this.batches.values()){
+      const reordered=batch.dirty;batch.dirty=false;
       let changed=false;
       for(let i=0;i<batch.ordered.length;i++){
         const entry=batch.ordered[i];
         const frame=this.owners.get(entry.owner)?.frame;
-        if(frame?.skip)continue;
+        if(frame?.skip&&!reordered)continue;
         this.matrix.multiplyMatrices(this.inverse,entry.node.matrixWorld);
         // Source meshes are intentionally hidden; a hidden wrist must not hide attached cargo.
         // Preserve translation when hiding: zeroing it would inflate far-away sector bounds
         // all the way back to the world origin.
         if(frame&&!frame.visible)this.matrix.scale(hiddenScale);
-        if(topologyChanged||!entry.previous.equals(this.matrix)){
+        if(reordered||!entry.previous.equals(this.matrix)){
           batch.mesh!.setMatrixAt(i,this.matrix);entry.previous.copy(this.matrix);changed=true;
         }
       }
