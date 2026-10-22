@@ -1,5 +1,5 @@
 // Auto layout search: node scripts/auto-layout.mjs --width=30 --depth=20 --target=600 [--door=south:0:3]
-//   [--storage-hours=2 | --storage-pallets=N] [--max-robots=12] [--max-amrs=6] [--max-racks=N] [--aisle=2.64]
+//   [--storage-hours=2 | --storage-pallets=N] [--max-robots=24] [--max-amrs=6] [--max-racks=N] [--aisle=2.64]
 //   [--seconds=1500] [--warmup=300] [--top=5] [--out=.tmp/auto-layout] [--patterns=straight,L,U]
 // Same search and simulation as the in-app worker (src/domain/layout/searchLayouts.ts + simulateLayout.ts),
 // loaded through vite ssrLoadModule; writes the top N as SceneTemplate JSON (importable with loadTemplate).
@@ -12,7 +12,7 @@ const num = (name) => (arg(name) === undefined ? {} : { [name.replace(/-(\w)/g, 
 const doorArg = arg("door");
 const constraints = {
   width: +arg("width", 30), depth: +arg("depth", 20), height: +arg("height", 6), targetPerHour: +arg("target", 600),
-  maxRobots: +arg("max-robots", 12), maxAmrs: +arg("max-amrs", 6),
+  maxRobots: +arg("max-robots", 24), maxAmrs: +arg("max-amrs", 6),
   ...num("max-racks"), ...num("aisle"), ...num("storage-hours"), ...num("storage-pallets"),
   ...(doorArg ? { door: (([wall, offset, width]) => ({ wall, offset: offset === undefined ? undefined : +offset, width: width === undefined ? undefined : +width }))(doorArg.split(":")) } : {}),
 };

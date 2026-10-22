@@ -14,7 +14,7 @@ export type AutoLayoutForm = {
 };
 export const DEFAULT_AUTO_LAYOUT_FORM: AutoLayoutForm = {
   width: 30, depth: 20, height: 6, targetPerHour: 600, storageHours: 2,
-  door: "none", doorOffset: 0, doorWidth: 3, maxRobots: 12, maxAmrs: 6, maxRacks: 0,
+  door: "none", doorOffset: 0, doorWidth: 3, maxRobots: 24, maxAmrs: 6, maxRacks: 0,
 };
 export function formToConstraints(form: AutoLayoutForm): LayoutConstraints {
   return {

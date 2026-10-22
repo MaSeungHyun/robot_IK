@@ -4,13 +4,11 @@
  * then trims AMRs while it holds. Racks are fixed by the storage requirement (R-STORAGE), docks stay 1
  * (outbound). Simulation is injected (`evaluate`), so this module has no three.js dependency.
  */
-import { buildLayout, scoreLayout, seedParams, storageRequirement } from "@/domain/layout/autoLayout";
+import { ROBOT_RATE_ESTIMATE, buildLayout, scoreLayout, seedParams, storageRequirement } from "@/domain/layout/autoLayout";
 import type { LayoutCandidate, LayoutConstraints, LayoutParams, LayoutPattern, SimMetrics } from "@/domain/layout/autoLayout";
 
 /** A candidate counts as meeting the target at >= 95 % of it. */
 export const MET_RATIO = 0.95;
-/** Rough single-robot rate (boxes/h) used only to estimate the progress total. */
-const ROBOT_RATE_ESTIMATE = 220;
 
 export type EvaluatedCandidate = {
   candidate: LayoutCandidate;
@@ -41,15 +39,15 @@ export type SearchOptions = {
   cancelled?: () => boolean;
 };
 
-const robotsOf = (p: LayoutParams) => p.robotsPerLine * (p.pattern === "straight" ? p.lines : 1);
+const robotsOf = (p: LayoutParams) => p.robotsPerLine * p.lines;
 
 export async function searchLayouts(constraints: LayoutConstraints, options: SearchOptions): Promise<SearchResult> {
   const patterns = options.patterns ?? ["straight", "L", "U"];
-  const maxRobots = constraints.maxRobots ?? 12, maxAmrs = constraints.maxAmrs ?? 6;
+  const maxRobots = constraints.maxRobots ?? 24, maxAmrs = constraints.maxAmrs ?? 6;
   const target = constraints.targetPerHour;
   const seeds = seedParams(constraints).filter((p) => patterns.includes(p.pattern));
   const needRobots = Math.min(maxRobots, Math.ceil(target / ROBOT_RATE_ESTIMATE));
-  const estimate = (seed: LayoutParams) => 2 + Math.max(0, Math.ceil((needRobots - robotsOf(seed)) / (seed.pattern === "straight" ? seed.lines : 1)));
+  const estimate = (seed: LayoutParams) => 2 + Math.max(0, Math.ceil((needRobots - robotsOf(seed)) / seed.lines));
   let remaining = seeds.reduce((sum, seed) => sum + estimate(seed), 0);
   const evaluated = new Map<string, EvaluatedCandidate>();
   let growBlockedByMax = false, growBlockedByGeometry = false;
@@ -80,7 +78,7 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
     for (let step = 0; step < 14 && !current.met && current.metrics; step++) {
       if (options.cancelled?.()) break;
       const m = current.metrics;
-      const add = params.pattern === "straight" ? params.lines : 1;
+      const add = params.lines;
       let next: LayoutParams;
       if (m.palletWaitShare > 0.1 && params.amrs < maxAmrs) next = { ...params, amrs: params.amrs + 1 };
       else if (robotsOf(params) + add <= maxRobots) next = { ...params, robotsPerLine: params.robotsPerLine + 1 };
@@ -89,6 +87,8 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
       remaining++;
       const result = await evaluate(next);
       if (!result.metrics) { growBlockedByGeometry = true; break; }
+      // Inlet-limited: one more robot on the same belts adds nothing (each line's inlet caps its rate); stop growing.
+      if (next.robotsPerLine > params.robotsPerLine && result.metrics.placedPerHour <= current.metrics!.placedPerHour * 1.01) { growBlockedByMax = true; break; }
       params = next; current = result;
     }
     if (!current.met) continue;
