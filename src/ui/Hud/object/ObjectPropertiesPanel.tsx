@@ -8,13 +8,11 @@ import {
 import { ApplyAllButton, BulkNumber } from "@/ui/Hud/object/BulkField";
 import { applyToIds } from "@/stores/actions/applyEquipmentSettings";
 import Select from "@/components/Select";
-import Button from "@/components/Button";
 import { FLOOR_CONFIG } from "@/constants/simulatorLayout";
 import {
   beltConnections,
   connectedBeltIds,
 } from "@/domain/conveyor/conveyorLayout";
-import { useSimulationStore } from "@/stores/useSimulationStore";
 import Panel from "@/ui/Hud/_components/Panel";
 import LinkSection from "@/ui/Hud/equipment/details/_components/LinkSection";
 import DoorSettings from "@/ui/Hud/equipment/door/DoorSettings";
@@ -35,7 +33,6 @@ export default function ObjectPropertiesPanel({
 }: {
   embedded?: boolean;
 }) {
-  const playbackSpeed = useSimulationStore((state) => state.speed);
   const state = useSceneStore(
     useShallow((state) => ({
       objects: state.objects,

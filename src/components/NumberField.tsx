@@ -19,11 +19,13 @@ type Props = {
   decimals?: number;
   /** Multi-edit with differing values: the field shows an empty "혼합" placeholder and any valid entry commits. */
   mixed?: boolean;
+  /** Always show exactly `decimals` digits (e.g. "30.0"); default trims trailing zeros. */
+  fixedDecimals?: boolean;
 };
 
 const DRAFT = /^\d*\.?\d*$/;
-const format = (value: number, decimals: number) =>
-  String(Number(value.toFixed(decimals)));
+const format = (value: number, decimals: number, fixed = false) =>
+  fixed ? value.toFixed(decimals) : String(Number(value.toFixed(decimals)));
 
 /**
  * Free-typing non-negative number input. Intermediate text ("1.", "") is allowed while typing;
@@ -44,8 +46,9 @@ export default function NumberField({
   inputClassName,
   decimals = 4,
   mixed = false,
+  fixedDecimals = false,
 }: Props) {
-  const shown = format(value, decimals);
+  const shown = format(value, decimals, fixedDecimals);
   const [draft, setDraft] = useState<string | null>(null);
 
   const commit = () => {

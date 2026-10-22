@@ -3,7 +3,8 @@ import type { BufferGeometry, Material, Object3D } from "three";
 import { INSTANCE_SECTOR_SIZE } from "@/constants/viewport";
 import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
 
-type Entry={node:Mesh;owner:Object3D;visible:boolean;raycast:Mesh["raycast"];previous:Matrix4;batch:Batch};
+/** geometry: what is drawn (the node's own, or its userData.lowPoly stand-in once the owner is static). */
+type Entry={node:Mesh;owner:Object3D;visible:boolean;raycast:Mesh["raycast"];previous:Matrix4;batch:Batch;geometry:BufferGeometry;sector:string};
 /** dirty: entries changed since the last sync; only those batches are reordered/rewritten. */
 type Batch={geometry:BufferGeometry;material:Material|Material[];entries:Set<Entry>;mesh:InstancedMesh|null;capacity:number;ordered:Entry[];castShadow:boolean;dirty:boolean};
 /** Per-owner frame state: static owners whose world matrix and visibility did not change are skipped. */
@@ -15,7 +16,8 @@ const hiddenScale = new Vector3(0, 0, 0);
 export class SceneInstances {
   readonly root=new Group();
   private batches=new Map<string,Batch>();
-  private owners=new Map<Object3D,{entries:Entry[];references:number;frame:OwnerFrame}>();
+  /** lowPoly: entries already moved to their low-poly stand-ins (static owners only, one-way). */
+  private owners=new Map<Object3D,{entries:Entry[];references:number;frame:OwnerFrame;lowPoly:boolean}>();
   private sources=new Map<Object3D,Entry>();
   private roots=new WeakSet<Object3D>();
   private inverse=new Matrix4();
@@ -51,18 +53,33 @@ export class SceneInstances {
       if(!(node instanceof Mesh)||node.userData.excludeFromInstancing||"isSkinnedMesh" in node||node instanceof InstancedMesh||!node.visible||this.sources.has(node)){
         for(const child of node.children)visit(child);return;
       }
-      const materials=Array.isArray(node.material)?node.material:[node.material];
-      const key=`${node.geometry.userData.instanceGeometryKey??node.geometry.uuid}:${materials.map(m=>m.uuid).join(":")}:${!node.userData.noCastShadow}:${sector}`;
-      let batch=this.batches.get(key);
-      // Meshes tagged userData.noCastShadow (boxes, pallets) only receive shadows.
-      if(!batch){batch={geometry:node.geometry,material:node.material,entries:new Set(),mesh:null,capacity:0,ordered:[],castShadow:!node.userData.noCastShadow,dirty:true};this.batches.set(key,batch);}
-      const entry={node,owner,visible:node.visible,raycast:node.raycast,previous:new Matrix4(),batch};
+      const batch=this.batchFor(node,node.geometry,sector);
+      const entry:Entry={node,owner,visible:node.visible,raycast:node.raycast,previous:new Matrix4(),batch,geometry:node.geometry,sector};
       entries.push(entry);batch.entries.add(entry);batch.dirty=true;this.sources.set(node,entry);node.visible=false;node.raycast=noRaycast;
       for(const child of node.children)visit(child);
     };
     visit(owner);
-    this.owners.set(owner,{entries,references:1,frame:{visible:true,skip:false,previous:new Matrix4(),seen:false}});this.dirty=true;
+    this.owners.set(owner,{entries,references:1,frame:{visible:true,skip:false,previous:new Matrix4(),seen:false},lowPoly:false});this.dirty=true;
     return()=>this.unregister(owner);
+  }
+  private batchFor(node:Mesh,geometry:BufferGeometry,sector:string){
+    const materials=Array.isArray(node.material)?node.material:[node.material];
+    const key=`${geometry.userData.instanceGeometryKey??geometry.uuid}:${materials.map(m=>m.uuid).join(":")}:${!node.userData.noCastShadow}:${sector}`;
+    let batch=this.batches.get(key);
+    // Meshes tagged userData.noCastShadow (boxes, pallets) only receive shadows.
+    if(!batch){batch={geometry,material:node.material,entries:new Set(),mesh:null,capacity:0,ordered:[],castShadow:!node.userData.noCastShadow,dirty:true};this.batches.set(key,batch);}
+    return batch;
+  }
+  /** LOD: a static owner (racked pallet) switches meshes that offer geometry.userData.lowPoly to that stand-in. */
+  private useLowPoly(registration:{entries:Entry[];lowPoly:boolean}){
+    registration.lowPoly=true;
+    for(const entry of registration.entries){
+      const low=entry.node.geometry.userData.lowPoly as BufferGeometry|undefined;
+      if(!low||entry.geometry===low)continue;
+      entry.batch.entries.delete(entry);entry.batch.dirty=true;
+      entry.batch=this.batchFor(entry.node,low,entry.sector);entry.geometry=low;
+      entry.batch.entries.add(entry);entry.batch.dirty=true;this.dirty=true;
+    }
   }
   unregister(owner:Object3D){
     const registration=this.owners.get(owner);if(!registration)return;
@@ -75,6 +92,12 @@ export class SceneInstances {
     this.owners.delete(owner);this.dirty=true;
   }
   sync(){
+    // LOD pre-pass (before batches are rebuilt): owners that turned static switch to low-poly stand-ins.
+    for(const registration of this.owners.values()){
+      if(registration.lowPoly)continue;
+      for(let node:Object3D|null=registration.entries[0]?.owner??null;node;node=node.parent)
+        if(node.userData.instanceStatic){this.useLowPoly(registration);break;}
+    }
     if(this.dirty){
       const rebuildStart=profileStart();
       for(const [key,batch] of this.batches){

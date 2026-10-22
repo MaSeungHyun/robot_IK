@@ -15,11 +15,14 @@ import ModalTransformHint from "@/ui/Hud/ModalTransformHint";
 import LineOverviewPanel from "@/ui/Hud/line/LineOverviewPanel";
 import EditorToolbar from "@/ui/Hud/editor/EditorToolbar";
 import DashboardDialog from "@/ui/Hud/dashboard/full/DashboardDialog";
+import AutoLayoutPanel from "@/ui/Hud/autoLayout/AutoLayoutPanel";
+import { useAutoLayoutStore } from "@/stores/useAutoLayoutStore";
 
 export default function Hud() {
   const editing = useSceneStore((state) => state.editing);
   const selected = useSceneStore((state) => state.selected);
   const inspectorTab = useHudStore((state) => state.inspectorTab);
+  const autoLayoutOpen = useAutoLayoutStore((state) => state.open);
   const showEditor = editing;
   const showInspector = !showEditor && inspectorTab !== null;
   useEditorShortcuts(showEditor);
@@ -36,7 +39,8 @@ export default function Hud() {
         {showEditor && <AssetRail />}
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden max-sm:flex-col">
           {showEditor && <EditorToolbar />}
-          {showEditor && (
+          {showEditor && autoLayoutOpen && <AutoLayoutPanel />}
+          {showEditor && !autoLayoutOpen && (
             <PanelColumn className="left-14">
               <PlacementErrors />
             </PanelColumn>

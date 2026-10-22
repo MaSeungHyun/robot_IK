@@ -2,6 +2,7 @@ import Icon from "@/components/Icon";
 import { cn } from "@/lib/style";
 import { useSceneStore, type EditorTool } from "@/stores/useSceneStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
+import { useAutoLayoutStore } from "@/stores/useAutoLayoutStore";
 
 /** Same treatment as the header playback buttons (PlaybackControls). */
 const ACCENT = "bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30";
@@ -21,6 +22,7 @@ export default function EditorToolbar() {
   const setTool = useSceneStore((state) => state.setTool);
   const linking = useLinkModeStore((state) => state.active);
   const setLinking = useLinkModeStore((state) => state.setActive);
+  const autoOpen = useAutoLayoutStore((state) => state.open);
 
   return (
     <div
@@ -58,6 +60,17 @@ export default function EditorToolbar() {
         onClick={() => setLinking(!linking)}
       >
         <Icon icon="Link" aria-hidden="true" className="size-3.5" />
+      </button>
+      <span aria-hidden className="mx-1 my-0.5 h-px bg-white/10" />
+      <button
+        type="button"
+        aria-label="자동 설계"
+        aria-pressed={autoOpen}
+        title="자동 설계 · 공장 크기와 목표 처리량으로 배치 생성"
+        className={cn(TOOL_BUTTON, autoOpen ? ACCENT : IDLE)}
+        onClick={() => useAutoLayoutStore.getState().setOpen(!autoOpen)}
+      >
+        <Icon icon="WandSparkles" aria-hidden="true" className="size-3.5" />
       </button>
     </div>
   );

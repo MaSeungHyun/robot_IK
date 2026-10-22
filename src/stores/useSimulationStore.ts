@@ -4,7 +4,7 @@ import { ROBOT_PICKING } from "../constants/simulation";
 import type { StreamStats } from "../types/conveyor";
 import type { RobotTransferMode, RobotJointSnapshot } from "../types/robot";
 import type { EquipmentSnapshot } from "../types/simulation";
-import { PLAYBACK_LIMITS } from "../constants/playback";
+// PLAYBACK_LIMITS (../constants/playback) is unused while the playback cap is removed; re-import it with the check below.
 
 type Update<T> = T | ((current: T) => T);
 type Progress = { count: number; status: string };

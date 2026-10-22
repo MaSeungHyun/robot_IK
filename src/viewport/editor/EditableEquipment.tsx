@@ -14,6 +14,7 @@ import { useLivePoseStore } from "@/stores/useLivePoseStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
 import { LINKABLE_KINDS } from "@/types/links";
+import DropInGroup from "@/viewport/editor/DropInGroup";
 
 export default function EditableEquipment({
   entity,
@@ -89,7 +90,7 @@ export default function EditableEquipment({
           }
         }}
       >
-        {children}
+        <DropInGroup id={entity.id}>{children}</DropInGroup>
       </group>
       {object && gizmoShown && (
         <TransformControls
