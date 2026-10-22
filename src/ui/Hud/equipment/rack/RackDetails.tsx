@@ -7,6 +7,7 @@ import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/Equi
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { RACK_CONFIG } from "@/constants/rack";
+import RackSlotGrid from "@/ui/Hud/equipment/rack/RackSlotGrid";
 
 export default function RackDetails({ object }: EquipmentDetailProps) {
   const enabled = useSceneStore((state) => state.settings[object.id]?.enabled);
@@ -38,7 +39,7 @@ export default function RackDetails({ object }: EquipmentDetailProps) {
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
     }>
-
+      <RackSlotGrid rackId={object.id} />
     </EquipmentDetailLayout>
   );
 }

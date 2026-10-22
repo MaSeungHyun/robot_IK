@@ -211,6 +211,7 @@ export class FactorySimulator {
     this.racks = objects.filter((o) => o.kind === "rack");
     for (const rack of this.racks)
       this.rackStored.set(rack.id, RACK_CONFIG.slots.map(() => false));
+    for (const rack of this.racks) this.rackPallets.set(rack.id, RACK_CONFIG.slots.map(() => undefined));
     for (const robot of this.robots) {
       const fed = this.links.incoming(robot.object.id, "feed");
       if (fed.length) {
@@ -262,6 +263,8 @@ export class FactorySimulator {
   private racks: SceneEquipment[] = [];
   /** Filled PalletPoints per rack; stored pallets stay for the rest of the run. */
   private rackStored = new Map<string, boolean[]>();
+  /** Display only: pallet stored in each rack slot (kept here; finished cargo records are evicted). */
+  private rackPallets = new Map<string, ({ id: string; grade: CargoGrade; boxes: number; storedAt: number } | undefined)[]>();
   /** First PalletPoint that is neither filled nor booked by a delivery in progress. */
   private freeSlot(rack: SceneEquipment) {
     const stored = this.rackStored.get(rack.id) ?? [];
@@ -875,8 +878,12 @@ export class FactorySimulator {
           // Stored for the rest of the run: its instances (pallet + boxes) skip per-frame updates.
           group.userData.instanceStatic = true;
           shipment.stored = true;
-          if (shipment.palletId)
+          if (shipment.palletId) {
             this.cargo.storePallet({ t: this.elapsed, palletId: shipment.palletId, rackId: dock.id, slot: shipment.slot });
+            const record = this.cargo.pallet(shipment.palletId);
+            const slots = this.rackPallets.get(dock.id);
+            if (record && slots) slots[shipment.slot] = { id: record.id, grade: record.grade, boxes: record.boxIds.length, storedAt: this.elapsed };
+          }
         } else {
           group.position.y = 0;
           if (shipment.palletId)
@@ -996,6 +1003,20 @@ export class FactorySimulator {
         count: pallet.count,
         capacity: pallet.slots.length,
         shipping: pallet.shipping,
+      })),
+      // Display only: slot occupancy (stored) and bookings by deliveries in progress (reserved).
+      racks: this.racks.map((rack) => ({
+        id: rack.id,
+        slots: (this.rackStored.get(rack.id) ?? []).map((filled, slot) => {
+          const stored = this.rackPallets.get(rack.id)?.[slot];
+          if (filled)
+            return { state: "stored" as const, palletId: stored?.id, boxes: stored?.boxes, grade: stored?.grade, storedAt: stored?.storedAt };
+          const shipment = this.shipments.find((s) => s.dock.id === rack.id && s.slot === slot);
+          const record = this.cargo.pallet(shipment?.palletId);
+          return shipment
+            ? { state: "reserved" as const, palletId: shipment.palletId, boxes: record?.boxIds.length, grade: record?.grade }
+            : { state: "empty" as const };
+        }),
       })),
     };
   }

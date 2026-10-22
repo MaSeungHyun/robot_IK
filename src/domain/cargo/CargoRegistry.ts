@@ -73,7 +73,7 @@ export type CargoLogEntry = {
   /** Simulation time in seconds. */
   t: number;
   type: CargoLogType;
-  /** Box (B-xxxx) or pallet (P-xxx) id. */
+  /** Box (B-xxxx) or pallet (PLT-xxxx) id. */
   targetId: string;
   from?: string;
   to?: string;
@@ -154,7 +154,8 @@ export class CargoRegistry {
 
   /** A new (empty) pallet on a station; the previous one keeps its own id and record. */
   startPallet(e: { t: number; stationId: string; grade: CargoGrade; palletId?: string; destination?: string }) {
-    const id = e.palletId ?? `P-${pad(this.nextPallet++, 3)}`;
+    // Sequential in creation order (deterministic: sim steps are speed-independent).
+    const id = e.palletId ?? `PLT-${pad(this.nextPallet++, 4)}`;
     this.pallets.set(id, {
       id,
       stationId: e.stationId,
