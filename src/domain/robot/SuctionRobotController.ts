@@ -1,4 +1,5 @@
 import { minimumJerk } from "@/domain/robot/ik/motionTiming";
+import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
 import { Euler, Group, Quaternion, Vector3 } from "three";
 import type { Object3D } from "three";
 import { MOTION, IK_CONFIG, ROBOT_PICKING } from "@/constants/simulation";
@@ -270,10 +271,12 @@ export class SuctionRobotController implements RobotController {
         job.onPlanEvent?.({state:"searching",reason:`${r.phase} · 손목 상향 위치와 회전 경로 계산`,phase:"precise"});
         const goal=r.target.clone();
         const replan=()=>this.planFromCurrent(goal,job,linear);
+        const planStart=profileStart();
         if(r.recovery){
           const fixedBase=["LIFT","SHOULDER_TRANSFER"].includes(r.phase)?ik.baseControl.angle:undefined;
           r.planning=ik.startCollisionRecovery(r.recovery,fixedBase,r.phase==="ALIGN_BASE",replan,r.phase==="SHOULDER_TRANSFER"?undefined:goal);
         }else r.planning=replan();
+        profileEnd("ik",planStart);
       }
       const cached=(r.recovery?null:r.phase==="ALIGN_BASE"?r.alignment:r.phase==="TRANSIT"?r.transit:null);
       let pose=cached;
@@ -281,7 +284,9 @@ export class SuctionRobotController implements RobotController {
         const budget=this.takePlanningBudget("plan",IK_CONFIG.planningBudgetMs,tracking);
         // No planning time left this frame (another robot's turn or a later sub-step): keep waiting.
         if(budget<=0||!r.planning)return false;
+        const ikStart=profileStart();
         pose=ik.advancePlan(r.planning,budget);
+        profileEnd("ik",ikStart);
       }
       if(!pose)return false;
       r.planning=null;r.pose=pose;
@@ -457,7 +462,9 @@ export class SuctionRobotController implements RobotController {
     if(r.phase==="RELEASE"){this.release(job,dt);return;}
     if(r.transferPlanning&&["LIFT","SHOULDER_TRANSFER"].includes(r.phase)){
       const budget=this.takePlanningBudget("transfer",ROBOT_PICKING.transferPlanningBudgetMs);
+      const ikStart=profileStart();
       const prepared=budget>0?ik.advancePlan(r.transferPlanning,budget):null;
+      profileEnd("ik",ikStart);
       if(prepared){r.preparedShoulder=prepared;r.transferPlanning=null;}
     }
     if(r.phase==="SHOULDER_TRANSFER"&&r.transferPlanning)return;

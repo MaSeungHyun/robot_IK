@@ -14,6 +14,7 @@ import { useCargoStore } from "@/stores/useCargoStore";
 import { simulationDelta } from "@/domain/simulation/simulationTime";
 import { ikSolveStats } from "@/domain/robot/ik/robotIK";
 import { log } from "@/stores/useLogStore";
+import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
 
 const REPORT_INTERVAL = 0.25;
 /** Log the IK solve-path counters once per this many plans (dev diagnostics, kept sparse). */
@@ -62,12 +63,15 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   useFrame((_, delta) => {
     if (!running) return;
 
+    const simulationStart = profileStart();
     world.advance(simulationDelta(delta, speed));
+    profileEnd("simulation", simulationStart);
     reportElapsed.current += Math.min(delta, REPORT_INTERVAL);
 
     if (reportElapsed.current < REPORT_INTERVAL) return;
 
     reportElapsed.current = 0;
+    const reportStart = profileStart();
     onStats(world.stats);
     onProgress(world.placed, world.status);
     setEquipment(world.equipment);
@@ -77,6 +81,7 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
       ikLogged.current = plans;
       log("info", "IK 해법 경로", `해석 ${ik.analytic} / 기울임 ${ik.tilt} / 수치 ${ik.numeric} / RRT ${ik.rrt} / 실패 ${ik.failed} · 직선 해석 ${ik.cartesianAnalytic} / 수치 ${ik.cartesianNumeric}`);
     }
+    profileEnd("report", reportStart);
   }, -2);
 
   return { world, objects, settings };

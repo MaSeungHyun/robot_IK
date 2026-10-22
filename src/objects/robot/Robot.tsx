@@ -16,6 +16,7 @@ import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { useSimulationStore } from "../../stores/useSimulationStore";
 import { simulationDelta } from "@/domain/simulation/simulationTime";
 import { planningScheduler } from "@/domain/robot/ik/planningScheduler";
+import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
 
 
 type Props = ThreeElements["group"] & {
@@ -92,11 +93,13 @@ export default function Robot({
     if (!Number.isFinite(remaining)) remaining = 0;
     // Defensive cap for extreme speed multipliers (normal speeds need far fewer sub-steps).
     let steps = 0;
+    const robotStart = profileStart();
     do {
       const step = Math.min(remaining, 0.05);
       instance.update(step);
       remaining -= step;
     } while (remaining > 1e-9 && ++steps < 400);
+    profileEnd("robots", robotStart);
     if (jointAnglesRef) jointAnglesRef.current = instance.getJointAngles();
   });
 

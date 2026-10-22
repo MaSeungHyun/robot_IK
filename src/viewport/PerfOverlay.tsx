@@ -1,5 +1,22 @@
 import { useEffect, useState } from "react";
-import { addAfterEffect, addEffect, useThree } from "@react-three/fiber";
+import {
+  addAfterEffect,
+  addEffect,
+  useFrame,
+  useThree,
+} from "@react-three/fiber";
+import {
+  endFrame,
+  frameSpikes,
+  clearSpikes,
+  profileEnd,
+  profileStart,
+  setProfilerEnabled,
+  SPIKE_MS,
+  type FrameSpike,
+  type ProfileSection,
+} from "@/lib/profiler/frameProfiler";
+import { log } from "@/stores/useLogStore";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
 
@@ -22,6 +39,25 @@ type Reading = {
 
 /** Latest smoothed values, written by PerfCollector and polled by PerfReadout (no React per frame). */
 const latest: { reading: Reading | null } = { reading: null };
+/** Start of the render phase: stamped just before the EffectComposer (priority 1) renders. */
+const renderPhase = { start: -1 };
+/** Spike warnings in the Log panel at most this often (ms). */
+const SPIKE_LOG_MS = 5000;
+const SECTION_LABEL: Record<ProfileSection, string> = {
+  simulation: "시뮬레이션",
+  report: "HUD 보고",
+  robots: "로봇",
+  ik: "IK/경로계획",
+  instances: "인스턴스 동기화",
+  rebuild: "인스턴스 재구성",
+  outline: "선택 외곽선",
+  stats: "대시보드 집계",
+  render: "렌더",
+};
+const topSections = (spike: FrameSpike) =>
+  spike.sections
+    .slice(0, 3)
+    .map(([section, ms]) => `${SECTION_LABEL[section]} ${ms.toFixed(1)}`);
 
 /**
  * In-Canvas collector. Uses only R3F's global before/after-frame callbacks (addEffect /
@@ -35,13 +71,21 @@ export function PerfCollector() {
   const baked = useThumbnailStore((state) => state.baked);
   // Read gl inside the effect (via get) rather than mutating a hook-returned value.
   const get = useThree((state) => state.get);
+  const active = enabled && baked;
+  // Before the composer renders; a single boolean check while the overlay is off.
+  useFrame(() => {
+    if (active) renderPhase.start = profileStart();
+  }, 0.9);
 
   useEffect(() => {
     if (!enabled || !baked) return;
     const info = get().gl.info,
       autoReset = info.autoReset;
     info.autoReset = false;
+    setProfilerEnabled(true);
     let frameStart = 0,
+      interval = 0,
+      loggedAt = -Infinity,
       lastFrame = 0,
       fps = 0,
       cpu = 0;
@@ -49,6 +93,7 @@ export function PerfCollector() {
       previous ? previous + (next - previous) * 0.1 : next;
     const before = addEffect((timestamp) => {
       frameStart = performance.now();
+      interval = lastFrame ? timestamp - lastFrame : 0;
       if (lastFrame)
         fps = smooth(fps, 1000 / Math.max(timestamp - lastFrame, 0.001));
       lastFrame = timestamp;
@@ -56,7 +101,19 @@ export function PerfCollector() {
     });
     const after = addAfterEffect(() => {
       // JS time for the frame: useFrame callbacks + render submission (not GPU execution).
-      cpu = smooth(cpu, performance.now() - frameStart);
+      profileEnd("render", renderPhase.start);
+      renderPhase.start = -1;
+      const frameCpu = performance.now() - frameStart;
+      cpu = smooth(cpu, frameCpu);
+      const spike = endFrame(interval, frameCpu);
+      if (spike && spike.at - loggedAt > SPIKE_LOG_MS) {
+        loggedAt = spike.at;
+        log(
+          "warning",
+          `프레임 지연 ${spike.interval.toFixed(0)}ms`,
+          `JS ${spike.cpu.toFixed(1)}ms · ${topSections(spike).join(" · ") || "구간 없음"}`,
+        );
+      }
       latest.reading = {
         fps,
         cpu,
@@ -73,6 +130,7 @@ export function PerfCollector() {
       after();
       info.autoReset = autoReset;
       latest.reading = null;
+      setProfilerEnabled(false);
     };
   }, [enabled, baked, get]);
 
@@ -190,6 +248,51 @@ function Trend({
   );
 }
 
+/** Last spike frames (newest first): time, frame interval, JS time and the top 3 sections. */
+function SpikeList({ spikes, count }: { spikes: FrameSpike[]; count: number }) {
+  return (
+    <div className="flex flex-col gap-1 px-2 pb-2">
+      <div className="flex items-baseline justify-between text-text-secondary">
+        <span>
+          스파이크 (&gt;{SPIKE_MS}ms) · 총 {count}회
+        </span>
+        {count > 0 && (
+          <button
+            type="button"
+            onClick={clearSpikes}
+            className="rounded-sm px-1 hover:bg-white/10 hover:text-text-primary"
+          >
+            지우기
+          </button>
+        )}
+      </div>
+      {spikes.length ? (
+        <ul className="max-h-40 overflow-y-auto text-[10px] tabular-nums bg-black px-2 py-1 rounded-md scrollbar-thin simulation-panel">
+          {[...spikes].reverse().map((spike) => (
+            <li key={spike.at} className="flex gap-2 text-text-secondary">
+              <span>
+                {new Date(performance.timeOrigin + spike.at).toLocaleTimeString(
+                  "ko-KR",
+                  { hour12: false },
+                )}
+              </span>
+              <span className="w-12 text-right text-text-primary">
+                {spike.interval.toFixed(1)}ms
+              </span>
+              <span className="w-14 text-right">JS {spike.cpu.toFixed(1)}</span>
+              <span className="truncate">
+                {topSections(spike).join(" · ") || "구간 없음 (GC/GPU/React)"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span className="text-[10px] text-text-secondary">없음</span>
+      )}
+    </div>
+  );
+}
+
 /** DOM half (outside the Canvas): Shift+P toggle and a token-styled readout polled at 4 Hz. */
 export default function PerfReadout() {
   const enabled = useViewportSettingsStore((state) => state.perfOverlay);
@@ -246,6 +349,7 @@ export default function PerfReadout() {
         return { key, label, format, values };
       })
     : [];
+  const { spikes, count } = frameSpikes();
   const readout = items.map(([label, value]) => (
     <span
       key={label}
@@ -275,8 +379,13 @@ export default function PerfReadout() {
               <Trend key={key} label={label} values={values} format={format} />
             ))}
           </div>
+          <SpikeList spikes={spikes} count={count} />
           <div className="flex items-center gap-3 px-2 py-0.5 text-text-secondary">
             {readout}
+            <span className={count ? "text-red-300" : undefined}>
+              Spikes{" "}
+              <span className="text-text-primary tabular-nums">{count}</span>
+            </span>
             <button
               type="button"
               aria-label="성능 추이 접기"
