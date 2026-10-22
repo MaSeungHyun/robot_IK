@@ -33,11 +33,14 @@ export default function EquipmentIdentity({ object, status }: Props) {
 
   return (
     <header className="min-w-0">
-      <h2 className="truncate text-xs font-semibold text-text-primary" title={object.name}>
+      <h2
+        className="truncate text-xs font-semibold text-text-primary"
+        title={object.name}
+      >
         {object.name} <span className="text-text-secondary">· {kindName}</span>
       </h2>
 
-      <div className="pointer-events-none mx-auto mt-2 flex h-28 w-36 items-center justify-center overflow-hidden bg-transparent">
+      <div className="pointer-events-none mt-4 flex h-45  items-center overflow-hidden bg-transparent">
         {visual.image ? (
           <img
             src={visual.image}
