@@ -24,6 +24,8 @@ const createRuntime = () => ({
   failures: 0, retryWait: 0,
   /** Straight-segment lock (LIFT/PLACE/RETREAT): analytic branch+pitch; false = this segment uses the planner. */
   lineLock: null as LineLock | null | false,
+  /** PRE_GRASP on a moving box: sim seconds spent waiting for the planner, and the closed-form approach in use. */
+  planWait: 0, approachAnalytic: false, approach: null as IKPose | null, approachAge: 0,
   releasePosition: new Vector3(), releaseRotation: new Quaternion(), destinationRotation: new Quaternion(), rotation: new Quaternion(),
 });
 const PHASE_LABELS: Record<RobotPhase,string> = {
@@ -41,6 +43,10 @@ function homeHeading(current:number,initial:number){
 }
 /** Retry a rejected (non-tracking) plan after waitSeconds of sim time; relax/abandon after N rejections. */
 const RETRY = { waitSeconds: 0.5, relaxAfter: 3, abortAfter: 8 } as const;
+/** hand05 tool roll: three.js local +Y (Blender local Z), the tool shaft; GripPoint sits ~3 mm off it. */
+const TOOL_AXIS = new Vector3(0, 1, 0);
+const toolTurn = new Quaternion(), toolInverse = new Quaternion(), toolOffset = new Vector3(), toolAxisWorld = new Vector3();
+const wrapAngle = (angle: number) => angle - 2 * Math.PI * Math.round(angle / (2 * Math.PI));
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
 const LINEAR_PHASES: readonly RobotPhase[] = ["GRASP","LIFT","PLACE","RETREAT"];
 type CargoPose = { parent: Object3D | null; position: Vector3; quaternion: Quaternion; scale: Vector3 };
@@ -62,6 +68,14 @@ export class SuctionRobotController implements RobotController {
   private readonly pickupRadius: number;
 
   private readonly options: RobotControllerOptions;
+  /** hand05 (tool roll) node and its export pose; null when the model has no hand05 above GripPoint. */
+  private readonly toolNode: Object3D | null;
+  private readonly toolRest = new Quaternion();
+  private readonly toolRestPosition = new Vector3();
+  private readonly toolGripLocal = new Vector3();
+  private toolRoll = 0;
+  private toolRollFrom = 0;
+  private toolRollGoal = 0;
 
   constructor(options: RobotControllerOptions) {
     this.options = options;
@@ -72,29 +86,48 @@ export class SuctionRobotController implements RobotController {
     if (!Number.isFinite(this.pickupRadius) || this.pickupRadius <= 0) throw new Error("Pickup radius must be positive");
     this.ik = createRobotIK(this.model, options.geometryScale ?? 1, "none");
     this.initialAngles = [this.ik.baseControl, ...this.ik.controls].map(control => control.angle);
+    const tool = this.ik.grip.parent;
+    this.toolNode = tool?.name === "hand05" ? tool : null;
+    if (this.toolNode) {
+      this.toolRest.copy(this.toolNode.quaternion);
+      this.toolRestPosition.copy(this.toolNode.position);
+      this.toolGripLocal.copy(this.ik.grip.position);
+    }
   }
 
-  /** Shared IK planning allowance for this frame; null = per-call default budgets (headless). */
-  private planningBudget: PlanningBudget | null = null;
-  /** Plans already advanced this frame (each advances at most once per frame). */
-  private readonly plannedThisFrame = new Set<"plan" | "transfer">();
-  setPlanningBudget(budget: PlanningBudget | null): void {
-    this.planningBudget = budget;
-    this.plannedThisFrame.clear();
-  }
   /**
-   * Planning time (ms) for one advancePlan call of `kind`; 0 = wait for a later frame.
-   * `tracking` plans (PRE_GRASP/GRASP/ATTACH on a moving box) re-plan every sub-step, so they
-   * may advance in every sub-step and always get at least the minimum share: at 4x speed a frame
-   * holds 4 sub-steps and the box keeps moving in each of them.
+   * Turn hand05 about its local Y (tool shaft) by `angle` from the export pose, clamped to the roll limit.
+   * hand05 is shifted so GripPoint stays exactly where it was: IK/planning (which never see hand05) stay valid,
+   * and a held box turns in place about the suction point.
    */
-  private takePlanningBudget(kind: "plan" | "transfer", fallback: number, tracking = false) {
-    if (!this.planningBudget) return fallback;
-    if (tracking) return Math.max(this.planningBudget.take(fallback), Math.min(fallback, IK_CONFIG.minRobotShareMs));
-    if (this.plannedThisFrame.has(kind)) return 0;
-    const granted = this.planningBudget.take(fallback);
-    if (granted > 0) this.plannedThisFrame.add(kind);
-    return granted;
+  private setToolRoll(angle: number): void {
+    const node = this.toolNode;
+    if (!node) return;
+    const limit = ROBOT_PICKING.toolRollLimitDegrees * Math.PI / 180;
+    this.toolRoll = Math.max(-limit, Math.min(limit, angle));
+    toolTurn.setFromAxisAngle(TOOL_AXIS, this.toolRoll);
+    node.quaternion.copy(this.toolRest).multiply(toolTurn);
+    toolOffset.copy(this.toolGripLocal).applyQuaternion(toolTurn).negate().add(this.toolGripLocal)
+      .multiply(node.scale).applyQuaternion(this.toolRest);
+    node.position.copy(this.toolRestPosition).add(toolOffset);
+    node.updateWorldMatrix(false, true);
+  }
+
+  /**
+   * Kept for the RobotController API. Planning is no longer budgeted in wall-clock ms per frame: it advances a
+   * fixed number of generator steps per second of sim time (takePlanningSteps), so results are speed-independent.
+   */
+  setPlanningBudget(budget: PlanningBudget | null): void {
+    void budget;
+  }
+  /** Fractional planning-step credit carried between updates, per plan kind. */
+  private readonly planCredit = { plan: 0, transfer: 0 };
+  /** Generator steps `kind` may run for `delta` seconds of sim time (deterministic; independent of frames). */
+  private takePlanningSteps(kind: "plan" | "transfer", delta: number) {
+    const rate = kind === "plan" ? IK_CONFIG.planningStepsPerSecond : IK_CONFIG.transferPlanningStepsPerSecond;
+    const credit = this.planCredit[kind] + delta * rate, steps = Math.floor(credit);
+    this.planCredit[kind] = credit - steps;
+    return steps;
   }
 
   get running() { return this.active; }
@@ -151,8 +184,10 @@ export class SuctionRobotController implements RobotController {
     }
     this.ik.collisions.setHeld(null);
     this.ik.setMinimumToolHeight(null);
+    this.ik.setContactMode(false);
     this.cargo.clear();
     [this.ik.baseControl, ...this.ik.controls].forEach((control, index) => setJointAngle(control, this.initialAngles[index]));
+    this.setToolRoll(0);
     this.runtime = createRuntime();
     this.homePose = null;
     this.manualAngle = null;
@@ -185,6 +220,9 @@ export class SuctionRobotController implements RobotController {
   private enter(phase: RobotPhase, job: Transfer): void {
     const r=this.runtime, grip=this.ik.grip;
     r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null; r.failures=0; r.retryWait=0; r.lineLock=null;
+    r.planWait=0; r.approachAnalytic=false; r.approach=null; r.approachAge=0;
+    // Contact phases may dip the upper arm below horizontal (box passing close to the base); LIFT climbs out of it.
+    this.ik.setContactMode(phase==="GRASP"||phase==="ATTACH"||phase==="LIFT");
     if(phase==="PRE_GRASP")r.pickupWristStart=this.ik.controls[2].angle;
     grip.getWorldPosition(r.segmentStart);
     r.segmentEnd.copy(r.segmentStart);
@@ -223,6 +261,20 @@ export class SuctionRobotController implements RobotController {
       // A rectangular box occupies the same slot after a half turn about Y.
       r.rotation.setFromAxisAngle(new Vector3(0,1,0),(job.yaw??0)+Math.PI);
       if(r.releaseRotation.angleTo(r.rotation)<r.releaseRotation.angleTo(r.destinationRotation))r.destinationRotation.copy(r.rotation);
+      if(this.toolNode){
+        // hand05 carries the box yaw: twist of (destination * release^-1) about world Y, mapped onto the tool axis.
+        toolTurn.copy(r.destinationRotation).multiply(toolInverse.copy(r.releaseRotation).invert());
+        const yaw=wrapAngle(2*Math.atan2(toolTurn.y,toolTurn.w));
+        toolAxisWorld.copy(TOOL_AXIS).transformDirection(this.toolNode.matrixWorld);
+        const sign=toolAxisWorld.y>=0?1:-1,limit=ROBOT_PICKING.toolRollLimitDegrees*Math.PI/180;
+        let goal=this.toolRoll+sign*yaw;
+        if(Math.abs(goal)>limit){
+          // Past the roll stop: use the half-turn-equivalent slot orientation, turning the other way.
+          goal-=Math.sign(goal)*Math.PI;
+          r.destinationRotation.premultiply(toolTurn.setFromAxisAngle(TOOL_AXIS,Math.PI));
+        }
+        this.toolRollFrom=this.toolRoll;this.toolRollGoal=goal;
+      }
       r.duration=Math.max(ROBOT_PICKING.releaseSeconds,
         r.releaseRotation.angleTo(r.destinationRotation)*1.875/ROBOT_PICKING.releaseAngularSpeed);
     }
@@ -263,7 +315,7 @@ export class SuctionRobotController implements RobotController {
     const r=this.runtime, ik=this.ik;
     const tracking=job.moving&&BEFORE_PICK.includes(r.phase);
     const settled=(pose:IKPose)=>linear?ik.isCartesianSettled(pose):tracking?ik.isSettled(pose):ik.isEasedSettled(pose);
-    if(!["SHOULDER_TRANSFER","ALIGN_BASE"].includes(r.phase)&&r.pose&&settled(r.pose)&&r.target.distanceTo(target)>MOTION.contactTolerance/4){r.pose=null;r.planning=null;}
+    if(!["SHOULDER_TRANSFER","ALIGN_BASE"].includes(r.phase)&&r.pose&&settled(r.pose)&&r.target.distanceTo(target)>MOTION.contactTolerance/4&&!this.handoffReady(target,tracking)){r.pose=null;r.planning=null;}
     if(!r.pose){
       // Carry plans are solved live: the closed-form IK makes the place-pose cache unnecessary.
       if(!r.planning){
@@ -281,11 +333,11 @@ export class SuctionRobotController implements RobotController {
       const cached=(r.recovery?null:r.phase==="ALIGN_BASE"?r.alignment:r.phase==="TRANSIT"?r.transit:null);
       let pose=cached;
       if(!pose){
-        const budget=this.takePlanningBudget("plan",IK_CONFIG.planningBudgetMs,tracking);
+        const budget=this.takePlanningSteps("plan",delta);
         // No planning time left this frame (another robot's turn or a later sub-step): keep waiting.
         if(budget<=0||!r.planning)return false;
         const ikStart=profileStart();
-        pose=ik.advancePlan(r.planning,budget);
+        pose=ik.advancePlanSteps(r.planning,budget);
         profileEnd("ik",ikStart);
       }
       if(!pose)return false;
@@ -332,9 +384,63 @@ export class SuctionRobotController implements RobotController {
       r.pose=null;r.planning=null;return false;
     }
     const reached=(r.recovery?ik.isEasedSettled(r.pose):settled(r.pose))&&ik.grip.getWorldPosition(r.point).distanceTo(r.target)<MOTION.contactTolerance;
-    if(tracking&&reached&&r.point.distanceTo(target)>=MOTION.contactTolerance){r.pose=null;return false;}
+    // A moving box never waits for the planner: PRE_GRASP hands over to GRASP tracking once close enough.
+    if(tracking&&reached&&r.point.distanceTo(target)>=(r.phase==="PRE_GRASP"?ROBOT_PICKING.trackHandoffTolerance:MOTION.contactTolerance)){r.pose=null;return false;}
     if(reached)r.recovery=null;
     return reached;
+  }
+
+  /** Settled PRE_GRASP close enough to the (moving) hover point to continue with analytic GRASP tracking. */
+  private handoffReady(target: Vector3, tracking: boolean | undefined): boolean {
+    const r=this.runtime;
+    return Boolean(tracking)&&r.phase==="PRE_GRASP"&&this.ik.grip.getWorldPosition(r.point).distanceTo(target)<ROBOT_PICKING.trackHandoffTolerance;
+  }
+
+  /** Where a moving box will be when the arm gets there: lead = planning latency + tool travel time (sim s). */
+  private predictIntercept(point: Vector3, velocity: Vector3): void {
+    const distance=this.ik.grip.getWorldPosition(this.runtime.point).distanceTo(point);
+    const lead=Math.min(ROBOT_PICKING.interceptMaxLead,ROBOT_PICKING.interceptLatency+distance/ROBOT_PICKING.interceptToolSpeed);
+    point.addScaledVector(velocity,lead);
+  }
+
+  /**
+   * GRASP/ATTACH on a moving box: closed-form tracking of `target` every sub-step (no planner, no budget),
+   * hand00 following the belt on the locked branch. Returns whether GripPoint is within grasp tolerance, or null
+   * when tracking is not possible (the caller falls back to the planner for the rest of the phase).
+   */
+  private trackPick(target: Vector3, delta: number): boolean | null {
+    const r=this.runtime,ik=this.ik;
+    if(r.lineLock===false)return null;
+    r.lineLock??=ik.lineLock()??false;
+    const pose=r.lineLock?ik.solveTrack(target,r.lineLock):null;
+    if(!pose||!ik.animate(pose,delta)){r.lineLock=false;r.pose=null;r.planning=null;return null;}
+    r.pose=null;r.planning=null;r.target.copy(target);
+    ik.grip.getWorldPosition(r.point);
+    return Math.hypot(r.point.x-target.x,r.point.z-target.z)<=ROBOT_PICKING.graspHorizontalTolerance
+      &&r.point.distanceTo(target)<=ROBOT_PICKING.graspTolerance;
+  }
+
+  /**
+   * PRE_GRASP on a moving box when planning is too slow in sim time (high speed, shared budget): closed-form
+   * approach toward the predicted hover point, re-solved every approachResolveSeconds. Null = use the planner.
+   */
+  private approachMoving(target: Vector3, delta: number): boolean | null {
+    const r=this.runtime,ik=this.ik;
+    if(!r.approachAnalytic){
+      if(r.pose||r.recovery)return null;
+      r.planWait+=delta;
+      if(r.planWait<ROBOT_PICKING.approachPlanTimeout)return null;
+      r.approachAnalytic=true;r.planning=null;r.approach=null;
+    }
+    r.approachAge+=delta;
+    if(!r.approach||r.approachAge>=ROBOT_PICKING.approachResolveSeconds){r.approach=ik.solveApproach(target);r.approachAge=0;}
+    if(!r.approach||!ik.animate(r.approach,delta)){
+      // No closed-form approach (or blocked): back to the planner, which restarts its wait.
+      r.approachAnalytic=false;r.approach=null;r.planWait=0;r.pose=null;r.planning=null;
+      return null;
+    }
+    r.target.copy(target);
+    return ik.grip.getWorldPosition(r.point).distanceTo(target)<ROBOT_PICKING.trackHandoffTolerance;
   }
 
   private moveVertical(job: Transfer, delta: number): boolean {
@@ -347,7 +453,9 @@ export class SuctionRobotController implements RobotController {
       r.command.x=job.pickup.x;r.command.z=job.pickup.z;
       r.command.y=job.pickup.y+(r.segmentStart.y-r.segmentEnd.y)*(1-progress);
     }
-    const reached=r.phase!=="GRASP"&&!r.recovery&&r.lineLock!==false?this.followLine(job,delta):this.moveTo(r.command,job,delta,true);
+    const tracked=r.phase==="GRASP"&&job.moving&&!r.recovery?this.trackPick(r.command,delta):null;
+    const reached=tracked!==null?tracked
+      :r.phase!=="GRASP"&&!r.recovery&&r.lineLock!==false?this.followLine(job,delta):this.moveTo(r.command,job,delta,true);
     if(r.phase==="PLACE"){
       job.box.getWorldPosition(r.point);
       setCargoWorldPose(job.box,this.ik.grip,r.point,r.destinationRotation);
@@ -431,6 +539,11 @@ export class SuctionRobotController implements RobotController {
     if(!this.running)return;
     const dt=Math.min(delta,MOTION.maxDelta);
     const job=this.options.getJobs()[r.index];
+    // Unwind hand05 whenever nothing is held (GripPoint stays fixed, so this never disturbs a plan).
+    if(this.toolRoll!==0&&(!job||job.box.parent!==ik.grip)&&r.phase!=="PRE_PLACE"){
+      const step=ROBOT_PICKING.releaseAngularSpeed*dt;
+      this.setToolRoll(Math.abs(this.toolRoll)<=step?0:this.toolRoll-Math.sign(this.toolRoll)*step);
+    }
     if(!job){
       if(r.phase==="HOME"){
         // hand00 is continuous: return to the initial heading by the nearest equivalent
@@ -459,17 +572,27 @@ export class SuctionRobotController implements RobotController {
     if(BEFORE_PICK.includes(r.phase)&&job.available&&!job.available()){
       this.cargo.delete(job.box);job.onMiss?.();r.index++;r.phase="HOME";r.pose=null;r.planning=null;return;
     }
+    if(r.phase==="PRE_GRASP"&&job.moving&&job.velocity){
+      // The box will leave the pickup radius before the arm can be on it: give it back now instead of chasing.
+      this.model.getWorldPosition(this.origin);
+      if(!isPickupInRange(this.origin,job.pickup,job.velocity,this.pickupRadius,ROBOT_PICKING.abortLeadSeconds)){
+        this.options.onProgress?.(r.index,"PRE_GRASP · 예상 접점이 도달 범위를 벗어남 · 작업 반환");
+        this.abandon(job);return;
+      }
+    }
     if(r.phase==="RELEASE"){this.release(job,dt);return;}
     if(r.transferPlanning&&["LIFT","SHOULDER_TRANSFER"].includes(r.phase)){
-      const budget=this.takePlanningBudget("transfer",ROBOT_PICKING.transferPlanningBudgetMs);
+      const budget=this.takePlanningSteps("transfer",dt);
       const ikStart=profileStart();
-      const prepared=budget>0?ik.advancePlan(r.transferPlanning,budget):null;
+      const prepared=budget>0?ik.advancePlanSteps(r.transferPlanning,budget):null;
       profileEnd("ik",ikStart);
       if(prepared){r.preparedShoulder=prepared;r.transferPlanning=null;}
     }
     if(r.phase==="SHOULDER_TRANSFER"&&r.transferPlanning)return;
     if(r.phase==="ATTACH"){
-      if(this.moveTo(job.pickup,job,dt,true)&&isWristAboveBox(ik.controls[2].node,job.box))r.elapsed+=dt;
+      const tracked=job.moving&&!r.recovery?this.trackPick(job.pickup,dt):null;
+      const contact=tracked!==null?tracked:this.moveTo(job.pickup,job,dt,true);
+      if(contact&&isWristAboveBox(ik.controls[2].node,job.box))r.elapsed+=dt;
       else r.elapsed=0;
       if(r.elapsed>=ROBOT_PICKING.graspHoldSeconds)this.attach(job);
       return;
@@ -478,6 +601,8 @@ export class SuctionRobotController implements RobotController {
       r.elapsed=Math.min(r.duration+MOTION.contactHold,r.elapsed+dt);
       const progress=minimumJerk(Math.min(1,r.elapsed/r.duration));
       r.rotation.copy(r.releaseRotation).slerp(r.destinationRotation,progress);
+      // hand05 turns with the box; the cargo pose below stays authoritative (absorbs residual tool tilt).
+      this.setToolRoll(this.toolRollFrom+(this.toolRollGoal-this.toolRollFrom)*progress);
       setCargoWorldPose(job.box,ik.grip,r.releasePosition,r.rotation);
       if(r.elapsed>=r.duration+MOTION.contactHold)this.enter("PLACE",job);
       return;
@@ -486,11 +611,15 @@ export class SuctionRobotController implements RobotController {
     if(LINEAR_PHASES.includes(r.phase))reached=this.moveVertical(job,dt);
     else {
       r.command.copy(job.pickup);
-      if(r.phase==="PRE_GRASP")r.command.y+=ROBOT_PICKING.preGraspHeight;
+      if(r.phase==="PRE_GRASP"){
+        r.command.y+=ROBOT_PICKING.preGraspHeight;
+        if(job.moving&&job.velocity)this.predictIntercept(r.command,job.velocity);
+      }
       else if(r.phase==="TRANSIT"){
         r.command.copy(job.destination);r.command.y+=ROBOT_PICKING.prePlaceHeight;
       }
-      reached=this.moveTo(r.command,job,dt);
+      const fast=r.phase==="PRE_GRASP"&&job.moving?this.approachMoving(r.command,dt):null;
+      reached=fast!==null?fast:this.moveTo(r.command,job,dt);
     }
     if(!reached)return;
     if(r.phase==="LIFT"){

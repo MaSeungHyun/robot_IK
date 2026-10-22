@@ -53,6 +53,9 @@ export const MOTION = {
   retreatHeight: 0.0375,
   angularSpeed: 1.8,
   baseAngularSpeed: 1.2,
+  /** Joint acceleration limits (rad/s^2) for the synchronized trapezoid MoveJ profile. */
+  angularAcceleration: 4.5,
+  baseAngularAcceleration: 2.5,
 };
 // Radius is robot-local; waypoint clearances and speeds use world metres.
 export const ROBOT_PICKING = {
@@ -69,6 +72,31 @@ export const ROBOT_PICKING = {
   releaseSeconds: 0.15,
   releaseAngularSpeed: Math.PI,
   loadedSpeedScale: 0.8,
+  /** hand05 tool roll (about its local Y = tool shaft) travel limit, degrees either way from the export pose. */
+  toolRollLimitDegrees: 180,
+  /** Moving pickup: GripPoint within this distance (m) of the box grasp point counts as contact. */
+  graspTolerance: 0.04,
+  /** Horizontal part of graspTolerance (m): suction must stay over the box top. */
+  graspHorizontalTolerance: 0.03,
+  /** PRE_GRASP on a moving box hands over to analytic GRASP tracking within this distance (m) of the hover point. */
+  trackHandoffTolerance: 0.06,
+  /** PRE_GRASP intercept on a moving box: lead = latency + distance / tool speed, capped (s, m/s, s). */
+  interceptLatency: 0.15,
+  interceptToolSpeed: 1,
+  interceptMaxLead: 1.5,
+  /** Box selection: sim seconds from assignment to contact (approach + vertical descent); the box must still be in reach then. */
+  pickLeadSeconds: 4,
+  /** Box selection: predicted contact point must lie this far (m) inside the reach and before the belt end. */
+  pickReachMargin: 0.15,
+  /** PRE_GRASP gives the job back early when the box will leave the pickup radius within this many sim seconds. */
+  abortLeadSeconds: 2,
+  /**
+   * PRE_GRASP on a moving box: once the planner has kept the arm waiting this many sim seconds (high playback
+   * speed, many robots sharing the per-frame budget), approach with closed-form IK instead (re-solved every
+   * approachResolveSeconds of sim time).
+   */
+  approachPlanTimeout: 0.4,
+  approachResolveSeconds: 0.1,
 };
 export const COLLISION = {
   armBoxCollisions: false,
@@ -88,7 +116,19 @@ export const IK_CONFIG = {
   wristTravelDegrees: [-180, 180] as const,
   // Planned motion only: the upper arm (hand01->hand02) must not pitch below horizontal toward the pallet/conveyor. Manual joint control stays unlimited.
   shoulderMinimumElevationDegrees: 0,
+  /**
+   * During pickup contact (GRASP/ATTACH/LIFT) the upper arm may dip this far below horizontal: a box passing close
+   * to the base is otherwise unreachable and the robot hovers until the box leaves (missed pick).
+   */
+  contactShoulderMinimumElevationDegrees: -30,
   planningBudgetMs: 4,
+  /**
+   * Deterministic planning rate: generator steps a robot's planner may advance per second of SIM time. Planning
+   * progress is tied to simulated time (never wall-clock ms), so outcomes do not depend on playback speed or CPU.
+   */
+  planningStepsPerSecond: 900,
+  /** Same for the rear-transfer preparation that runs alongside LIFT. */
+  transferPlanningStepsPerSecond: 300,
   // Rendered app: one IK planning budget per frame shared round-robin by the robots with pending plans.
   frameBudgetMs: 5,
   // Below this per-robot share the planners take turns instead of all getting a sliver.

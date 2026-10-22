@@ -10,7 +10,7 @@ import type {
 import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
 import type { EquipmentSnapshot } from "@/types/simulation";
-import { BOX_SIZES, STREAM_CONFIG, MOTION } from "@/constants/simulation";
+import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING } from "@/constants/simulation";
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
 import { amrSpeedFactor, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
@@ -143,6 +143,9 @@ export class FactorySimulator {
   readonly transport = new TransportQueue();
   /** Stations whose current full pallet was already reported (palletFull log); cleared on replacement. */
   private fullReported = new Set<PalletController>();
+  /** Per-step scratch (advance runs every fixed step; avoid allocations). */
+  private readonly reachableScratch = new Set<CargoGrade>();
+  private readonly shipmentScratch: Shipment[] = [];
   constructor(
     objects: SceneEquipment[],
     box: Group,
@@ -410,7 +413,8 @@ export class FactorySimulator {
       const filter = config.pickFilter ?? "all";
       // Grades that have a pallet within this robot's reach. With the "all" filter a box
       // goes to a pallet of its own grade when one exists, otherwise to any pallet (legacy).
-      const reachable = new Set<CargoGrade>();
+      const reachable = this.reachableScratch;
+      reachable.clear();
       for (const pallet of this.palletOrder.get(robot.object.id)!)
         if (
           settings[pallet.object.id].enabled &&
@@ -448,15 +452,13 @@ export class FactorySimulator {
           )
             continue;
           const speed = beltSpeedOf(settings[box.belt.id]);
-          const predicted = beltPoint(
-            box.belt,
-            Math.min(
-              beltLength(box.belt),
-              box.distance + speed * MOTION.predictionSeconds,
-            ),
-          );
+          // Where the box will be at contact (approach + descent). A box that will have left the reach or the
+          // belt (reserved boxes stop at its end and are then given up) by then is left for downstream.
+          const contactDistance = box.distance + speed * ROBOT_PICKING.pickLeadSeconds;
+          if (contactDistance > beltLength(box.belt) - ROBOT_PICKING.pickReachMargin) continue;
+          const predicted = beltPoint(box.belt, contactDistance);
           this.point.set(predicted.x, box.node.position.y, predicted.z);
-          if (distance(robot.object, this.point) > config.reach) continue;
+          if (distance(robot.object, this.point) > config.reach - ROBOT_PICKING.pickReachMargin) continue;
           this.assign(robot, pallet, slot, box);
           assigned = true;
           break;
@@ -539,7 +541,10 @@ export class FactorySimulator {
       if (cleared && !occupied) this.replacePallet(shipment);
     }
     // A dropped pallet stays on its dock until the delivering AMR has driven clear.
-    for (const shipment of [...this.shipments]) {
+    const pending = this.shipmentScratch;
+    pending.length = 0;
+    for (const shipment of this.shipments) pending.push(shipment);
+    for (const shipment of pending) {
       if (shipment.stored) {
         this.finishStorage(shipment);
         continue;
