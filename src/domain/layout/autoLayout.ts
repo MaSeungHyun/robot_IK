@@ -13,6 +13,11 @@ import type { TemplateLink } from "@/types/links";
 import type { SceneTemplate, TemplateEquipment } from "@/types/sceneTemplate";
 import { aisleWidth, closenessCost, inletSegments, segmentsCross } from "@/domain/layout/designRules";
 
+/** Drop-in animation when an auto-layout is applied: linear fall time (ms) and start height (m). */
+export const AUTO_LAYOUT_DROP_IN_DURATION_MS = 300;
+export const AUTO_LAYOUT_DROP_IN_HEIGHT = 2.5;
+export const AUTO_LAYOUT_DROP_IN_STAGGER_MS = 65;
+
 export type Wall = "south" | "north" | "east" | "west";
 export type LayoutConstraints = {
   /** Floor size in m (rounded up to whole cells). */
