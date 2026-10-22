@@ -93,6 +93,36 @@ export default function ThumbnailBaker() {
     canvas.height = HEIGHT;
     const context = canvas.getContext("2d")!,
       image = context.createImageData(WIDTH, HEIGHT);
+    // Raw render, then trimmed to the model's opaque pixels and re-fitted into the card: bounding-
+    // sphere framing left tall/asymmetric models (the raised robot arm) floating in empty space.
+    const raw = document.createElement("canvas");
+    raw.width = WIDTH;
+    raw.height = HEIGHT;
+    const rawContext = raw.getContext("2d")!;
+    /** Crops to the opaque pixels and re-fits them into the card; null = keep the raw render. */
+    const trimmed = (buffer: Uint8Array): string | null => {
+      try {
+        // Single pass over the GL buffer (rows bottom-up), no spreads or recursion.
+        let minX = WIDTH, minY = HEIGHT, maxX = -1, maxY = -1;
+        for (let i = 3, p = 0; i < buffer.length; i += 4, p++) {
+          if (buffer[i] <= 8) continue;
+          const x = p % WIDTH, y = HEIGHT - 1 - ((p - x) / WIDTH);
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+        if (maxX < 0) return null;
+        const w = maxX - minX + 1, h = maxY - minY + 1, pad = 0.08;
+        const fit = Math.min((WIDTH * (1 - pad * 2)) / w, (HEIGHT * (1 - pad * 2)) / h, 2);
+        const dw = w * fit, dh = h * fit;
+        context.clearRect(0, 0, WIDTH, HEIGHT);
+        context.drawImage(raw, minX, minY, w, h, (WIDTH - dw) / 2, (HEIGHT - dh) / 2, dw, dh);
+        return canvas.toDataURL("image/png");
+      } catch {
+        return null;
+      }
+    };
     const previousTarget = gl.getRenderTarget(),
       previousColor = gl.getClearColor(new Color()),
       previousAlpha = gl.getClearAlpha();
@@ -114,12 +144,12 @@ export default function ThumbnailBaker() {
         // GL rows run bottom-up.
         for (let y = 0; y < HEIGHT; y++)
           image.data.set(pixels.subarray((HEIGHT - 1 - y) * WIDTH * 4, (HEIGHT - y) * WIDTH * 4), y * WIDTH * 4);
-        context.putImageData(image, 0, 0);
-        result[key] = canvas.toDataURL("image/png");
+        rawContext.putImageData(image, 0, 0);
+        result[key] = trimmed(pixels) ?? raw.toDataURL("image/png");
         scene.remove(model);
       } catch (error) {
         scene.remove(model);
-        log("warning", `썸네일 렌더 실패: ${key}`, error instanceof Error ? error.message : String(error));
+        log("warning", `썸네일 렌더 실패: ${key}`, error instanceof Error ? (error.stack ?? error.message) : String(error));
       }
     } finally {
       gl.setRenderTarget(previousTarget);
