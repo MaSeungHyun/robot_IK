@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { useSceneStore } from "@/stores/useSceneStore";
-import { useModeStore } from "@/stores/useModeStore";
 import type { InspectorTab, WorkspaceMode } from "@/types/hud";
 
 interface HudState {
@@ -13,7 +12,6 @@ interface HudState {
 export const useHudStore = create<HudState>((set) => ({
   inspectorTab: "equipments",
   selectWorkspaceMode: (mode) => {
-    if (useModeStore.getState().mode !== "simulation") return;
     const scene = useSceneStore.getState();
     const currentMode = scene.editing ? "edit" : "play";
     if (mode === currentMode) {

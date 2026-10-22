@@ -1,7 +1,6 @@
 import type { EquipmentTelemetry } from "@/types/equipment";
 import type { ScannerSnapshot } from "@/types/scanner";
 
-export type SimulationSceneMode = "robot" | "conveyor" | "amr" | "simulator";
 export type EquipmentSnapshot={
   elapsed:number;
   scanners?: ScannerSnapshot[];

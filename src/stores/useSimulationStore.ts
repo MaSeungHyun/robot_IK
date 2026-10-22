@@ -1,10 +1,9 @@
 import type { EquipmentTelemetry } from "@/types/equipment";
 import { create } from "zustand";
 import { ROBOT_PICKING } from "../constants/simulation";
-import type { PackingSnapshot } from "@/domain/pallet/packing/packingDiagnostics";
 import type { StreamStats } from "../types/conveyor";
-import type { JointAngleReading, RobotTransferMode, RobotJointSnapshot } from "../types/robot";
-import type { SimulationSceneMode, EquipmentSnapshot } from "../types/simulation";
+import type { RobotTransferMode, RobotJointSnapshot } from "../types/robot";
+import type { EquipmentSnapshot } from "../types/simulation";
 import { PLAYBACK_LIMITS } from "../constants/playback";
 
 type Update<T> = T | ((current: T) => T);
@@ -17,35 +16,25 @@ interface SimulationState {
   setMockTelemetry: (readings: Record<string, EquipmentTelemetry>) => void;
   equipment: EquipmentSnapshot | null;
   setEquipment: (equipment: EquipmentSnapshot | null) => void;
-  sceneMode: SimulationSceneMode;
-  setSceneMode: (value: SimulationSceneMode) => void;
   transferMode: RobotTransferMode;
-  setTransferMode: (value: RobotTransferMode) => void;
-  diagnostics: PackingSnapshot | null;
   stats: StreamStats;
+  /** Bumped by reset(): remounts the simulation scene (Viewport's SceneBoundary key). */
   run: number;
+  /** Play/pause of the simulation (edit vs play mode is useSceneStore.editing). */
   running: boolean;
   speed: number;
   setSpeed: (speed: number) => void;
   progress: Progress;
-  angles: JointAngleReading[] | null;
-  layer: string;
-  cell: { x: number; z: number } | null;
-  setDiagnostics: (value: PackingSnapshot | null) => void;
   setStats: (value: StreamStats) => void;
-  setRun: (value: Update<number>) => void;
   setRunning: (value: Update<boolean>) => void;
   setProgress: (value: Progress) => void;
-  setAngles: (value: Update<JointAngleReading[] | null>) => void;
-  setLayer: (value: string) => void;
-  setCell: (value: { x: number; z: number } | null) => void;
   reset: () => void;
 }
-const initialStats = (mode: SimulationSceneMode = "simulator"): StreamStats => ({
+const initialStats = (): StreamStats => ({
   spawned: 0,
   placed: 0,
   passed: 0,
-  live: mode === "conveyor" ? 3 : 0,
+  live: 0,
   utilization: 0,
   full: false,
   size: "",
@@ -79,54 +68,11 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   setMockTelemetry: (mockTelemetry) => set({ mockTelemetry }),
   equipment: null,
   setEquipment: (equipment) => set({ equipment }),
-  sceneMode: "simulator",
-  setSceneMode: (sceneMode) =>
-    set((state) =>
-      state.sceneMode === sceneMode
-        ? {}
-        : {
-            sceneMode,
-            run: state.run + 1,
-            running: false,
-            equipment: null,
-            diagnostics: null,
-            stats: initialStats(sceneMode),
-            progress: initialProgress(),
-            angles: null,
-            robotJointAngles: {},
-            mockTelemetry: {},
-            layer: "top",
-            cell: null,
-          },
-    ),
   transferMode: ROBOT_PICKING.transferMode,
-  setTransferMode: (transferMode) =>
-    set((state) =>
-      state.transferMode === transferMode
-        ? {}
-        : {
-            transferMode,
-            run: state.run + 1,
-            running: false,
-            diagnostics: null,
-            equipment: null,
-            stats: initialStats(state.sceneMode),
-            progress: initialProgress(),
-            angles: null,
-            robotJointAngles: {},
-            mockTelemetry: {},
-            layer: "top",
-            cell: null,
-          },
-    ),
-  diagnostics: null,
   stats: initialStats(),
   run: 0,
   running: false,
   progress: initialProgress(),
-  angles: null,
-  layer: "top",
-  cell: null,
   speed: 1,
   setSpeed: (speed) => {
     if (
@@ -136,28 +82,18 @@ export const useSimulationStore = create<SimulationState>((set) => ({
     )
       set({ speed });
   },
-  setDiagnostics: (diagnostics) => set({ diagnostics }),
   setStats: (stats) => set({ stats }),
-  setRun: (value) => set((state) => ({ run: resolve(value, state.run) })),
   setRunning: (value) =>
     set((state) => ({ running: resolve(value, state.running) })),
   setProgress: (progress) => set({ progress }),
-  setAngles: (value) =>
-    set((state) => ({ angles: resolve(value, state.angles) })),
-  setLayer: (layer) => set({ layer }),
-  setCell: (cell) => set({ cell }),
   reset: () =>
     set((state) => ({
       run: state.run + 1,
       running: false,
-      diagnostics: null,
       equipment: null,
-      stats: initialStats(state.sceneMode),
+      stats: initialStats(),
       progress: initialProgress(),
-      angles: null,
       robotJointAngles: {},
       mockTelemetry: {},
-      layer: "top",
-      cell: null,
     })),
 }));

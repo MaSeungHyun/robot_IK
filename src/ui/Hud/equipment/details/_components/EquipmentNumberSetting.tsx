@@ -1,5 +1,4 @@
 import { applyEquipmentSettings } from "@/stores/actions/applyEquipmentSettings";
-import { useModeStore } from "@/stores/useModeStore";
 import { DETAIL_INPUT_CLASS_NAME } from "@/ui/Hud/equipment/details/styles";
 import { useSceneStore } from "@/stores/useSceneStore";
 import NumberField from "@/components/NumberField";
@@ -33,7 +32,6 @@ function read(field: Field, config: EquipmentSettings) {
 
 export default function EquipmentNumberSetting({ id, field, label, unit, min, max, exclusiveMin, integer = false }: Props) {
   const config = useSceneStore((state) => state.settings[id]);
-  const readOnly = useModeStore((state) => state.mode !== "simulation");
 
   if (!config) return null;
 
@@ -47,7 +45,6 @@ export default function EquipmentNumberSetting({ id, field, label, unit, min, ma
       exclusiveMin={exclusiveMin}
       integer={integer}
       decimals={2}
-      disabled={readOnly}
       inputClassName={DETAIL_INPUT_CLASS_NAME}
       onCommit={(value) =>
         applyEquipmentSettings(

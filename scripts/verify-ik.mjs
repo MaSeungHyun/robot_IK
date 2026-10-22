@@ -45,7 +45,6 @@ const sourcePaths = {
   sceneTemplates:'src/constants/sceneTemplates.ts',
   applySceneTemplate:'src/stores/actions/applySceneTemplate.ts',
   useHudStore:'src/stores/useHudStore.ts',
-  useModeStore:'src/stores/useModeStore.ts',
   applyEquipmentSettings:'src/stores/actions/applyEquipmentSettings.ts',
   telemetry:'src/constants/telemetry.ts',
   equipmentTelemetry:'src/mock/equipmentTelemetry.ts',
@@ -93,12 +92,10 @@ if(process.argv.includes('--templates')) {
   const {SCENE_TEMPLATES:templates}=await import('../.tmp/ik-tests/sceneTemplates.mjs');
   const {applySceneTemplate:apply}=await import('../.tmp/ik-tests/applySceneTemplate.mjs');
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
-  const {useModeStore:mode}=await import('../.tmp/ik-tests/useModeStore.mjs');
   const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
   const {useHudStore:hud}=await import('../.tmp/ik-tests/useHudStore.mjs');
   const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
   const {beltConnections}=await import('../.tmp/ik-tests/conveyorLayout.mjs');
-  mode.getState().setMode('simulation');
   scene.getState().clear();
   scene.getState().add('robot',{x:9,z:9,yaw:0});
   const previous=scene.getState().objects;
@@ -109,9 +106,6 @@ if(process.argv.includes('--templates')) {
   if(scene.getState().objects.length!==3)throw Error('Template redo failed');
   const unchanged=scene.getState().objects;
   if(apply({...templates[0],equipment:[{kind:'robot',x:NaN,z:0,yaw:0}]})||scene.getState().objects!==unchanged)throw Error('Invalid template replaced scene');
-  mode.getState().setMode('monitoring');
-  if(apply(templates[0]))throw Error('Monitoring accepted a template');
-  mode.getState().setMode('simulation');
   for(const template of templates){
     if(!apply(template))throw Error(`Could not load ${template.id}`);
     const state=scene.getState();
@@ -271,8 +265,6 @@ if(process.argv.includes('--hud-workspace')){
   const {useHudStore:hud}=await import('../.tmp/ik-tests/useHudStore.mjs');
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
   const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
-  const {useModeStore:mode}=await import('../.tmp/ik-tests/useModeStore.mjs');
-  mode.getState().setMode('simulation');
   scene.getState().example();
   const initialRun=simulation.getState().run;
   hud.getState().closeWorkspacePanel();
@@ -295,17 +287,13 @@ if(process.argv.includes('--hud-workspace')){
   hud.getState().toggleInspectorTab('details');assertPlayback();
   if(hud.getState().inspectorTab!==null)throw Error('Inspector close failed');
   hud.getState().selectWorkspaceMode('play');assertPlayback();
-  mode.getState().setMode('monitoring');
-  hud.getState().selectWorkspaceMode('edit');assertPlayback();
   hud.getState().toggleInspectorTab('dashboard');assertPlayback();
-  mode.getState().setMode('simulation');
   hud.getState().selectWorkspaceMode('edit');
   if(!scene.getState().editing||simulation.getState().running)throw Error('Edit transition did not stop simulation');
-  console.log('HUD: Edit/Play transitions, validation, independent panel visibility, uninterrupted playback and monitoring guards passed');
+  console.log('HUD: Edit/Play transitions, validation, independent panel visibility, uninterrupted playback passed');
   process.exit(0);
 }
 if(process.argv.includes('--equipment-settings')){
-  const {useModeStore:mode}=await import('../.tmp/ik-tests/useModeStore.mjs');
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
   const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
   const {applyEquipmentSettings:apply}=await import('../.tmp/ik-tests/applyEquipmentSettings.mjs');
@@ -313,14 +301,10 @@ if(process.argv.includes('--equipment-settings')){
   const id=scene.getState().objects.find(object=>object.kind==='robot').id;
   simulation.setState({running:true});
   const run=simulation.getState().run;
-  mode.getState().setMode('simulation');
   if(!apply(id,{speed:2})||scene.getState().settings[id].speed!==2)throw Error('Simulation settings were not applied');
   if(simulation.getState().run!==run||!simulation.getState().running)throw Error('Settings reset playback');
-  mode.getState().setMode('monitoring');
-  if(apply(id,{speed:3})||scene.getState().settings[id].speed!==2)throw Error('Monitoring settings were writable');
-  mode.getState().setMode('simulation');
   if(apply('missing',{speed:2}))throw Error('Missing equipment accepted a command');
-  console.log('Equipment settings: simulation updates, uninterrupted playback, read-only monitoring and missing equipment passed');
+  console.log('Equipment settings: simulation updates, uninterrupted playback and missing equipment passed');
   process.exit(0);
 }
 if(process.argv.includes('--editor-history')){
@@ -727,7 +711,7 @@ if(process.argv.includes('--conveyor-layout')){
 if(process.argv.includes('--scene-state')){
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
   const {useSimulationStore:simulation}=await import('../.tmp/ik-tests/useSimulationStore.mjs');
-  simulation.setState({run:10,sceneMode:'simulator',running:false});
+  simulation.setState({run:10,running:false});
   let resets=0;
   const unsubscribe=simulation.subscribe(()=>resets++);
   scene.getState().example();

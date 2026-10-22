@@ -1,7 +1,6 @@
 import IconButton from "@/components/IconButton";
 import { INSPECTOR_TABS } from "@/constants/hud";
 import { useHudStore } from "@/stores/useHudStore";
-import { useModeStore } from "@/stores/useModeStore";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useDashboardStore } from "@/stores/useDashboardStore";
 
@@ -9,13 +8,12 @@ import { useDashboardStore } from "@/stores/useDashboardStore";
 const INSPECTOR_TAB_LABELS: Record<string, string> = { equipments: "설비 목록", details: "상세 정보", dashboard: "대시보드" };
 
 export default function InspectorTabs() {
-  const mode = useModeStore((state) => state.mode);
   const editing = useSceneStore((state) => state.editing);
   const activeTab = useHudStore((state) => state.inspectorTab);
   const toggleTab = useHudStore((state) => state.toggleInspectorTab);
   const dashboardOpen = useDashboardStore((state) => state.open);
   const setDashboardOpen = useDashboardStore((state) => state.setOpen);
-  if (mode === "simulation" && editing) return null;
+  if (editing) return null;
 
   return (
     <nav aria-label="정보 패널" className="ml-auto flex items-center gap-1">

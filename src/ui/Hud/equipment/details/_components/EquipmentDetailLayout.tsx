@@ -5,7 +5,6 @@ import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection"
 import LinkSection from "@/ui/Hud/equipment/details/_components/LinkSection";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
-import { useModeStore } from "@/stores/useModeStore";
 import { useHudStore } from "@/stores/useHudStore";
 import Icon from "@/components/Icon";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
@@ -26,7 +25,6 @@ export default function EquipmentDetailLayout({
 }: Props) {
   const inspect = useSceneStore((state) => state.inspect);
   const selectTab = useHudStore((state) => state.selectInspectorTab);
-  const readOnly = useModeStore((state) => state.mode !== "simulation");
   const tracking = useCameraTrackingStore((state) => state.trackedId === object.id);
   const toggleTracking = useCameraTrackingStore((state) => state.toggle);
 
@@ -61,15 +59,9 @@ export default function EquipmentDetailLayout({
       <EquipmentIdentity object={object} status={status} />
       {settings && (
         <>
-          {readOnly && (
-            <p className="mt-2 text-[11px] text-text-secondary">
-              모니터링에서는 설정을 조회할 수 있습니다.
-            </p>
-          )}
           <fieldset
-            disabled={readOnly}
             aria-label={`${object.name} 설정`}
-            className="min-w-0 disabled:opacity-60"
+            className="min-w-0"
           >
             {settings}
           </fieldset>

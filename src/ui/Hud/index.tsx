@@ -1,4 +1,3 @@
-import { useModeStore } from "@/stores/useModeStore";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useHudStore } from "@/stores/useHudStore";
 import useEditorShortcuts from "@/hooks/useEditorShortcuts";
@@ -18,12 +17,10 @@ import EditorToolbar from "@/ui/Hud/editor/EditorToolbar";
 import DashboardDialog from "@/ui/Hud/dashboard/full/DashboardDialog";
 
 export default function Hud() {
-  const mode = useModeStore((state) => state.mode);
   const editing = useSceneStore((state) => state.editing);
   const selected = useSceneStore((state) => state.selected);
   const inspectorTab = useHudStore((state) => state.inspectorTab);
-  const simulation = mode === "simulation";
-  const showEditor = simulation && editing;
+  const showEditor = editing;
   const showInspector = !showEditor && inspectorTab !== null;
   useEditorShortcuts(showEditor);
 
