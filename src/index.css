@@ -23,6 +23,8 @@
   --color-idle: #8ea9cf;
   --color-offline: #536a84;
   --color-info: #1886f2;
+  /* Equipment charging state (violet, not blue). */
+  --color-charging: #b48cf2;
 
   --color-tracking-indicator: #02cfff;
 

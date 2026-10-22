@@ -22,6 +22,7 @@ const BAR_TONES: Record<BadgeTone, string> = {
   idle: "bg-idle",
   offline: "bg-offline",
   info: "bg-info",
+  charging: "bg-charging",
 };
 
 const TEXT_TONES: Record<BadgeTone, string> = {
@@ -32,6 +33,7 @@ const TEXT_TONES: Record<BadgeTone, string> = {
   idle: "text-idle",
   offline: "text-offline",
   info: "text-info",
+  charging: "text-charging",
 };
 
 /** Horizontal 0-100% bar using the shared status tone tokens. */

@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
-import Badge, { type BadgeTone } from "@/components/Badge";
+import Badge from "@/components/Badge";
 import Button from "@/components/Button";
 import RobotStatusSection from "@/ui/Hud/equipment/robot/RobotStatusSection";
 import AMRStatusSection from "@/ui/Hud/equipment/amr/AMRStatusSection";
 import StaticEquipmentSection from "@/ui/Hud/equipment/StaticEquipmentSection";
 import {
-  AGENT_TONES,
   KIND_FILTERS,
-  ROBOT_STATUSES,
   STATUS_SUMMARY,
-  conveyorStatus,
-  scannerStatus,
+  agentState,
+  conveyorState,
+  robotState,
+  scannerState,
+  type EquipmentState,
   type KindFilter,
 } from "@/ui/Hud/equipment/equipmentStatus";
 import Panel from "@/ui/Hud/_components/Panel";
@@ -24,7 +25,7 @@ export default function EquipmentStatusPanel() {
   const objects = useSceneStore((state) => state.objects);
   const settings = useSceneStore((state) => state.settings);
   const [kind, setKind] = useState<KindFilter>("all");
-  const [status, setStatus] = useState<BadgeTone | null>(null);
+  const [status, setStatus] = useState<EquipmentState | null>(null);
 
   // One entry per listed equipment; the outbound area (dock) is not equipment status.
   const entries = useMemo(() => {
@@ -32,17 +33,17 @@ export default function EquipmentStatusPanel() {
     const list: {
       id: string;
       kind: Exclude<KindFilter, "all">;
-      tone: BadgeTone;
+      state: EquipmentState;
     }[] = [
       ...equipment.robots.map((robot) => ({
         id: robot.id,
         kind: "robot" as const,
-        tone: ROBOT_STATUSES[robot.state].tone,
+        state: robotState(robot.state),
       })),
       ...equipment.agents.map((agent) => ({
         id: agent.id,
         kind: "amr" as const,
-        tone: AGENT_TONES[agent.state],
+        state: agentState(agent),
       })),
     ];
     for (const object of objects) {
@@ -51,16 +52,16 @@ export default function EquipmentStatusPanel() {
         list.push({
           id: object.id,
           kind: "conveyor",
-          tone: conveyorStatus(enabled, running).tone,
+          state: conveyorState(enabled, running),
         });
       if (object.kind === "scanner")
         list.push({
           id: object.id,
           kind: "scanner",
-          tone: scannerStatus(
+          state: scannerState(
             enabled,
             equipment.scanners?.find((scanner) => scanner.id === object.id),
-          ).tone,
+          ),
         });
     }
     return list;
@@ -82,7 +83,7 @@ export default function EquipmentStatusPanel() {
           .filter(
             (entry) =>
               (activeKind === "all" || entry.kind === activeKind) &&
-              (!status || entry.tone === status),
+              (!status || entry.state === status),
           )
           .map((entry) => entry.id),
       ),
@@ -93,7 +94,7 @@ export default function EquipmentStatusPanel() {
     () =>
       STATUS_SUMMARY.map((item) => ({
         ...item,
-        count: entries.filter((entry) => entry.tone === item.tone).length,
+        count: entries.filter((entry) => entry.state === item.state).length,
       })).filter((item) => item.count > 0),
     [entries],
   );
@@ -133,16 +134,16 @@ export default function EquipmentStatusPanel() {
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {counts.map(({ tone, label, count }) => (
+              {counts.map(({ state, tone, label, count }) => (
                 <button
-                  key={tone}
+                  key={state}
                   type="button"
-                  aria-pressed={status === tone}
+                  aria-pressed={status === state}
                   title={`${label} 상태만 보기`}
-                  onClick={() => setStatus(status === tone ? null : tone)}
+                  onClick={() => setStatus(status === state ? null : state)}
                   className={cn(
                     "rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-primary",
-                    status && status !== tone && "opacity-40",
+                    status && status !== state && "opacity-40",
                   )}
                 >
                   <Badge tone={tone}>

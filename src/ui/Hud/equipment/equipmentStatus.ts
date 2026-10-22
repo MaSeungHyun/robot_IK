@@ -1,29 +1,62 @@
 import type { BadgeTone } from "@/components/Badge";
+import { AMR_BATTERY } from "@/constants/simulatorLayout";
 import type { ScannerSnapshot } from "@/types/scanner";
 import type { EquipmentSnapshot } from "@/types/simulation";
 
 export type StatusLabel = { label: string; tone: BadgeTone };
 
-export const ROBOT_STATUSES = {
-  working: { label: "작업 중", tone: "operating" },
-  idle: { label: "대기", tone: "idle" },
-  disabled: { label: "중지", tone: "offline" },
-} satisfies Record<EquipmentSnapshot["robots"][number]["state"], StatusLabel>;
+/**
+ * Equipment status shown in the 장비 현황 panel: only these five. Detailed sub-states stay in
+ * tooltips. Priority when several apply: 고장 > 충전 > 경고 > 가동 > 대기.
+ */
+export type EquipmentState = "fault" | "charging" | "warning" | "operating" | "idle";
 
-export const AGENT_TONES = {
+export const EQUIPMENT_STATES: Record<EquipmentState, StatusLabel> = {
+  operating: { label: "가동", tone: "operating" },
+  idle: { label: "대기", tone: "idle" },
+  warning: { label: "경고", tone: "warning" },
+  fault: { label: "고장", tone: "fault" },
+  charging: { label: "충전", tone: "charging" },
+};
+
+/** Low battery (경고): below the level at which an idle AMR goes to charge. */
+export const LOW_BATTERY_PERCENT = AMR_BATTERY.chargeBelow;
+
+type RobotState = EquipmentSnapshot["robots"][number]["state"];
+type Agent = EquipmentSnapshot["agents"][number];
+type AgentState = Agent["state"];
+
+export const ROBOT_STATES = {
+  working: "operating",
   idle: "idle",
+  disabled: "idle",
+} satisfies Record<RobotState, EquipmentState>;
+
+export const AGENT_STATES = {
+  idle: "idle",
+  waiting: "idle",
+  disabled: "idle",
   pickup: "operating",
   loading: "operating",
   dispatch: "operating",
   unloading: "operating",
   storing: "operating",
-  returning: "info",
-  blocked: "warning",
-  waiting: "idle",
-  yielding: "warning",
-  charging: "operating",
-  disabled: "offline",
-} satisfies Record<EquipmentSnapshot["agents"][number]["state"], BadgeTone>;
+  returning: "operating",
+  yielding: "operating",
+  charging: "charging",
+  blocked: "fault",
+} satisfies Record<AgentState, EquipmentState>;
+
+export function robotState(state: RobotState): EquipmentState {
+  return ROBOT_STATES[state];
+}
+
+export function agentState(agent: Pick<Agent, "state" | "battery">): EquipmentState {
+  const base: EquipmentState = AGENT_STATES[agent.state];
+  if (base === "fault" || base === "charging") return base;
+  if (agent.state !== "disabled" && Number.isFinite(agent.battery) && agent.battery < LOW_BATTERY_PERCENT) return "warning";
+  return base;
+}
 
 export function palletStatus({
   shipping,
@@ -34,41 +67,25 @@ export function palletStatus({
   "shipping" | "count" | "capacity"
 >): StatusLabel {
   if (shipping) return { label: "운반 중", tone: "operating" };
-  if (count >= capacity) return { label: "적재 완료", tone: "info" };
+  if (count >= capacity) return { label: "적재 완료", tone: "safe" };
   if (count > 0) return { label: "적재 중", tone: "operating" };
   return { label: "대기", tone: "idle" };
 }
 
-export function conveyorStatus(
-  enabled: boolean | undefined,
-  running: boolean,
-): StatusLabel {
-  if (enabled === false) return { label: "중지", tone: "offline" };
-  return running
-    ? { label: "이송 중", tone: "operating" }
-    : { label: "일시 정지", tone: "idle" };
+/** Conveyor: 가동 while the simulation runs it, otherwise 대기 (stopped/disabled included). */
+export function conveyorState(enabled: boolean | undefined, running: boolean): EquipmentState {
+  return enabled !== false && running ? "operating" : "idle";
 }
 
-export function scannerStatus(
-  enabled: boolean | undefined,
-  scanner: ScannerSnapshot | undefined,
-): StatusLabel {
-  if (enabled === false) return { label: "중지", tone: "offline" };
-  if (scanner?.lastResult === "fault") return { label: "불량", tone: "fault" };
-  if (scanner?.lastResult === "safe") return { label: "통과", tone: "safe" };
-  return { label: "검사 대기", tone: "idle" };
+/** Scanner: inspecting (pass or defect reject) is 가동; disabled or nothing scanned yet is 대기. */
+export function scannerState(enabled: boolean | undefined, scanner: ScannerSnapshot | undefined): EquipmentState {
+  return enabled !== false && scanner?.lastResult ? "operating" : "idle";
 }
 
-/** Summary badge labels, in display order. */
-export const STATUS_SUMMARY: { tone: BadgeTone; label: string }[] = [
-  { tone: "operating", label: "가동" },
-  { tone: "safe", label: "정상" },
-  { tone: "info", label: "완료·충전" },
-  { tone: "warning", label: "경고" },
-  { tone: "fault", label: "이상" },
-  { tone: "idle", label: "대기" },
-  { tone: "offline", label: "중지" },
-];
+/** Summary badges, in display order. */
+export const STATUS_SUMMARY: (StatusLabel & { state: EquipmentState })[] = (
+  ["operating", "idle", "warning", "fault", "charging"] as const
+).map((state) => ({ state, ...EQUIPMENT_STATES[state] }));
 
 export const KIND_FILTERS = [
   { value: "all", label: "전체" },

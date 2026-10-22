@@ -3,8 +3,9 @@ import { useShallow } from "zustand/react/shallow";
 import Badge from "@/components/Badge";
 import EquipmentCard from "@/ui/Hud/equipment/_components/EquipmentCard";
 import {
-  conveyorStatus,
-  scannerStatus,
+  EQUIPMENT_STATES,
+  conveyorState,
+  scannerState,
 } from "@/ui/Hud/equipment/equipmentStatus";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
@@ -50,9 +51,23 @@ const StaticEquipmentItem = memo(function StaticEquipmentItem({
       : undefined,
   );
   const status =
-    object.kind === "scanner"
-      ? scannerStatus(enabled, scanner)
-      : conveyorStatus(enabled, running);
+    EQUIPMENT_STATES[
+      object.kind === "scanner"
+        ? scannerState(enabled, scanner)
+        : conveyorState(enabled, running)
+    ];
+  const detail =
+    enabled === false
+      ? "중지"
+      : object.kind === "scanner"
+        ? scanner?.lastResult === "fault"
+          ? "불량 배출"
+          : scanner?.lastResult === "safe"
+            ? "통과"
+            : "검사 대기"
+        : running
+          ? "이송 중"
+          : "일시 정지";
   const metric =
     object.kind === "scanner"
       ? scanner && scanner.scanned > 0
@@ -71,7 +86,7 @@ const StaticEquipmentItem = memo(function StaticEquipmentItem({
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <span className="tabular-nums text-text-secondary">{metric}</span>
-        <Badge tone={status.tone}>{status.label}</Badge>
+        <Badge tone={status.tone} title={detail}>{status.label}</Badge>
       </span>
     </EquipmentCard>
   );

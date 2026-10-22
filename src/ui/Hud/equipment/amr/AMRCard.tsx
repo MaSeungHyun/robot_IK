@@ -22,7 +22,7 @@ export default memo(function AMRCard({ agent }: Props) {
     <EquipmentCard id={agent.id} name={agent.name}>
       <div className="flex items-center justify-between text-xs">
         <span>{agent.name}</span>
-        <AMRStatusBadge state={agent.state} />
+        <AMRStatusBadge state={agent.state} battery={battery} />
       </div>
 
       {battery !== undefined && Number.isFinite(battery) ? (
@@ -30,7 +30,7 @@ export default memo(function AMRCard({ agent }: Props) {
           label={`${agent.name} 배터리`}
           caption="배터리"
           value={smoothBattery ?? battery}
-          tone={charging ? "info" : batteryTone(battery)}
+          tone={charging ? "charging" : batteryTone(battery)}
           pulse={charging}
           className="mt-2 pr-1"
         />

@@ -8,7 +8,8 @@ export type BadgeTone =
   | "warning"
   | "idle"
   | "offline"
-  | "info";
+  | "info"
+  | "charging";
 
 type Props = ComponentProps<"span"> & { tone?: BadgeTone };
 
@@ -20,6 +21,7 @@ const TONE_STYLES: Record<BadgeTone, string> = {
   idle: "border-idle/25 bg-idle/10 text-idle",
   offline: "border-offline/25 bg-offline/10 text-offline",
   info: "border-info/25 bg-info/10 text-info",
+  charging: "border-charging/25 bg-charging/10 text-charging",
 };
 
 export default function Badge({
