@@ -8,6 +8,10 @@
   --color-text-secondary: #9fb6d0;
   
   --color-brand-primary: #02dfef;
+  /* Transform axis indicators (Blender-style X/Y/Z), muted. */
+  --color-axis-x: #d9534f;
+  --color-axis-y: #7cb342;
+  --color-axis-z: #4a90d9;
   --color-brand-secondary: #19de86;
 
   

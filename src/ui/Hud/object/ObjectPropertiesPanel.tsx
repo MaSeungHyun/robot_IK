@@ -95,29 +95,59 @@ export default function ObjectPropertiesPanel({
   const row = "grid grid-cols-[56px_1fr] items-center gap-2";
   const rowLabel = "text-xs text-text-secondary";
   // Scene pose is planar (x, z, yaw); the other axes are shown fixed.
-  const fixed = (value: number, axis: string, group: string) => (
-    <input key={axis} aria-label={`${group} ${axis}`} className={input} value={value} disabled readOnly />
+  // Thin axis colour bar inside the left edge of each transform input (X red, Y green, Z blue).
+  const AXIS_BAR = { x: "bg-axis-x", y: "bg-axis-y", z: "bg-axis-z" } as const;
+  const axisField = (
+    axis: "x" | "y" | "z",
+    key: string,
+    field: React.ReactNode,
+  ) => (
+    <span key={key} className="relative block min-w-0">
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute top-1 bottom-1 left-1 w-[3px] rounded-full ${AXIS_BAR[axis]}`}
+      />
+      {field}
+    </span>
   );
-  const pose = (axis: "x" | "z" | "yaw", label: string) => (
-    <input
-      key={label}
-      aria-label={label}
-      type="number"
-      disabled={!state.editing}
-      step={axis === "yaw" ? 15 : 0.1}
-      value={Number(
-        (axis === "yaw" ? (object.yaw * 180) / Math.PI : object[axis]).toFixed(2),
-      )}
-      onChange={(e) => {
-        const value = e.currentTarget.valueAsNumber;
-        if (Number.isFinite(value))
-          state.updatePose(object.id, {
-            [axis]: axis === "yaw" ? (value * Math.PI) / 180 : value,
-          });
-      }}
-      className={input}
-    />
-  );
+  const fixed = (value: number, axis: "x" | "y" | "z", group: string) =>
+    axisField(
+      axis,
+      axis,
+      <input
+        aria-label={`${group} ${axis}`}
+        className={`${input} pl-3`}
+        value={value}
+        disabled
+        readOnly
+      />,
+    );
+  const pose = (axis: "x" | "z" | "yaw", label: string) =>
+    axisField(
+      axis === "yaw" ? "y" : axis,
+      label,
+      <input
+        aria-label={label}
+        type="number"
+        disabled={!state.editing}
+        step={axis === "yaw" ? 15 : 0.1}
+        value={Number(
+          (axis === "yaw"
+            ? (object.yaw * 180) / Math.PI
+            : object[axis]
+          ).toFixed(2),
+        )}
+        onChange={(e) => {
+          const value = e.currentTarget.valueAsNumber;
+          if (Number.isFinite(value))
+            state.updatePose(object.id, {
+              [axis]: axis === "yaw" ? (value * Math.PI) / 180 : value,
+            });
+        }}
+        className={`${input} pl-3`}
+      />,
+    );
+
   return (
     <Panel
       aria-label="오브젝트 속성"
