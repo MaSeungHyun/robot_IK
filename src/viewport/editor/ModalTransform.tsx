@@ -155,15 +155,28 @@ export default function ModalTransform() {
       }
     };
     const down = (event: PointerEvent) => {
+      // A press on the HUD (toolbar, panels) confirms the session but must still reach its
+      // button; swallowing it made e.g. the Link button ignore the first click after G/paste.
+      if (event.target !== canvas) {
+        finish(true);
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
-      // Swallow the click that follows this pointerdown (no select/deselect/placement).
+      // Swallow only the canvas click that follows this pointerdown (no select/deselect/placement).
       const click = (next: MouseEvent) => {
-        next.stopPropagation();
-        window.removeEventListener("click", click, true);
+        if (next.target === canvas) next.stopPropagation();
+        drop();
       };
+      const drop = () => {
+        window.removeEventListener("click", click, true);
+        window.removeEventListener("pointerup", later, true);
+      };
+      // A drag never produces a click: drop the swallower right after the release instead of
+      // leaving it armed (it used to eat the next HUD click within 1s).
+      const later = () => window.setTimeout(drop, 0);
       window.addEventListener("click", click, true);
-      window.setTimeout(() => window.removeEventListener("click", click, true), 1000);
+      window.addEventListener("pointerup", later, true);
       finish(event.button === 0);
     };
     const key = (event: KeyboardEvent) => {
