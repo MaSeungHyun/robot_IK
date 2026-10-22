@@ -39,13 +39,17 @@ export default function Hud() {
         {showEditor && <AssetRail />}
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden max-sm:flex-col">
           {showEditor && <EditorToolbar />}
-          {showEditor && autoLayoutOpen && <AutoLayoutPanel />}
-          {showEditor && !autoLayoutOpen && (
+          {showEditor && (
             <PanelColumn className="left-14">
               <PlacementErrors />
             </PanelColumn>
           )}
-          {showEditor && selected && (
+          {showEditor && autoLayoutOpen && (
+            <PanelColumn right>
+              <AutoLayoutPanel />
+            </PanelColumn>
+          )}
+          {showEditor && !autoLayoutOpen && selected && (
             <PanelColumn right>
               <ObjectPropertiesPanel />
             </PanelColumn>

@@ -25,7 +25,7 @@ const RING = "focus-visible:ring-1 focus-visible:ring-brand-primary";
 const fixed1 = (value: number) => value.toFixed(1);
 const int = (value: number) => Math.round(value).toLocaleString("ko-KR");
 
-/** Floating card (left, beside the editor toolbar): constraints form -> worker search -> candidate cards. */
+/** Docked in the right properties column (replaces object properties while open): constraints form -> worker search -> candidate cards. */
 export default function AutoLayoutPanel() {
   const { form, status, progress, result, error, setForm, start, cancel, setOpen } = useAutoLayoutStore();
   const running = status === "running";
@@ -39,7 +39,7 @@ export default function AutoLayoutPanel() {
   return (
     <aside
       aria-label="자동 설계"
-      className="simulation-panel absolute top-3 left-14 z-200 flex max-h-[calc(100%-1.5rem)] w-[22rem] max-w-[calc(100%-4.5rem)] flex-col overflow-hidden rounded-lg border border-white/10 bg-bg-primary/85 text-text-primary shadow-xl backdrop-blur-lg"
+      className="simulation-panel flex min-h-0 flex-1 flex-col overflow-hidden text-text-primary"
     >
       <header className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
         <h2 className="text-sm font-semibold">자동 설계</h2>

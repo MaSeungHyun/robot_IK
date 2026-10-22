@@ -5,6 +5,7 @@ import SettingsMenu from "@/ui/Header/SettingsMenu";
 import Box from "@/components/Box";
 import ConnectionStatus from "@/ui/Header/ConnectionStatus";
 import ViewToggles from "@/ui/Header/ViewToggles";
+import AutoLayoutToggle from "@/ui/Header/AutoLayoutToggle";
 
 export default function Header() {
   return (
@@ -17,6 +18,7 @@ export default function Header() {
       <div className="flex min-w-0 items-center justify-end gap-2 max-lg:col-span-2">
         <ConnectionStatus />
         <span aria-hidden className="mx-1 h-4 w-px bg-white/10" />
+        <AutoLayoutToggle />
         <InspectorTabs />
         <ViewToggles />
         <SettingsMenu />
