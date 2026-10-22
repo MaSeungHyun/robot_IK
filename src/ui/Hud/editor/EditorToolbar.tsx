@@ -1,4 +1,5 @@
 import Icon from "@/components/Icon";
+import SideTooltip from "@/components/SideTooltip";
 import { cn } from "@/lib/style";
 import { useSceneStore, type EditorTool } from "@/stores/useSceneStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
@@ -8,7 +9,7 @@ import { useAutoLayoutStore } from "@/stores/useAutoLayoutStore";
 const ACCENT = "bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30";
 const IDLE = "bg-white/[.06] text-text-primary/80 hover:bg-white/[.11] hover:text-text-primary";
 const TOOL_BUTTON =
-  "flex size-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-1 focus-visible:ring-brand-primary";
+  "group/tip relative flex size-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-1 focus-visible:ring-brand-primary";
 
 const TOOLS: { tool: EditorTool; icon: "MousePointer2" | "Move" | "RotateCw"; label: string; key: string }[] = [
   { tool: "select", icon: "MousePointer2", label: "선택", key: "W" },
@@ -39,7 +40,6 @@ export default function EditorToolbar() {
             type="button"
             aria-label={entry.label}
             aria-pressed={active}
-            title={`${entry.label} (${entry.key})${entry.tool === "select" ? " · 선택 항목 보기 (F)" : ""}`}
             className={cn(TOOL_BUTTON, active ? ACCENT : IDLE)}
             onClick={() => {
               setLinking(false);
@@ -47,6 +47,7 @@ export default function EditorToolbar() {
             }}
           >
             <Icon icon={entry.icon} aria-hidden="true" className="size-3.5" />
+            <SideTooltip label={`${entry.label} (${entry.key})${entry.tool === "select" ? " · 선택 항목 보기 (F)" : ""}`} />
           </button>
         );
       })}
@@ -55,22 +56,22 @@ export default function EditorToolbar() {
         type="button"
         aria-label="연결"
         aria-pressed={linking}
-        title="연결 (L) · 설비를 차례로 클릭해 연결, 다시 연결하면 해제"
         className={cn(TOOL_BUTTON, linking ? ACCENT : IDLE)}
         onClick={() => setLinking(!linking)}
       >
         <Icon icon="Link" aria-hidden="true" className="size-3.5" />
+        <SideTooltip label="연결 (L) · 설비를 차례로 클릭해 연결, 다시 연결하면 해제" />
       </button>
       <span aria-hidden className="mx-1 my-0.5 h-px bg-white/10" />
       <button
         type="button"
         aria-label="자동 설계"
         aria-pressed={autoOpen}
-        title="자동 설계 · 공장 크기와 목표 처리량으로 배치 생성"
         className={cn(TOOL_BUTTON, autoOpen ? ACCENT : IDLE)}
         onClick={() => useAutoLayoutStore.getState().setOpen(!autoOpen)}
       >
         <Icon icon="WandSparkles" aria-hidden="true" className="size-3.5" />
+        <SideTooltip label="자동 설계 · 공장 크기와 목표 처리량으로 배치 생성" />
       </button>
     </div>
   );
