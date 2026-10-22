@@ -66,12 +66,33 @@ export type PalletRecord = {
 
 export type CargoMiss = { t: number; equipmentId: string; boxId?: string; reason: string };
 
+/** Flat processing log (dashboard 처리 내역): one row per line-level cargo/transport event. */
+export type CargoLogType = "inbound" | "scanPass" | "scanDefect" | "load" | "palletFull" | "pickup" | "outbound";
+export type CargoLogEntry = {
+  no: number;
+  /** Simulation time in seconds. */
+  t: number;
+  type: CargoLogType;
+  /** Box (B-xxxx) or pallet (P-xxx) id. */
+  targetId: string;
+  from?: string;
+  to?: string;
+  equipmentId?: string;
+  status: "완료" | "진행" | "불량";
+};
+/** Rows kept in the log (oldest dropped); totals below stay exact. */
+const LOG_LIMIT = 5000;
+
 const pad = (value: number, size: number) => String(value).padStart(size, "0");
 
 export class CargoRegistry {
   readonly boxes = new Map<string, BoxRecord>();
   readonly pallets = new Map<string, PalletRecord>();
   readonly misses: CargoMiss[] = [];
+  readonly log: CargoLogEntry[] = [];
+  /** Exact cumulative counts (independent of the bounded log). */
+  readonly totals = { inbound: 0, scanned: 0, defects: 0, loaded: 0, palletsFull: 0, pickups: 0, outboundPallets: 0, outboundBoxes: 0, leadTimeSum: 0 };
+  private nextLog = 1;
   /** Bumped on every change; the UI polls it at a throttled rate. */
   version = 0;
   /** Current (loading) pallet record per pallet station. */
@@ -84,6 +105,10 @@ export class CargoRegistry {
     this.warn = warn;
   }
 
+  private record(entry: Omit<CargoLogEntry, "no">) {
+    this.log.push({ no: this.nextLog++, ...entry });
+    if (this.log.length > LOG_LIMIT) this.log.splice(0, this.log.length - LOG_LIMIT);
+  }
   private touch() {
     this.version++;
   }
@@ -131,6 +156,8 @@ export class CargoRegistry {
       destination: e.destination,
       history: [{ t: e.t, type: "spawn", equipmentId: e.beltId }],
     });
+    this.totals.inbound++;
+    this.record({ t: e.t, type: "inbound", targetId: id, to: e.beltId, equipmentId: e.beltId, status: "완료" });
     this.touch();
     return id;
   }
@@ -138,6 +165,11 @@ export class CargoRegistry {
   scanBox(e: { t: number; boxId: string; scannerId: string; result: CargoGrade }) {
     const box = this.boxes.get(e.boxId);
     if (!box) return this.missing(e.t, e.scannerId, e.boxId, "스캔");
+    if (box.inspection === null) {
+      this.totals.scanned++;
+      if (e.result === "defect") this.totals.defects++;
+      this.record({ t: e.t, type: e.result === "defect" ? "scanDefect" : "scanPass", targetId: box.id, from: box.holder ?? undefined, equipmentId: e.scannerId, status: e.result === "defect" ? "불량" : "완료" });
+    }
     box.inspection ??= e.result;
     this.push(box, { t: e.t, type: "scan", equipmentId: e.scannerId, detail: e.result === "defect" ? "불량" : "정상" });
   }
@@ -176,6 +208,8 @@ export class CargoRegistry {
     box.holder = e.stationId;
     box.palletId = pallet?.id ?? null;
     if (pallet && !pallet.boxIds.includes(box.id)) pallet.boxIds.push(box.id);
+    this.totals.loaded++;
+    this.record({ t: e.t, type: "load", targetId: box.id, from: box.history.find((h) => h.type === "spawn")?.equipmentId, to: e.stationId, equipmentId: e.robotId, status: "완료" });
     this.push(box, { t: e.t, type: "place", equipmentId: e.robotId, palletId: pallet?.id });
   }
 
@@ -220,13 +254,36 @@ export class CargoRegistry {
     }
     this.touch();
   }
+  /** The loading pallet on `stationId` reached capacity (waits for transport). */
+  completePallet(e: { t: number; stationId: string }) {
+    const pallet = this.currentPallet(e.stationId);
+    if (!pallet) return;
+    this.totals.palletsFull++;
+    this.record({ t: e.t, type: "palletFull", targetId: pallet.id, from: e.stationId, equipmentId: e.stationId, status: "진행" });
+    this.touch();
+  }
+  private outbound(t: number, palletId: string, destinationId: string) {
+    const pallet = this.pallets.get(palletId);
+    if (!pallet) return;
+    this.totals.outboundPallets++;
+    for (const id of pallet.boxIds) {
+      const box = this.boxes.get(id);
+      if (!box) continue;
+      this.totals.outboundBoxes++;
+      this.totals.leadTimeSum += t - box.spawnedAt;
+    }
+    this.record({ t, type: "outbound", targetId: palletId, from: pallet.stationId, to: destinationId, equipmentId: destinationId, status: "완료" });
+  }
   /** Full pallet assigned to an AMR (it picks it up and carries it out). */
   dispatchPallet(e: { t: number; palletId: string; amrId: string; destinationId?: string }) {
     const pallet = this.pallets.get(e.palletId);
     if (pallet && e.destinationId) pallet.destination ??= e.destinationId;
+    this.totals.pickups++;
+    this.record({ t: e.t, type: "pickup", targetId: e.palletId, from: pallet?.stationId, to: e.destinationId, equipmentId: e.amrId, status: "진행" });
     this.palletEvent(e.palletId, "amr", "amr", e.amrId, { t: e.t, type: "dispatch", equipmentId: e.amrId });
   }
   storePallet(e: { t: number; palletId: string; rackId: string; slot?: number }) {
+    this.outbound(e.t, e.palletId, e.rackId);
     this.palletEvent(e.palletId, "rack", "rack", e.rackId, {
       t: e.t,
       type: "store",
@@ -235,6 +292,7 @@ export class CargoRegistry {
     });
   }
   dropPallet(e: { t: number; palletId: string; dockId: string }) {
+    this.outbound(e.t, e.palletId, e.dockId);
     this.palletEvent(e.palletId, "dock", "dock", e.dockId, { t: e.t, type: "drop", equipmentId: e.dockId });
   }
   shipPallet(e: { t: number; palletId: string; dockId: string }) {

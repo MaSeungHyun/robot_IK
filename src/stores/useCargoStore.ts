@@ -1,14 +1,17 @@
 import { create } from "zustand";
 import type { CargoRegistry } from "@/domain/cargo/CargoRegistry";
+import type { TransportQueue } from "@/domain/amr/TransportQueue";
 import { useSceneStore } from "@/stores/useSceneStore";
 
 interface CargoState {
   /** Registry of the running simulation (null in edit mode / after STOP). */
   registry: CargoRegistry | null;
+  /** Transport task queue of the running simulation (null in edit mode / after STOP). */
+  transport: TransportQueue | null;
   /** Throttled copy of registry.version: the only thing that re-renders cargo UI. */
   version: number;
   selectedBoxId: string | null;
-  setRegistry: (registry: CargoRegistry | null) => void;
+  setRegistry: (registry: CargoRegistry | null, transport?: TransportQueue | null) => void;
   /** Called at the HUD report rate; no-op when nothing changed. */
   refresh: () => void;
   selectBox: (id: string | null) => void;
@@ -16,9 +19,10 @@ interface CargoState {
 
 export const useCargoStore = create<CargoState>((set, get) => ({
   registry: null,
+  transport: null,
   version: 0,
   selectedBoxId: null,
-  setRegistry: (registry) => set({ registry, version: registry?.version ?? 0, selectedBoxId: null }),
+  setRegistry: (registry, transport = null) => set({ registry, transport, version: registry?.version ?? 0, selectedBoxId: null }),
   refresh: () => {
     const registry = get().registry;
     if (registry && registry.version !== get().version) set({ version: registry.version });

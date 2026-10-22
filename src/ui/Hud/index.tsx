@@ -14,6 +14,8 @@ import TrackingIndicator from "@/ui/tracking/TrackingIndicator";
 import AssetRail from "@/ui/Hud/asset/AssetRail";
 import ModalTransformHint from "@/ui/Hud/ModalTransformHint";
 import LineOverviewPanel from "@/ui/Hud/line/LineOverviewPanel";
+import EditorToolbar from "@/ui/Hud/editor/EditorToolbar";
+import DashboardDialog from "@/ui/Hud/dashboard/full/DashboardDialog";
 
 export default function Hud() {
   const mode = useModeStore((state) => state.mode);
@@ -36,8 +38,9 @@ export default function Hud() {
         <div className="shadow" />
         {showEditor && <AssetRail />}
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden max-sm:flex-col">
+          {showEditor && <EditorToolbar />}
           {showEditor && (
-            <PanelColumn>
+            <PanelColumn className="left-14">
               <PlacementErrors />
             </PanelColumn>
           )}
@@ -59,6 +62,7 @@ export default function Hud() {
         </div>
         {showEditor && <FloorDrawingGuide />}
         {showEditor && <ModalTransformHint />}
+        <DashboardDialog />
       </div>
     </section>
   );
