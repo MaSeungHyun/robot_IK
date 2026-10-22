@@ -15,6 +15,8 @@ import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorL
 import { createUnitBox } from "@/lib/three/modelNormalization";
 import { amrSpeedFactor, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
 import { RACK_CONFIG, rackApproachPoint, rackSlotPoint } from "@/constants/rack";
+import { LinkIndex, type SceneLink } from "@/types/links";
+import { TransportQueue } from "@/domain/amr/TransportQueue";
 import { PalletController } from "@/domain/pallet/PalletController";
 import { PalletDispatchController } from "@/domain/amr/PalletDispatchController";
 import { AMRTrafficController } from "@/domain/amr/AMRTrafficController";
@@ -23,6 +25,7 @@ import { layoutPath, routeFailureReason } from "@/domain/amr/navigation/layoutNa
 import type { NavigationObstacle } from "@/domain/amr/navigation/layoutNavigation";
 import {
   beltConnections,
+  connectedBeltIds,
   beltLength,
   beltPoint,
 } from "@/domain/conveyor/conveyorLayout";
@@ -86,6 +89,10 @@ const initialBattery = (id: string) => {
 };
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }) =>
   Math.hypot(a.x - b.x, a.z - b.z);
+/** ship() attempts per dispatch tick, and the delay before a split round continues (sim s). */
+const SHIP_ATTEMPTS_PER_TICK = 2;
+const SHIP_RESUME_S = 0.15;
+
 const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
   config?.grade ?? "normal";
 export class FactorySimulator {
@@ -110,12 +117,13 @@ export class FactorySimulator {
   private point = new Vector3();
   private palletOrder = new Map<string, PalletController[]>();
   private dispatchRetry = 0;
+  /** (pallet, AMR) pairs already tried in the current dispatch round when it was split over ticks. */
+  private dispatchSkip = 0;
   private connections = new Map<string, SceneEquipment>();
   private incoming = new Set<string>();
   private instances?: SimulationRenderer;
   private rendered = new Set<Group>();
   private renderingActive = false;
-  private random: () => number;
   private traffic = new AMRTrafficController();
   private trafficVehicles: {
     id: string;
@@ -128,6 +136,13 @@ export class FactorySimulator {
     { layout: FactoryLayout; obstacles: NavigationObstacle[] }
   >();
   private shipments: Shipment[] = [];
+  /** Equipment relations (🔗); equipment without links of a type uses the distance fallback. */
+  private links: LinkIndex;
+  /** Belts a robot picks from (linked conveyors and their connected sections); absent = any belt in reach. */
+  private feedBelts = new Map<string, Set<string>>();
+  readonly transport = new TransportQueue();
+  /** Stations whose current full pallet was already reported (palletFull log); cleared on replacement. */
+  private fullReported = new Set<PalletController>();
   constructor(
     objects: SceneEquipment[],
     box: Group,
@@ -135,12 +150,15 @@ export class FactorySimulator {
     getSettings: () => Record<string, EquipmentSettings>,
     instances?: SimulationRenderer,
     random: () => number = Math.random,
+    links: readonly SceneLink[] = [],
   ) {
-    this.random = random;
+    this.links = new LinkIndex(links);
     this.inspection = new ScannerInspection(getSettings, random);
     this.instances = instances;
     this.settings = getSettings;
     this.boxAsset = createUnitBox(box);
+    // Boxes only receive shadows (hundreds of small casters); see SceneInstances.
+    this.boxAsset.traverse((node) => { node.userData.noCastShadow = true; });
     for (const object of objects) {
       if (object.kind === "robot")
         this.robots.push({
@@ -190,17 +208,25 @@ export class FactorySimulator {
     this.racks = objects.filter((o) => o.kind === "rack");
     for (const rack of this.racks)
       this.rackStored.set(rack.id, RACK_CONFIG.slots.map(() => false));
+    for (const robot of this.robots) {
+      const fed = this.links.incoming(robot.object.id, "feed");
+      if (fed.length) {
+        const belts = new Set<string>();
+        for (const id of fed) for (const belt of connectedBeltIds(objects, id)) belts.add(belt);
+        this.feedBelts.set(robot.object.id, belts);
+      }
+    }
     for (const robot of this.robots)
       this.palletOrder.set(
         robot.object.id,
-        [...this.pallets].sort(
+        this.linkedOrAll(this.pallets, this.links.outgoing(robot.object.id, "load"), (p) => p.object.id).sort(
           (a, b) =>
             distance(robot.object, a.object) - distance(robot.object, b.object),
         ),
       );
     // Far-first fill order relative to the robot that serves each pallet (its nearest robot).
     for (const pallet of this.pallets) {
-      const robot = this.robots.reduce<FactoryRobot | null>((best, next) =>
+      const robot = this.loaderOf(pallet) ?? this.robots.reduce<FactoryRobot | null>((best, next) =>
         !best || distance(next.object, pallet.object) < distance(best.object, pallet.object) ? next : best, null);
       if (robot) pallet.orderFrom(robot.object.x, robot.object.z);
     }
@@ -209,6 +235,17 @@ export class FactorySimulator {
         this.cargo.scanBox({ t: this.elapsed, boxId: node.userData.boxId, scannerId, result: result === "fault" ? "defect" : "normal" });
     };
     for (const pallet of this.pallets) this.startPalletRecord(pallet);
+  }
+  /** Linked subset of `items` when `linked` is non-empty, else all of them (fallback). */
+  private linkedOrAll<T>(items: readonly T[], linked: readonly string[], id: (item: T) => string) {
+    if (!linked.length) return [...items];
+    const ids = new Set(linked);
+    return items.filter((item) => ids.has(id(item)));
+  }
+  /** First robot linked to load `pallet`, if any. */
+  private loaderOf(pallet: PalletController) {
+    const ids = this.links.incoming(pallet.object.id, "load");
+    return this.robots.find((robot) => ids.includes(robot.object.id)) ?? null;
   }
   private startPalletRecord(pallet: PalletController) {
     this.cargo.startPallet({ t: this.elapsed, stationId: pallet.object.id, grade: palletGrade(this.settings()[pallet.object.id]) });
@@ -394,6 +431,8 @@ export class FactorySimulator {
         if (distance(robot.object, target) > config.reach) continue;
         for (const box of this.boxes) {
           if (box.state !== "moving") continue;
+          const feed = this.feedBelts.get(robot.object.id);
+          if (feed && !feed.has(box.belt.id)) continue;
           const boxGrade = this.grade(box);
           // Non-matching boxes are left on the belt and continue downstream.
           if (filter !== "all" && boxGrade !== filter) continue;
@@ -519,8 +558,10 @@ export class FactorySimulator {
     this.dispatchRetry -= dt;
     if (this.dispatchRetry > 0) return;
     this.dispatchRetry = 1;
-    for (const agent of this.agents)
-      if (agent.dispatch.phase === "idle") {
+    const resuming = this.dispatchSkip > 0;
+    if (!resuming)
+      for (const agent of this.agents)
+        if (agent.dispatch.phase === "idle") {
         agent.waiting = false;
         agent.waitingReason = null;
       }
@@ -530,25 +571,43 @@ export class FactorySimulator {
         settings[pallet.object.id].enabled &&
         pallet.full,
     );
-    for (const pallet of ready) pallet.readyAt ??= this.elapsed;
-    ready.sort((a, b) => a.readyAt! - b.readyAt!);
+    // A full station raises a transport task (FIFO by the time it became ready).
     for (const pallet of ready) {
-      const agents = this.agents.filter(
+      pallet.readyAt ??= this.elapsed;
+      if (!this.fullReported.has(pallet)) {
+        this.fullReported.add(pallet);
+        this.cargo.completePallet({ t: pallet.readyAt, stationId: pallet.object.id });
+      }
+      this.transport.request({ t: pallet.readyAt, stationId: pallet.object.id, palletId: this.cargo.currentPallet(pallet.object.id)?.id });
+    }
+    ready.sort((a, b) => a.readyAt! - b.readyAt!);
+    // Each ship() attempt can run several grid path searches (pickup, outbound and return per
+    // destination). Running every pallet x AMR pair in one frame stalled the frame right when a
+    // drop freed a dock/slot, so a round is capped and resumed a few ticks later.
+    let budget = SHIP_ATTEMPTS_PER_TICK, pair = 0, cut = false;
+    rounds: for (const pallet of ready) {
+      // Fleet assignment: AMRs linked to this station (all when none are linked), idle, enabled and
+      // not charging (fixed chargeBelow threshold); nearest first, fewer deliveries on a tie.
+      const agents = this.linkedOrAll(this.agents, this.links.incoming(pallet.object.id, "pickup"), (a) => a.object.id).filter(
         (a) => settings[a.object.id].enabled && a.dispatch.phase === "idle" && !a.charging,
       );
-      if (!agents.length) break;
-      // Prefer vehicles with fewer deliveries; randomize ties rather than reusing one vehicle forever.
-      agents.sort((a, b) => a.completed - b.completed);
-      const minimum = agents[0].completed;
-      const start = Math.floor(
-        this.random() * agents.filter((a) => a.completed === minimum).length,
-      );
-      for (let i = 0; i < agents.length; i++) {
-        const agent = agents[(start + i) % agents.length];
+      if (!agents.length) continue;
+      const away = (a: FactoryAgent) => distance(a.dispatch.carrier.position, pallet.object);
+      agents.sort((a, b) => away(a) - away(b) || a.completed - b.completed);
+      for (const agent of agents) {
+        if (pair++ < this.dispatchSkip) continue;
+        if (budget-- <= 0) {
+          cut = true;
+          break rounds;
+        }
         if (this.ship(pallet, agent)) break;
         agent.waiting = true;
       }
     }
+    if (cut) {
+      this.dispatchSkip = pair - 1;
+      this.dispatchRetry = SHIP_RESUME_S;
+    } else this.dispatchSkip = 0;
   }
   /** Drain while moving, trickle while idle; an idle AMR below the threshold charges in place. */
   private advanceBatteries(dt: number, settings: Record<string, EquipmentSettings>) {
@@ -623,18 +682,20 @@ export class FactorySimulator {
     }
   }
   private ship(pallet: PalletController, agent: FactoryAgent) {
-    const robot = [...this.robots].sort(
+    const robot = this.loaderOf(pallet) ?? [...this.robots].sort(
       (a, b) =>
         distance(a.object, pallet.object) - distance(b.object, pallet.object),
     )[0];
-    const belt = [...this.belts].sort(
+    const fed = robot ? this.feedBelts.get(robot.object.id) : undefined;
+    const belt = (fed ? this.belts.filter((b) => fed.has(b.object.id)) : [...this.belts]).sort(
       (a, b) =>
         distance(a.object, pallet.object) - distance(b.object, pallet.object),
     )[0];
     const settings = this.settings(),
       grade = palletGrade(settings[pallet.object.id]);
     // Docks and racks are both outbound destinations.
-    const accepting = [...this.docks, ...this.racks].filter((dock) => {
+    // Linked destinations only when the station has deliver links; the nearest free one is used.
+    const accepting = this.linkedOrAll([...this.docks, ...this.racks], this.links.outgoing(pallet.object.id, "deliver"), (d) => d.id).filter((dock) => {
       const config = settings[dock.id],
         accepts = config.acceptGrade ?? "any";
       return config.enabled && (accepts === "any" || accepts === grade);
@@ -777,6 +838,8 @@ export class FactorySimulator {
       palletId: this.cargo.currentPallet(pallet.object.id)?.id,
     };
     this.shipments.push(shipment);
+    const task = this.transport.queued().find((entry) => entry.stationId === pallet.object.id);
+    if (task) this.transport.assign({ t: this.elapsed, taskId: task.id, agentId: agent.object.id, destinationId: target.id });
     if (shipment.palletId)
       this.cargo.dispatchPallet({ t: this.elapsed, palletId: shipment.palletId, amrId: agent.object.id, destinationId: target.id });
     agent.waiting = false;
@@ -798,6 +861,8 @@ export class FactorySimulator {
         if (shipment.slot !== undefined) {
           group.position.copy(rackSlotPoint(dock, shipment.slot));
           this.rackStored.get(dock.id)![shipment.slot] = true;
+          // Stored for the rest of the run: its instances (pallet + boxes) skip per-frame updates.
+          group.userData.instanceStatic = true;
           shipment.stored = true;
           if (shipment.palletId)
             this.cargo.storePallet({ t: this.elapsed, palletId: shipment.palletId, rackId: dock.id, slot: shipment.slot });
@@ -814,6 +879,7 @@ export class FactorySimulator {
           0,
         );
         shipment.dropped = shipment.slot === undefined;
+        this.transport.complete({ t: this.elapsed, stationId: shipment.pallet.object.id, agentId: agent.object.id });
         this.dispatched++;
         agent.completed++;
         agent.target = null;
@@ -843,6 +909,7 @@ export class FactorySimulator {
     if (shipment.replaced) return;
     shipment.replaced = true;
     const pallet = shipment.pallet;
+    this.fullReported.delete(pallet);
     this.root.add(pallet.replace());
     this.render(pallet.group);
     this.startPalletRecord(pallet);

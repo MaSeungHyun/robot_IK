@@ -7,6 +7,7 @@ import Pallet from "@/objects/pallet/index";
 import RobotPreview from "@/objects/robot/RobotPreview";
 import FloorRoom from "@/objects/room/FloorRoom";
 import type { SceneEquipment } from "@/types/layout";
+import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import ConveyorExtensionControls from "@/viewport/editor/ConveyorExtensionControls";
 
 export default function EquipmentModel({ object }: { object: SceneEquipment }) {
@@ -38,8 +39,13 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
       return <Rack />;
 
     case "floor":
-      return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} />;
+      return <EditorFloor object={object} />;
 
   }
 }
 
+/** Floors, walls and roof are not link targets: they ignore pointer rays while link mode is on. */
+function EditorFloor({ object }: { object: SceneEquipment }) {
+  const linking = useLinkModeStore((state) => state.active);
+  return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={!linking} />;
+}

@@ -5,6 +5,7 @@ import EditableObject from "@/viewport/editor/EditableObject";
 import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";
 import PlacementFloor from "@/viewport/editor/PlacementFloor";
 import ModalTransform from "@/viewport/editor/ModalTransform";
+import LinkOverlay from "@/viewport/editor/links/LinkOverlay";
 import useRobotRangeOverlaps from "@/hooks/robot/useRobotRangeOverlaps";
 
 export default function SceneEditor() {
@@ -15,6 +16,7 @@ export default function SceneEditor() {
     <>
       <PlacementFloor />
       <ModalTransform />
+      <LinkOverlay />
 
       {ids.map((id) => (
         <ModelErrorBoundary key={id} label={`설비 ${id}`}>

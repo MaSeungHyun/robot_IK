@@ -22,6 +22,7 @@ export default function FloorRoom({ width, depth, wallHeight, preview = false, i
       node.castShadow = false;
       node.receiveShadow = !preview;
       if (!interactive) node.raycast = noRaycast;
+      else if (node.raycast === noRaycast && !preview) delete (node as { raycast?: unknown }).raycast;
     });
   });
   return (

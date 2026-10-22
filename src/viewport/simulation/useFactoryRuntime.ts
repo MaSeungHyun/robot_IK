@@ -36,13 +36,14 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   const reportElapsed = useRef(0);
   const ikLogged = useRef(0);
   const world = useMemo(
-    () => new FactorySimulator(objects, box.scene, pallet.scene, getSettings, instances ?? undefined),
+    // Links only change in edit mode, where no run is mounted; read them once per run.
+    () => new FactorySimulator(objects, box.scene, pallet.scene, getSettings, instances ?? undefined, Math.random, useSceneStore.getState().links),
     [objects, box.scene, pallet.scene, instances],
   );
 
   useEffect(() => {
     world.connectInstances();
-    useCargoStore.getState().setRegistry(world.cargo);
+    useCargoStore.getState().setRegistry(world.cargo, world.transport);
     return () => {
       world.dispose();
       // STOP (or a new run) clears box records and the box selection.

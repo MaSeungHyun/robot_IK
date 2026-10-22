@@ -16,6 +16,7 @@ import { snapBelt } from "@/domain/conveyor/conveyorLayout";
 import PlacementGhost from "@/viewport/editor/PlacementGhost";
 import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
+import { useLinkModeStore } from "@/stores/useLinkModeStore";
 
 const KINDS: readonly EquipmentKind[] = [
   "robot",
@@ -313,6 +314,8 @@ export default function PlacementFloor() {
           } else {
             event.stopPropagation();
             state.select(null);
+            useLinkModeStore.getState().setSource(null);
+            useLinkModeStore.getState().selectLink(null);
           }
         }}
       >

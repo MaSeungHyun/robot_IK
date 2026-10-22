@@ -8,7 +8,11 @@ import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate } from "@/types/sceneTemplate";
 import { migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
 import { log } from "@/stores/useLogStore";
+import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
+import { useLinkModeStore } from "@/stores/useLinkModeStore";
 
+/** select: pick only (no gizmo); translate/rotate: gizmo mode on the selection. */
+export type EditorTool="select"|"translate"|"rotate";
 export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙"};
 /** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
 export function snapFloorCenter(value:number,size:number){const cell=FLOOR_CONFIG.cell,offset=(size/cell)%2?cell/2:0;return Math.round((value-offset)/cell)*cell+offset;}
@@ -25,8 +29,8 @@ export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|
 interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
   past:SceneSnapshot[];future:SceneSnapshot[];undo:()=>void;redo:()=>void;
-  objects:SceneEquipment[];settings:Record<string,EquipmentSettings>;selected:string|null;pending:EquipmentKind|null;/** Settings applied to the next placed `pending` object (asset rail presets). */pendingPreset:Partial<EquipmentSettings>|null;editing:boolean;tool:"translate"|"rotate";errors:string[];nextId:number;
-  select:(id:string|null)=>void;setPending:(kind:EquipmentKind|null,preset?:Partial<EquipmentSettings>|null)=>void;setTool:(tool:"translate"|"rotate")=>void;
+  objects:SceneEquipment[];settings:Record<string,EquipmentSettings>;selected:string|null;pending:EquipmentKind|null;/** Settings applied to the next placed `pending` object (asset rail presets). */pendingPreset:Partial<EquipmentSettings>|null;editing:boolean;tool:EditorTool;errors:string[];nextId:number;
+  select:(id:string|null)=>void;setPending:(kind:EquipmentKind|null,preset?:Partial<EquipmentSettings>|null)=>void;setTool:(tool:EditorTool)=>void;
   add:(kind:EquipmentKind,pose:Partial<EquipmentPose>&{floor?:FloorSize})=>void;updateFloor:(id:string,size:Partial<FloorSize>)=>void;updatePose:(id:string,pose:Partial<EquipmentPose>)=>void;
   extendConveyor:(id:string,turn:ConveyorTurn)=>void;
   /** Adds a copy (new id/name, same pose/props/settings) and selects it; returns its id. */
@@ -34,16 +38,20 @@ interface SceneState{
   updateSettings:(id:string,values:Partial<EquipmentSettings>)=>void;remove:(id:string)=>void;
   edit:()=>void;complete:()=>void;clear:()=>void;example:()=>void;
   loadTemplate: (template: SceneTemplate) => boolean;
+  /** Equipment relations (🔗); see docs/linking-design.md. */
+  links:SceneLink[];nextLinkId:number;
+  /** Adds a link (edit mode, valid kind pair, no duplicate); returns whether it was added. */
+  addLink:(link:Omit<SceneLink,"id">)=>boolean;removeLink:(id:string)=>void;
 }
-type SceneSnapshot=Pick<SceneState,"objects"|"settings"|"selected"|"nextId">;
-const snapshot=(state:SceneState):SceneSnapshot=>({objects:state.objects,settings:state.settings,selected:state.selected,nextId:state.nextId});
+type SceneSnapshot=Pick<SceneState,"objects"|"settings"|"selected"|"nextId"|"links"|"nextLinkId">;
+const snapshot=(state:SceneState):SceneSnapshot=>({objects:state.objects,settings:state.settings,selected:state.selected,nextId:state.nextId,links:state.links,nextLinkId:state.nextLinkId});
 const history=(state:SceneState)=>state.editing?{past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:[]}:{};
 export const useSceneStore=create<SceneState>((set,get)=>({
   past:[],future:[],
   inspected:null,inspect:id=>set(id?{inspected:id,selected:id}:{inspected:null}),
   undo:()=>{const state=get();if(!state.editing||!state.past.length)return;set({...state.past[state.past.length-1],past:state.past.slice(0,-1),future:[snapshot(state),...state.future],pending:null,errors:[]});},
   redo:()=>{const state=get();if(!state.editing||!state.future.length)return;set({...state.future[0],past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:state.future.slice(1),pending:null,errors:[]});},
-  objects:[],settings:{},selected:null,pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
+  objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
   select:selected=>{if(get().selected!==selected||get().inspected!==null)set({selected,inspected:null});},setPending:(pending,preset=null)=>{const next=pending?preset:null;if(get().pending!==pending||get().pendingPreset!==next)set({pending,pendingPreset:next});},setTool:tool=>{if(get().tool!==tool)set({tool});},
   add:(kind,pose)=>{
     if(!get().editing)return;
@@ -109,10 +117,10 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if (warning) log("warning", `${object?.name ?? id}: 비현실적인 설정값`, warning);
     if(!get().editing&&values.capacity!==undefined)useSimulationStore.getState().reset();
   },
-  remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const next={...state.settings};delete next[id];return {...history(state),objects:state.objects.filter(object=>object.id!==id),settings:next,selected:state.selected===id?null:state.selected,errors:[]};});},
+  remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const next={...state.settings};delete next[id];return {...history(state),objects:state.objects.filter(object=>object.id!==id),links:state.links.filter(link=>link.from!==id&&link.to!==id),settings:next,selected:state.selected===id?null:state.selected,errors:[]};});},
   edit:()=>{if(get().editing)return;useSimulationStore.getState().reset();set({editing:true,errors:[],inspected:null});},
   complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
-  clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),objects:[],settings:{},selected:null,pending:null,editing:true,errors:[]});},
+  clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,editing:true,errors:[]});},
   loadTemplate: (template) => {
     const state = get();
     if (!state.editing) return false;
@@ -126,10 +134,29 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     ]));
     const errors = validateScene(objects, configs);
     if (errors.length) { set({ errors }); return false; }
-    set({ ...history(state), objects, settings: configs, selected: null, inspected: null,
+    // Template links reference equipment by index; invalid or out-of-range entries are dropped.
+    const links: SceneLink[] = [];
+    for (const entry of template.links ?? []) {
+      const from = objects[entry.from], to = objects[entry.to];
+      if (!from || !to || linkTypeFor(from.kind, to.kind) !== entry.type) continue;
+      if (links.some((link) => link.type === entry.type && link.from === from.id && link.to === to.id)) continue;
+      links.push({ id: `L-${String(links.length + 1).padStart(3, "0")}`, type: entry.type, from: from.id, to: to.id });
+    }
+    useLinkModeStore.getState().setSource(null);
+    set({ ...history(state), objects, settings: configs, links, nextLinkId: links.length + 1, selected: null, inspected: null,
       pending: null, errors: [], nextId: objects.length + 1 });
     return true;
   },
+  addLink:(link)=>{
+    const state=get();
+    if(!state.editing)return false;
+    const from=state.objects.find(o=>o.id===link.from),to=state.objects.find(o=>o.id===link.to);
+    if(!from||!to||!LINK_RULES[link.type]||linkTypeFor(from.kind,to.kind)!==link.type)return false;
+    if(state.links.some(l=>l.type===link.type&&l.from===link.from&&l.to===link.to))return false;
+    set({...history(state),links:[...state.links,{...link,id:`L-${String(state.nextLinkId).padStart(3,"0")}`}],nextLinkId:state.nextLinkId+1});
+    return true;
+  },
+  removeLink:id=>{const state=get();if(!state.editing||!state.links.some(l=>l.id===id))return;set({...history(state),links:state.links.filter(l=>l.id!==id)});if(useLinkModeStore.getState().selectedLink===id)useLinkModeStore.getState().selectLink(null);},
   example:()=>{
     if (!get().editing) get().edit();
     get().loadTemplate(SCENE_TEMPLATES[1]);

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Button from "@/components/Button";
 import EquipmentIdentity from "@/ui/Hud/equipment/details/EquipmentIdentity";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
+import LinkSection from "@/ui/Hud/equipment/details/_components/LinkSection";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useModeStore } from "@/stores/useModeStore";
@@ -75,6 +76,7 @@ export default function EquipmentDetailLayout({
         </>
       )}
       <DetailSection title="실시간 지표">{summary}</DetailSection>
+      <LinkSection object={object} />
       {children}
     </div>
   );

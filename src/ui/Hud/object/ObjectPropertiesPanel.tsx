@@ -8,6 +8,7 @@ import { beltConnections } from "@/domain/conveyor/conveyorLayout";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import Panel from "@/ui/Hud/_components/Panel";
 import NumberField from "@/components/NumberField";
+import LinkSection from "@/ui/Hud/equipment/details/_components/LinkSection";
 import {
   SPEED_LIMITS, amrSpeedOf, beltSpeedOf, fromBoxesPerHour, fromMetersPerMinute, spawnIntervalOf, speedPatch,
   toBoxesPerHour, toMetersPerMinute,
@@ -223,6 +224,7 @@ export default function ObjectPropertiesPanel({
             가까이 놓으면 자동으로 붙습니다.
           </p>
         )}
+        <div className="mt-3"><LinkSection object={object} /></div>
         {state.editing && (
           <Button
             type="button"

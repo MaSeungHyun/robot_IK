@@ -1,5 +1,6 @@
 import { TransformControls } from "@react-three/drei";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { TransformControls as TransformControlsImpl } from "three-stdlib";
 import type { Group } from "three";
 import type { ReactNode } from "react";
 import type { SceneEquipment } from "@/types/layout";
@@ -10,6 +11,9 @@ import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 import { editableGroups } from "@/viewport/editor/editableRegistry";
 import { useModalTransformStore } from "@/stores/useModalTransformStore";
 import { useLivePoseStore } from "@/stores/useLivePoseStore";
+import { useLinkModeStore } from "@/stores/useLinkModeStore";
+import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
+import { LINKABLE_KINDS } from "@/types/links";
 
 export default function EditableEquipment({
   entity,
@@ -30,6 +34,29 @@ export default function EditableEquipment({
   const pose = entity;
   const [object, setObject] = useState<Group | null>(null);
   const modal = useModalTransformStore((s) => s.session?.id === entity.id);
+  const linking = useLinkModeStore((s) => s.active);
+  const gizmo = useRef<TransformControlsImpl>(null);
+  const cancelled = useRef(false);
+  const gizmoShown = !!object && active && !modal && !linking && tool !== "select";
+  // Esc during a gizmo drag: put the object back and end the drag (dragging=false re-enables
+  // the orbit controls through drei's dragging-changed listener).
+  useEffect(() => {
+    if (!gizmoShown) return;
+    const key = (event: KeyboardEvent) => {
+      // dragging/pointerUp are runtime-public but typed private in three-stdlib.
+      const controls = gizmo.current as unknown as { dragging: boolean; reset: () => void; pointerUp: (pointer: { button: number }) => void } | null;
+      if (event.key !== "Escape" || !controls?.dragging) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelled.current = true;
+      controls.reset();
+      controls.pointerUp({ button: 0 });
+      cancelled.current = false;
+      useLivePoseStore.getState().clear(entity.id);
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [gizmoShown, entity.id]);
   useEffect(() => {
     if (!object) return;
     editableGroups.set(entity.id, object);
@@ -45,7 +72,15 @@ export default function EditableEquipment({
         position={[pose.x, 0, pose.z]}
         rotation={[0, pose.yaw, 0]}
         onClick={(event) => {
-          if (isSelectionClick(event) && editing && !useSceneStore.getState().pending) {
+          if (!isSelectionClick(event) || !editing || useSceneStore.getState().pending) return;
+          if (useLinkModeStore.getState().active) {
+            // Link mode: only linkable equipment takes the click (floors/walls let it through).
+            if (!LINKABLE_KINDS.has(entity.kind)) return;
+            event.stopPropagation();
+            pickLinkEnd(entity.id);
+            return;
+          }
+          {
             event.stopPropagation();
             select(entity.id);
           }
@@ -53,8 +88,9 @@ export default function EditableEquipment({
       >
         {children}
       </group>
-      {object && active && !modal && (
+      {object && gizmoShown && (
         <TransformControls
+          ref={gizmo}
           object={object}
           mode={tool}
           translationSnap={SIMULATOR_CONFIG.snap}
@@ -67,6 +103,7 @@ export default function EditableEquipment({
             if (entity.kind === "robot") useLivePoseStore.getState().set(entity.id, object.position.x, object.position.z);
           }}
           onMouseUp={() => {
+            if (cancelled.current) return;
             updatePose(entity.id, {
               x: object.position.x,
               z: object.position.z,

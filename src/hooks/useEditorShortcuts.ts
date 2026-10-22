@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useSceneStore } from "../stores/useSceneStore";
 import { useModalTransformStore, type ModalMode } from "../stores/useModalTransformStore";
+import { useLinkModeStore } from "../stores/useLinkModeStore";
 
 function begin(mode: ModalMode, id: string, created = false) {
   const object = useSceneStore.getState().objects.find((entry) => entry.id === id);
@@ -36,6 +37,18 @@ export default function useEditorShortcuts(enabled:boolean){
         event.preventDefault();paste({object:selected,settings:state.settings[selected.id]});
       }else if(!mod&&!event.altKey&&(key==="g"||key==="r")&&selected&&!state.pending){
         event.preventDefault();begin(key==="g"?"move":"rotate",selected.id);
+      }else if(!mod&&!event.altKey&&key==="l"){
+        event.preventDefault();useLinkModeStore.getState().toggle();
+      }else if(!mod&&!event.altKey&&key==="w"){
+        event.preventDefault();useLinkModeStore.getState().setActive(false);state.setTool("select");
+      }else if(event.key==="Escape"&&useLinkModeStore.getState().active){
+        const link=useLinkModeStore.getState();
+        event.preventDefault();if(link.source||link.selectedLink){link.setSource(null);link.selectLink(null);}else link.setActive(false);
+      }else if((event.key==="Delete"||event.key==="Backspace")&&useLinkModeStore.getState().selectedLink){
+        event.preventDefault();state.removeLink(useLinkModeStore.getState().selectedLink!);
+      }else if(event.key==="Escape"&&(state.selected||state.tool!=="select")){
+        // Last step of the Esc chain: end work on the selection and fall back to the Select tool.
+        event.preventDefault();state.select(null);state.setTool("select");
       }else if((event.key==="Delete"||event.key==="Backspace")&&state.selected){
         event.preventDefault();state.remove(state.selected);
       }
