@@ -1,4 +1,5 @@
 import {
+  Bloom,
   SelectiveBloom,
   EffectComposer,
   selectionContext,
@@ -8,7 +9,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useContext, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { AmbientLight, Camera } from "three";
-import { RENDER_QUALITY } from "@/constants/viewport";
+import { RENDER_QUALITY, SCENE_BLOOM } from "@/constants/viewport";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
 
 export default function PostProcessing({
@@ -19,7 +20,11 @@ export default function PostProcessing({
   const renderQuality = useViewportSettingsStore((state) => state.renderQuality);
   const bloomEnabled = useViewportSettingsStore((state) => state.bloomEnabled);
   const selection = useContext(selectionContext);
-  const bloomActive = bloomEnabled && (selection?.selected.length ?? 0) > 0;
+  // "high": one global threshold Bloom covers ceiling/eave/window lights and the AMR emitters.
+  // Lower tiers: no scene glow; SelectiveBloom only while AMR emitters are selected (as before).
+  // Never both, so there is at most one bloom pass per frame.
+  const sceneBloom = bloomEnabled && renderQuality === "high";
+  const bloomActive = !sceneBloom && bloomEnabled && (selection?.selected.length ?? 0) > 0;
   // The composer (and SelectiveBloom) rebuild every pass and render target whenever their camera
   // prop changes, which shows a blank/white frame. Pin them to the first camera and retarget the
   // existing passes when the editor swaps perspective <-> ortho instead.
@@ -50,6 +55,16 @@ export default function PostProcessing({
       multisampling={RENDER_QUALITY[renderQuality].multisampling}
       stencilBuffer
     >
+      {sceneBloom && (
+        <Bloom
+          mipmapBlur
+          luminanceThreshold={SCENE_BLOOM.threshold}
+          luminanceSmoothing={SCENE_BLOOM.smoothing}
+          intensity={SCENE_BLOOM.intensity}
+          levels={SCENE_BLOOM.levels}
+          radius={SCENE_BLOOM.radius}
+        />
+      )}
       {bloomActive && (
         <SelectiveBloom
           lights={lights}
