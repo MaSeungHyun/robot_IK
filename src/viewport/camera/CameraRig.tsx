@@ -233,7 +233,12 @@ export default function CameraRig() {
     fromZoom: number;
     toZoom: number;
   }>(null);
-  const cancelFocus = useMemo(() => () => { focus.current = null; }, []);
+  const cancelFocus = useMemo(
+    () => () => {
+      focus.current = null;
+    },
+    [],
+  );
 
   // Any user orbit/pan/zoom cancels a running tween.
   useEffect(() => {
@@ -251,11 +256,29 @@ export default function CameraRig() {
   // (tracking owns the camera), while typing and with nothing selected.
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "f" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return;
-      if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]')) return;
-      if (document.querySelector('[role="dialog"],[role="listbox"],[role="menu"]')) return;
+      if (
+        event.key.toLowerCase() !== "f" ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        event.isComposing ||
+        event.defaultPrevented
+      )
+        return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest(
+          'input,textarea,select,[contenteditable="true"],[role="textbox"]',
+        )
+      )
+        return;
+      if (
+        document.querySelector('[role="dialog"],[role="listbox"],[role="menu"]')
+      )
+        return;
       if (useCameraTrackingStore.getState().trackedId) return;
-      const c = controls.current, id = selectedFocusId();
+      const c = controls.current,
+        id = selectedFocusId();
       if (!c || !id) return;
       const sphere = focusSphere(id);
       if (!sphere) return;
@@ -266,15 +289,19 @@ export default function CameraRig() {
       const current = dir.length();
       dir.normalize();
       const { width, height } = get().size;
-      let toPosition: Vector3, toZoom = camera.zoom;
+      let toPosition: Vector3,
+        toZoom = camera.zoom;
       if (camera === orthoRef.current) {
         // Ortho: keep the camera distance, fit by zoom.
         toPosition = sphere.center.clone().addScaledVector(dir, current);
         toZoom = Math.min(width, height) / (2 * sphere.radius * FOCUS_MARGIN);
       } else {
         const perspective = camera as PerspectiveCamera;
-        const vertical = halfTan(perspective), horizontal = vertical * (width / Math.max(1, height));
-        const distance = (sphere.radius * FOCUS_MARGIN) / Math.sin(Math.atan(Math.min(vertical, horizontal)));
+        const vertical = halfTan(perspective),
+          horizontal = vertical * (width / Math.max(1, height));
+        const distance =
+          (sphere.radius * FOCUS_MARGIN) /
+          Math.sin(Math.atan(Math.min(vertical, horizontal)));
         toPosition = sphere.center.clone().addScaledVector(dir, distance);
       }
       focus.current = {
@@ -292,7 +319,13 @@ export default function CameraRig() {
   }, [get, cancelTween]);
 
   // Tracking takes over the camera: drop a running focus.
-  useEffect(() => useCameraTrackingStore.subscribe((state) => { if (state.trackedId) focus.current = null; }), []);
+  useEffect(
+    () =>
+      useCameraTrackingStore.subscribe((state) => {
+        if (state.trackedId) focus.current = null;
+      }),
+    [],
+  );
 
   useFrame((_, delta) => {
     const run = focus.current,
