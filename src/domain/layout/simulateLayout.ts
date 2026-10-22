@@ -17,7 +17,7 @@ import type { SimMetrics } from "@/domain/layout/autoLayout";
 
 export type SimModels = { robot: Group; box: Group; pallet: Group };
 export type SimOptions = { seconds: number; warmup: number; seed?: number };
-export type SimResult = (SimMetrics & { shipped: number; cpuMs: number }) | { error: string };
+export type SimResult = (SimMetrics & { shipped: number; cpuMs: number; /** Pallets the rack AMR took out of racks through the door. */ rackUnloaded: number }) | { error: string };
 
 export function simulateTemplate(template: SceneTemplate, models: SimModels, { seconds, warmup, seed = 12345 }: SimOptions): SimResult {
   const store = useSceneStore.getState();
@@ -63,6 +63,7 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
     if (!base && clock.stats.simTime >= warmup) base = { placed: world.placed, passed: world.passed, busy: world.robots.map((r) => r.busySeconds) };
   }
   const shipped = world.stats.completedPallets ?? 0;
+  const rackUnloaded = world.unloaded;
   for (const controller of controllers) controller.dispose();
   world.dispose();
   const b = base ?? { placed: 0, passed: 0, busy: world.robots.map(() => 0) };
@@ -72,6 +73,7 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
     palletWaitShare: +(fullSeconds / span / Math.max(1, world.pallets.length)).toFixed(3),
     robotUtilization: +(world.robots.reduce((s, r, i) => s + (r.busySeconds - b.busy[i]), 0) / span / Math.max(1, world.robots.length)).toFixed(3),
     shipped,
+    rackUnloaded,
     cpuMs: Math.round(performance.now() - began),
   };
 }

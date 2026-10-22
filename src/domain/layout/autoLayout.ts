@@ -90,7 +90,10 @@ export type LayoutCandidate = {
   crossings: number;
   /** R-SLP closeness cost (lower = related equipment closer, X pairs apart). */
   closeness: number;
-  counts: Record<"robots" | "pallets" | "conveyors" | "amrs" | "docks" | "racks", number>;
+  counts: Record<"robots" | "pallets" | "conveyors" | "amrs" | "docks" | "racks", number> & {
+    /** Dedicated rack-unloading AMRs (door layouts only); not in `amrs`, not in the cost score. */
+    rackAmrs: number;
+  };
   /** R-STORAGE: rack slots placed vs pallets that must be stored. */
   storage: { slots: number; required: number };
   /** R-TRAVEL: mean straight-line AMR metres per pallet for store (pallet->rack) + retrieve (rack->dock/door). */
@@ -436,6 +439,34 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
       : { cx: (wall === "west" ? -1 : 1) * (W / 2 - rules.doorKeepOut / 2), cz: offset, yaw: 0, w: rules.doorKeepOut, d: doorWidth + 1, tag: "door" };
     for (const item of items) if (item.kind === "robot" && rectsOverlap(keep, { cx: item.x, cz: item.z, yaw: 0, w: 2 * reach, d: 2 * reach, tag: "envelope" }, 0)) { issues.push("로봇 작업 반경이 문 앞 통행 구역과 겹칩니다."); break; }
   }
+  // Rack outfeed: with a door, one dedicated rack-unloading AMR (amrRole "rack") waits inside beside the door,
+  // clear of the door keep-out zone, the aisles and equipment. Not part of `amrs` / maxAmrs (it serves racks only).
+  let rackAmr: TemplateEquipment | null = null;
+  if (door) {
+    const doorWidth = door.width ?? 3, offset = door.offset ?? 0;
+    const frame = { south: { ax: 1, az: 0, nx: 0, nz: 1 }, north: { ax: 1, az: 0, nx: 0, nz: -1 }, west: { ax: 0, az: 1, nx: 1, nz: 0 }, east: { ax: 0, az: 1, nx: -1, nz: 0 } }[wall];
+    const origin = { south: { x: offset, z: -D / 2 }, north: { x: offset, z: D / 2 }, west: { x: -W / 2, z: offset }, east: { x: W / 2, z: offset } }[wall];
+    const keep: Rect = wall === "south" || wall === "north"
+      ? { cx: offset, cz: (wall === "south" ? -1 : 1) * (D / 2 - rules.doorKeepOut / 2), yaw: 0, w: doorWidth + 1, d: rules.doorKeepOut, tag: "door" }
+      : { cx: (wall === "west" ? -1 : 1) * (W / 2 - rules.doorKeepOut / 2), cz: offset, yaw: 0, w: rules.doorKeepOut, d: doorWidth + 1, tag: "door" };
+    const [fw, fd] = rules.footprint.amr, yaw = Math.round(Math.atan2(frame.nx, frame.nz) * 1000) / 1000;
+    const fits = (x: number, z: number) => {
+      const r: Rect = { cx: x, cz: z, yaw, w: fw, d: fd, tag: "amr" };
+      if (Math.abs(x) > W / 2 - fw / 2 - 0.2 || Math.abs(z) > D / 2 - fd / 2 - 0.2) return false;
+      if (rectsOverlap(keep, r, 0.3)) return false;
+      return solid.every(({ r: other }) => !rectsOverlap(other, r, rules.gap)) && aisles.every((a) => !rectsOverlap(a, r, 0)) &&
+        items.every((it) => it.kind !== "amr" || Math.hypot(it.x - x, it.z - z) > fw + rules.gap);
+    };
+    // Nearest spot first: beside the keep-out zone along the wall, then deeper into the room.
+    search: for (let along = doorWidth / 2 + 0.5 + fw / 2 + 0.3; along < Math.max(W, D); along += 0.5)
+      for (let depth = clear + fd / 2; depth <= rules.doorKeepOut + 3; depth += 0.5)
+        for (const side of [1, -1]) {
+          const x = Math.round((origin.x + frame.ax * along * side + frame.nx * depth) * 1000) / 1000;
+          const z = Math.round((origin.z + frame.az * along * side + frame.nz * depth) * 1000) / 1000;
+          if (fits(x, z)) { rackAmr = { kind: "amr", x, z, yaw: ((yaw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), settings: { amrRole: "rack" } }; break search; }
+        }
+    if (!rackAmr) issues.push("랙 반출 AMR을 문 근처에 둘 자리가 없습니다.");
+  }
   // R-CROSS: straight AMR legs (pallet -> rack store, rack -> dock retrieve; pallet -> dock without racks) crossing belts.
   // R-TRAVEL: mean store + retrieve leg length per pallet.
   const belts = items.filter((it) => it.kind === "conveyor").map((it) => [beltPoint(it, 0), beltPoint(it, beltLength(it))] as const);
@@ -471,13 +502,14 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   if (door) {
     const offset = door.offset ?? 0, at = { south: { x: offset, z: -D / 2, yaw: 0 }, north: { x: offset, z: D / 2, yaw: Math.PI }, west: { x: -W / 2, z: offset, yaw: Math.PI / 2 }, east: { x: W / 2, z: offset, yaw: -Math.PI / 2 } }[wall];
     equipment.push({ kind: "door", ...at, settings: { doorWidth: door.width ?? 3 } });
+    if (rackAmr) equipment.push(rackAmr);
   }
   const count = (kind: EquipmentKind) => items.filter((it) => it.kind === kind).length;
   const name = `${params.pattern}×${lines}${stack > 1 ? ` (${stack}단)` : ""} · 로봇 ${count("robot")} · AMR ${params.amrs}${lineEnd ? " · 라인 끝 랙" : ""}`;
   return {
     params, issues: [...new Set(issues)], crossings, closeness,
     template: { id: `auto-${params.pattern}-${lines}-${count("robot")}r-s${stack}-${lineEnd ? "end" : "row"}-${params.amrs}-${params.docks}-${params.racks}`, name, description: constraints.mode === "fixed" ? "자동 배치 (고정 장비 · 최대 처리량)" : `자동 배치 (${constraints.targetPerHour}박스/h 목표)`, equipment, links },
-    counts: { robots: count("robot"), pallets: count("pallet"), conveyors: count("conveyor"), amrs: params.amrs, docks: params.docks, racks: params.racks },
+    counts: { robots: count("robot"), pallets: count("pallet"), conveyors: count("conveyor"), amrs: params.amrs, docks: params.docks, racks: params.racks, rackAmrs: rackAmr ? 1 : 0 },
     storage: { slots: params.racks * RACK_SLOTS, required: storageRequirement(constraints).pallets },
     travel, rackDistance,
     outbound: rackItems.map((rack) => ({ rack, dock: dockItems.length ? dockItems.reduce((best, d) => (dist(items[d], items[rack]) < dist(items[best], items[rack]) ? d : best)) : -1 })).filter((pair) => pair.dock >= 0),
