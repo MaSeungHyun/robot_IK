@@ -4,7 +4,7 @@
  * then trims AMRs while it holds. Racks are fixed by the storage requirement (R-STORAGE), docks stay 1
  * (outbound). Simulation is injected (`evaluate`), so this module has no three.js dependency.
  */
-import { ROBOT_RATE_ESTIMATE, buildLayout, scoreLayout, seedParams, storageRequirement } from "@/domain/layout/autoLayout";
+import { LINE_RATE_CAP, ROBOT_RATE_ESTIMATE, buildLayout, scoreFixed, scoreLayout, seedParams, storageRequirement } from "@/domain/layout/autoLayout";
 import type { LayoutCandidate, LayoutConstraints, LayoutParams, LayoutPattern, SimMetrics } from "@/domain/layout/autoLayout";
 
 /** A candidate counts as meeting the target at >= 95 % of it. */
@@ -42,6 +42,7 @@ export type SearchOptions = {
 const robotsOf = (p: LayoutParams) => p.robotsPerLine * p.lines;
 
 export async function searchLayouts(constraints: LayoutConstraints, options: SearchOptions): Promise<SearchResult> {
+  if (constraints.mode === "fixed") return searchFixed(constraints, options);
   const patterns = options.patterns ?? ["straight", "L", "U"];
   const maxRobots = constraints.maxRobots ?? 24, maxAmrs = constraints.maxAmrs ?? 6;
   const target = constraints.targetPerHour;
@@ -119,4 +120,78 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
     void growBlockedByGeometry;
   }
   return { constraints, ranked, evaluated: evaluated.size, diagnosis, closest, storage: storageRequirement(constraints), cancelled: !!options.cancelled?.() };
+}
+
+/** Fixed mode: geometric candidates kept for simulation (keeps a run to a handful of sims). */
+export const FIXED_SIM_BUDGET = 8;
+type Geo = { params: LayoutParams; candidate: LayoutCandidate; estimate: number; pre: number };
+
+/**
+ * Fixed-equipment mode: place the given robots/AMRs/racks/docks (dropping robots only when the floor can't hold
+ * them; racks are never dropped while any robot fits) and pick the arrangement with the most throughput.
+ * 1) Geometry only: every pattern x line count x stack x rack placement, robots reduced line-evenly until it fits;
+ *    pre-scored by estimated rate (robots x 220/h, capped per line inlet) and AMR distances.
+ * 2) Simulate the best FIXED_SIM_BUDGET distinct arrangements and rank by scoreFixed.
+ */
+async function searchFixed(constraints: LayoutConstraints, options: SearchOptions): Promise<SearchResult> {
+  const fixed = constraints.fixed ?? { robots: 6, amrs: 2, racks: 4, docks: 1 };
+  const want = Math.max(1, Math.round(fixed.robots)), racks = Math.max(0, Math.round(fixed.racks));
+  const amrs = Math.max(1, Math.round(fixed.amrs)), docks = Math.max(1, Math.round(fixed.docks));
+  const patterns = options.patterns ?? ["straight", "L", "U"];
+  // Feed matched to the capacity being placed; storage requirement follows that rate.
+  const rate = Math.round(Math.min(want * ROBOT_RATE_ESTIMATE, 40 * LINE_RATE_CAP));
+  const sized: LayoutConstraints = { ...constraints, targetPerHour: Math.max(1, rate) };
+  const minPer = { straight: 1, L: 2, U: 3 } as const;
+  const geos: Geo[] = [];
+  let maxFit = 0;
+  for (const pattern of patterns) {
+    if (options.cancelled?.()) break;
+    for (let lines = 1; lines <= Math.min(want, 12); lines++) {
+      if (want < lines * minPer[pattern] && lines > 1) break;
+      if (Math.ceil(want / lines) > 12) continue;
+      const units = Math.ceil(lines / (pattern === "straight" ? 2 : 1));
+      for (const stack of [1, 2, 3].filter((n) => n <= units))
+        for (const rackPlacement of ["lineEnd", "row"] as const) {
+          let robots = want, candidate: LayoutCandidate | null = null, params: LayoutParams | null = null;
+          while (robots >= lines) {
+            const perLine = Math.ceil(robots / lines);
+            const lineRate = Math.min(LINE_RATE_CAP, perLine * ROBOT_RATE_ESTIMATE * 1.1);
+            params = { pattern, lines, robotsPerLine: perLine, robots, amrs, docks, racks, stack, rackPlacement, spawnInterval: +(3600 / lineRate).toFixed(3) };
+            candidate = buildLayout(sized, params);
+            if (!candidate.issues.length) break;
+            candidate = null;
+            robots -= lines;
+          }
+          if (!candidate || !params) continue;
+          const perLine = Math.ceil(robots / lines);
+          const estimate = Math.min(robots * ROBOT_RATE_ESTIMATE, lines * Math.min(LINE_RATE_CAP, perLine * ROBOT_RATE_ESTIMATE));
+          maxFit = Math.max(maxFit, robots);
+          geos.push({ params, candidate, estimate, pre: -estimate + candidate.rackDistance * 15 + candidate.travel * 4 + candidate.crossings * 15 + candidate.usedArea * 0.01 });
+        }
+    }
+  }
+  // Prefer placing every robot that fits anywhere, then the pre-score; keep one entry per pattern x lines first
+  // so the budget covers different topologies, then fill with the next best.
+  const ordered = geos.filter((g) => g.candidate.counts.robots === maxFit).sort((a, b) => a.pre - b.pre);
+  const picked: Geo[] = [], seen = new Set<string>();
+  for (const g of ordered) { const k = `${g.params.pattern}-${g.params.lines}`; if (!seen.has(k) && picked.length < FIXED_SIM_BUDGET) { seen.add(k); picked.push(g); } }
+  for (const g of ordered) if (picked.length < FIXED_SIM_BUDGET && !picked.includes(g)) picked.push(g);
+
+  const results: EvaluatedCandidate[] = [];
+  for (const g of picked) {
+    if (options.cancelled?.()) break;
+    options.onProgress?.({ evaluated: results.length, total: picked.length, current: g.candidate.template.name });
+    const metrics = await options.evaluate(g.candidate);
+    const result: EvaluatedCandidate = "error" in metrics
+      ? { candidate: g.candidate, metrics: null, score: Infinity, met: false, note: metrics.error }
+      : { candidate: g.candidate, metrics, score: scoreFixed(g.candidate, metrics), met: true };
+    results.push(result);
+    options.onProgress?.({ evaluated: results.length, total: picked.length, current: g.candidate.template.name, last: result });
+  }
+  const ranked = results.filter((r) => r.metrics).sort((a, b) => a.score - b.score).slice(0, options.top ?? 5);
+  let diagnosis: SearchDiagnosis = maxFit === want
+    ? { code: "ok", message: `로봇 ${want}대·AMR ${amrs}대·랙 ${racks}대·도크 ${docks}대를 모두 배치했습니다.` }
+    : { code: "ok", message: `공장에 로봇 ${maxFit}/${want}대까지만 들어갑니다. 나머지 장비(AMR ${amrs}·랙 ${racks}·도크 ${docks})는 모두 배치했습니다.` };
+  if (!geos.length) diagnosis = { code: "floor-too-small", message: `공장(${constraints.width}×${constraints.depth}m)에 랙 ${racks}대와 로봇 1대 이상을 함께 놓을 수 없습니다. 공장을 넓히거나 랙 수를 줄이세요.` };
+  return { constraints: sized, ranked, evaluated: results.length, diagnosis, closest: null, storage: storageRequirement(sized), cancelled: !!options.cancelled?.() };
 }

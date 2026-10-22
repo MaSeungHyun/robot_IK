@@ -1,9 +1,12 @@
 import { create } from "zustand";
-import type { LayoutConstraints, Wall } from "@/domain/layout/autoLayout";
+import type { LayoutConstraints, LayoutMode, Wall } from "@/domain/layout/autoLayout";
 import type { SearchResult } from "@/domain/layout/searchLayouts";
 import { runAutoLayout, type AutoLayoutRun } from "@/workers/autoLayoutClient";
 
 export type AutoLayoutForm = {
+  /** "target": meet targetPerHour with the least equipment. "fixed": place the counts below, max throughput. */
+  mode: LayoutMode;
+  fixedRobots: number; fixedAmrs: number; fixedRacks: number; fixedDocks: number;
   width: number; depth: number; height: number; targetPerHour: number;
   /** R-STORAGE: hours of output stored in racks. */
   storageHours: number;
@@ -13,6 +16,7 @@ export type AutoLayoutForm = {
   maxRacks: number;
 };
 export const DEFAULT_AUTO_LAYOUT_FORM: AutoLayoutForm = {
+  mode: "target", fixedRobots: 8, fixedAmrs: 3, fixedRacks: 6, fixedDocks: 1,
   width: 30, depth: 20, height: 6, targetPerHour: 600, storageHours: 2,
   door: "none", doorOffset: 0, doorWidth: 3, maxRobots: 24, maxAmrs: 6, maxRacks: 0,
 };
@@ -21,6 +25,7 @@ export function formToConstraints(form: AutoLayoutForm): LayoutConstraints {
     width: form.width, depth: form.depth, height: form.height, targetPerHour: form.targetPerHour,
     storageHours: form.storageHours, maxRobots: form.maxRobots, maxAmrs: form.maxAmrs,
     ...(form.maxRacks > 0 ? { maxRacks: form.maxRacks } : {}),
+    ...(form.mode === "fixed" ? { mode: "fixed" as const, fixed: { robots: form.fixedRobots, amrs: form.fixedAmrs, racks: form.fixedRacks, docks: form.fixedDocks } } : {}),
     ...(form.door !== "none" ? { door: { wall: form.door, offset: form.doorOffset, width: form.doorWidth } } : {}),
   };
 }

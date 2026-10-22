@@ -40,6 +40,9 @@ export type LayoutConstraints = {
   boxesPerPallet?: number;
   /** Upper bound on racks (storage shortfall is scored when the requirement needs more). */
   maxRacks?: number;
+  /** "target" (default): smallest layout meeting targetPerHour. "fixed": place `fixed` equipment, max throughput. */
+  mode?: LayoutMode;
+  fixed?: FixedEquipment;
 };
 /** Rack slots (PalletPoints) per rack, from RACK_CONFIG.slots. */
 export const RACK_SLOTS = 8;
@@ -65,7 +68,19 @@ export type LayoutParams = {
   racks: number;
   /** Seconds between boxes per line inlet; default derives from the target. */
   spawnInterval?: number;
+  /** Exact robot total spread over the lines (first lines get the remainder); default robotsPerLine x lines. */
+  robots?: number;
+  /** Rows of line units stacked along the flow (grid of units); default 1. */
+  stack?: number;
+  /**
+   * R-NEAR: "lineEnd" puts each unit's racks right past its line output (short pallet -> rack AMR legs);
+   * "row" keeps them in the dock row. Unset: try lineEnd (stack 1, then 2), then row; first that fits wins.
+   */
+  rackPlacement?: "lineEnd" | "row";
 };
+export type LayoutMode = "target" | "fixed";
+/** Fixed-equipment mode: place these counts (as many as fit) and maximise throughput. */
+export type FixedEquipment = { robots: number; amrs: number; racks: number; docks: number };
 export type LayoutCandidate = {
   params: LayoutParams;
   template: SceneTemplate;
@@ -80,6 +95,8 @@ export type LayoutCandidate = {
   storage: { slots: number; required: number };
   /** R-TRAVEL: mean straight-line AMR metres per pallet for store (pallet->rack) + retrieve (rack->dock/door). */
   travel: number;
+  /** R-NEAR: mean straight-line metres from each pallet station to its nearest rack (the AMR store leg). */
+  rackDistance: number;
   /**
    * Outbound hook (not simulated yet): rack -> dock pairs for a future release step (rack -> AMR -> dock/door).
    * Indices into template.equipment.
@@ -178,6 +195,21 @@ function settingsFor(kind: EquipmentKind, interval: number): Partial<EquipmentSe
  * mirrored second line of a straight pair. Docks/racks sit at the upstream end of the aisle, toward the door.
  */
 export function buildLayout(constraints: LayoutConstraints, params: LayoutParams): LayoutCandidate {
+  if (params.rackPlacement) return buildOriented(constraints, params);
+  const variants: LayoutParams[] = [
+    { ...params, rackPlacement: "lineEnd", stack: params.stack ?? 1 },
+    ...(params.stack ? [] : [{ ...params, rackPlacement: "lineEnd" as const, stack: 2 }]),
+    { ...params, rackPlacement: "row", stack: params.stack ?? 1 },
+  ];
+  let first: LayoutCandidate | null = null;
+  for (const variant of variants) {
+    const candidate = buildOriented(constraints, variant);
+    if (!candidate.issues.length) return candidate;
+    first ??= candidate;
+  }
+  return first!;
+}
+function buildOriented(constraints: LayoutConstraints, params: LayoutParams): LayoutCandidate {
   if (constraints.door) return buildFacing(constraints, params, constraints.door.wall);
   // No door: try the line along both floor axes; keep the one with fewer issues (fit first), then smaller area.
   const options = (["south", "west"] as Wall[]).map((wall) => buildFacing(constraints, params, wall));
@@ -197,27 +229,67 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   // (equipment + aisles) by `unitGap`.
   const perUnit = params.pattern === "straight" ? 2 : 1;
   const unitGap = 0.8;
-  let unitStartItem = 0, unitStartAisle = 0, unitMaxX = -Infinity;
-  const extentX = (from: number, fromAisle: number) => {
+  const totalRobots = Math.max(lines, Math.round(params.robots ?? params.robotsPerLine * lines));
+  const robotsForLine = (l: number) => Math.floor(totalRobots / lines) + (l < totalRobots % lines ? 1 : 0);
+  const units = Math.ceil(lines / perUnit);
+  const stack = Math.max(1, Math.min(Math.round(params.stack ?? 1), units));
+  const cols = Math.ceil(units / stack);
+  const lineEnd = params.rackPlacement === "lineEnd";
+  const racksForUnit = (u: number) => (lineEnd ? Math.floor(params.racks / units) + (u < params.racks % units ? 1 : 0) : 0);
+  const rackPitch = rules.footprint.rack[0] + 0.6;
+  const rackRowPitch = rules.footprint.rack[1] + aisle + 0.3;
+  const extraRackItems: number[] = [];
+  const crossBands: { z: number }[] = [];
+  let unitStartItem = 0, unitStartAisle = 0, unitMaxX = -Infinity, baseX0: number | null = null;
+  let rowMaxZ = -Infinity, zBase = 0;
+  const extent = (from: number, fromAisle: number) => {
     const pts = [...items.slice(from).map((it, k) => rectOf(it, from + k)), ...aisles.slice(fromAisle)].flatMap(corners);
-    return { x0: Math.min(...pts.map((q) => q.x)), x1: Math.max(...pts.map((q) => q.x)) };
+    return { x0: Math.min(...pts.map((q) => q.x)), x1: Math.max(...pts.map((q) => q.x)), z0: Math.min(...pts.map((q) => q.z)), z1: Math.max(...pts.map((q) => q.z)) };
   };
-  const closeUnit = () => {
+  // R-NEAR: the unit's racks sit just past its line output, fronts facing the line, reached from the unit aisle.
+  const placeUnitRacks = (count: number) => {
+    const lineAisles = aisles.slice(unitStartAisle);
+    const ext = extent(unitStartItem, unitStartAisle);
+    const cx = lineAisles.length ? lineAisles.reduce((sum, a) => sum + a.cx, 0) / lineAisles.length : (ext.x0 + ext.x1) / 2;
+    const perRow = Math.max(1, Math.floor((ext.x1 - ext.x0 + 0.6) / rackPitch));
+    for (let row = 0, placed = 0; placed < count; row++) {
+      const n = Math.min(perRow, count - placed);
+      const front = ext.z1 + aisle + 0.2 + row * rackRowPitch;
+      let x = cx - (n * rackPitch - 0.6) / 2;
+      aisles.push({ cx, cz: front - (aisle + 0.2) / 2, yaw: 0, w: Math.max(aisle, n * rackPitch), d: aisle, tag: "aisle" });
+      for (let k = 0; k < n; k++) {
+        extraRackItems.push(items.length);
+        items.push({ kind: "rack", x: x + rules.footprint.rack[0] / 2, z: front + rules.footprint.rack[1] / 2, yaw: Math.PI });
+        x += rackPitch;
+      }
+      placed += n;
+    }
+  };
+  const closeUnit = (u: number) => {
     if (items.length === unitStartItem) return;
-    const ext = extentX(unitStartItem, unitStartAisle);
-    const shift = unitMaxX === -Infinity ? 0 : unitMaxX + unitGap - ext.x0;
-    for (let k = unitStartItem; k < items.length; k++) items[k].x += shift;
-    for (let k = unitStartAisle; k < aisles.length; k++) aisles[k].cx += shift;
-    unitMaxX = ext.x1 + shift;
+    const count = racksForUnit(u);
+    if (count) placeUnitRacks(count);
+    const col = u % cols, row = Math.floor(u / cols);
+    if (col === 0) {
+      if (row > 0) { crossBands.push({ z: rowMaxZ + (aisle + 0.6) / 2 }); zBase = rowMaxZ + aisle + 0.6; }
+      unitMaxX = -Infinity; rowMaxZ = -Infinity;
+    }
+    const ext = extent(unitStartItem, unitStartAisle);
+    baseX0 ??= ext.x0;
+    const sx = col === 0 ? baseX0 - ext.x0 : unitMaxX + unitGap - ext.x0;
+    const sz = row === 0 ? 0 : zBase - ext.z0;
+    for (let k = unitStartItem; k < items.length; k++) { items[k].x += sx; items[k].z += sz; }
+    for (let k = unitStartAisle; k < aisles.length; k++) { aisles[k].cx += sx; aisles[k].cz += sz; }
+    unitMaxX = ext.x1 + sx; rowMaxZ = Math.max(rowMaxZ, ext.z1 + sz);
     unitStartItem = items.length; unitStartAisle = aisles.length;
   };
   for (let line = 0; line < lines; line++) {
-    if (line && line % perUnit === 0) closeUnit();
+    if (line && line % perUnit === 0) closeUnit(line / perUnit - 1);
     const twin = line % perUnit === 1;
     const side = twin ? 1 : -1;
     const start = { x: twin ? -(2 * palletOuter + aisle) : 0, z: 0, yaw: 0, conveyorTurn: "straight" as ConveyorTurn };
     const beltSpeed = Math.max(rules.minBeltSpeed, 0.6 / interval);
-    const chain = chainFor(params.pattern, params.robotsPerLine, inletSegments(beltSpeed, rules.robotPitch));
+    const chain = chainFor(params.pattern, robotsForLine(line), inletSegments(beltSpeed, rules.robotPitch));
     let pose = start;
     robotsOf[line] = []; palletsOf[line] = [];
     chain.forEach((segment, i) => {
@@ -239,21 +311,27 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
       if (rules.beltToRobot > reach || far > reach) issues.push(`로봇 작업 반경(${reach}m) 밖에 컨베이어/팔레트가 있습니다.`);
     });
   }
-  closeUnit();
+  closeUnit(units - 1);
   const lineX = { x0: Math.min(...items.map((it) => it.x)), x1: Math.max(...items.map((it) => it.x)) };
+  // Stacked rows: a cross aisle between unit rows and a side aisle linking them to the dock row.
+  if (crossBands.length) {
+    const zTop = Math.max(...items.map((it) => it.z));
+    for (const band of crossBands) aisles.push({ cx: (lineX.x0 + lineX.x1) / 2, cz: band.z, yaw: 0, w: lineX.x1 - lineX.x0 + 2, d: aisle, tag: "aisle" });
+    aisles.push({ cx: lineX.x0 - 1 - aisle / 2, cz: zTop / 2, yaw: 0, w: aisle, d: Math.max(aisle, zTop), tag: "aisle" });
+  }
   // Dock / rack row at the upstream end, below every conveyor head, with a cross aisle in front (R-AISLE).
   // Docks sit at the main aisle (shortest pallet route), racks split to both sides (R-STORAGE, R-SLP).
   const firstRobotZ = Math.min(...items.filter((it) => it.kind === "robot").map((it) => it.z));
   const headZ = Math.min(...items.filter((it) => it.kind === "conveyor").map((it) => it.z)) - rules.robotPitch / 2;
   const aisleX = -(palletOuter + aisle / 2);
-  const destinations: number[] = [], rackItems: number[] = [], dockItems: number[] = [];
+  const destinations: number[] = [...extraRackItems], rackItems: number[] = [...extraRackItems], dockItems: number[] = [];
+  const rowRacks = lineEnd ? 0 : params.racks;
   // R-STORAGE rows: the front row (with the docks) is capped near the line block's width; extra racks go to
   // back rows behind it, each with its own access aisle, so many racks don't stretch one endless row.
-  const rackPitch = rules.footprint.rack[0] + 0.6;
   const rowLimit = Math.max(14, lineX.x1 - lineX.x0 + 6);
   const perRow = Math.max(1, Math.floor((rowLimit + 0.6) / rackPitch));
-  const frontRacks = Math.min(params.racks, Math.max(lines === 1 ? 1 : 2, perRow - Math.ceil((params.docks * (rules.footprint.dock[0] + 0.6)) / rackPitch)));
-  const backRacks = params.racks - frontRacks;
+  const frontRacks = Math.min(rowRacks, Math.max(lines === 1 ? 1 : 2, perRow - Math.ceil((params.docks * (rules.footprint.dock[0] + 0.6)) / rackPitch)));
+  const backRacks = rowRacks - frontRacks;
   // One line: front racks on the free side (away from the belt); more lines: split around the main aisle.
   const left = lines === 1 ? frontRacks : Math.ceil(frontRacks / 2);
   const kinds: EquipmentKind[] = [...Array(left).fill("rack"), ...Array(params.docks).fill("dock"), ...Array(frontRacks - left).fill("rack")];
@@ -363,16 +441,17 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   const belts = items.filter((it) => it.kind === "conveyor").map((it) => [beltPoint(it, 0), beltPoint(it, beltLength(it))] as const);
   const nearest = (from: Item, pool: number[]) => pool.map((i) => items[i]).sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z))[0];
   const dist = (a: Item, b: Item) => Math.hypot(a.x - b.x, a.z - b.z);
-  let crossings = 0, travel = 0;
+  let crossings = 0, travel = 0, rackDistance = 0;
   const palletItems = items.filter((it) => it.kind === "pallet");
   for (const pallet of palletItems) {
     const legs: [Item, Item][] = [];
     const rack = nearest(pallet, rackItems), dock = rack ? nearest(rack, dockItems) : nearest(pallet, dockItems);
-    if (rack) legs.push([pallet, rack]);
+    if (rack) { legs.push([pallet, rack]); rackDistance += dist(pallet, rack); }
     if (dock) legs.push([rack ?? pallet, dock]);
     for (const [a, b] of legs) { crossings += belts.filter(([p, q]) => segmentsCross(a, b, p, q)).length; travel += dist(a, b); }
   }
   travel = palletItems.length ? Math.round((travel / palletItems.length) * 10) / 10 : 0;
+  rackDistance = palletItems.length ? Math.round((rackDistance / palletItems.length) * 10) / 10 : 0;
   // R-SLP: closeness of related equipment (door included as a point when given).
   const doorPoint = door ? [{ kind: "door" as EquipmentKind, ...{ south: { x: door.offset ?? 0, z: -D / 2 }, north: { x: door.offset ?? 0, z: D / 2 }, west: { x: -W / 2, z: door.offset ?? 0 }, east: { x: W / 2, z: door.offset ?? 0 } }[wall] }] : [];
   const closeness = Math.round(closenessCost([...items, ...doorPoint]) * 100) / 100;
@@ -394,13 +473,13 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
     equipment.push({ kind: "door", ...at, settings: { doorWidth: door.width ?? 3 } });
   }
   const count = (kind: EquipmentKind) => items.filter((it) => it.kind === kind).length;
-  const name = `${params.pattern}×${lines} · 로봇 ${count("robot")} · AMR ${params.amrs}`;
+  const name = `${params.pattern}×${lines}${stack > 1 ? ` (${stack}단)` : ""} · 로봇 ${count("robot")} · AMR ${params.amrs}${lineEnd ? " · 라인 끝 랙" : ""}`;
   return {
     params, issues: [...new Set(issues)], crossings, closeness,
-    template: { id: `auto-${params.pattern}-${lines}-${params.robotsPerLine}-${params.amrs}-${params.docks}-${params.racks}`, name, description: `자동 배치 (${constraints.targetPerHour}박스/h 목표)`, equipment, links },
+    template: { id: `auto-${params.pattern}-${lines}-${count("robot")}r-s${stack}-${lineEnd ? "end" : "row"}-${params.amrs}-${params.docks}-${params.racks}`, name, description: constraints.mode === "fixed" ? "자동 배치 (고정 장비 · 최대 처리량)" : `자동 배치 (${constraints.targetPerHour}박스/h 목표)`, equipment, links },
     counts: { robots: count("robot"), pallets: count("pallet"), conveyors: count("conveyor"), amrs: params.amrs, docks: params.docks, racks: params.racks },
     storage: { slots: params.racks * RACK_SLOTS, required: storageRequirement(constraints).pallets },
-    travel,
+    travel, rackDistance,
     outbound: rackItems.map((rack) => ({ rack, dock: dockItems.length ? dockItems.reduce((best, d) => (dist(items[d], items[rack]) < dist(items[best], items[rack]) ? d : best)) : -1 })).filter((pair) => pair.dock >= 0),
     usedArea: Math.round((box.x1 - box.x0) * (box.z1 - box.z0) * 10) / 10,
     fit: Math.round(Math.abs(Math.log(((box.x1 - box.x0) / Math.max(0.1, box.z1 - box.z0)) / (W / D))) * 100) / 100,
@@ -434,8 +513,18 @@ export function scoreLayout(candidate: LayoutCandidate, metrics: SimMetrics, tar
   const fit = candidate.fit ?? 0;
   const storageShortfall = Math.max(0, candidate.storage.required - candidate.storage.slots) / Math.max(1, candidate.storage.required);
   return Math.round((shortfall * 1000 + storageShortfall * 200 + candidate.travel * 0.3 + cost + candidate.usedArea * 0.02 + metrics.palletWaitShare * 20 + metrics.passedPerHour * 0.05
-    + candidate.crossings * 5 + candidate.closeness * 0.5 + lineLength + fit * 10) * 10) / 10;
+    + candidate.crossings * 5 + candidate.closeness * 0.5 + lineLength + fit * 10 + candidate.rackDistance * 2) * 10) / 10;
 }
+/**
+ * Fixed-equipment mode, lower is better: throughput dominates (negated boxes/h); then short AMR routes
+ * (R-NEAR pallet -> rack, R-TRAVEL store + retrieve), crossings, pallet waiting and a little area.
+ */
+export function scoreFixed(candidate: LayoutCandidate, metrics: SimMetrics) {
+  return Math.round((-metrics.placedPerHour + candidate.rackDistance * 15 + candidate.travel * 4 + candidate.crossings * 15
+    + metrics.palletWaitShare * 200 + candidate.usedArea * 0.01) * 10) / 10;
+}
+/** Per-line inlet cap (boxes/h) seen in the sim: ~1 box / 2 s per belt inlet. */
+export const LINE_RATE_CAP = 1800;
 /** Candidate parameter grid for a constraint set (search seeds; the caller grows/trims with simulation). */
 /** Rough single-robot rate (boxes/h), used to size the seeds. */
 export const ROBOT_RATE_ESTIMATE = 220;
