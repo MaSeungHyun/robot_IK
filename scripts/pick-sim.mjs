@@ -48,6 +48,9 @@ try {
   const template = SCENE_TEMPLATES[templateIndex];
   const defectArg = process.argv.find(a => a.startsWith("--defect="));
   const runs = +(process.argv.find(a => a.startsWith("--runs="))?.slice(7) ?? 1);
+  // --rack-slots=N keeps only the first N rack slots (fills racks quickly for rack-assignment checks).
+  const rackSlotsArg = args.find(a => a.startsWith('--rack-slots='));
+  if (rackSlotsArg) { const { RACK_CONFIG } = await load('/src/constants/rack.ts'); RACK_CONFIG.slots = RACK_CONFIG.slots.slice(0, +rackSlotsArg.split('=')[1]); }
   for (const speed of (speeds.length ? speeds : [1, 4, 8]).flatMap(v => Array(runs).fill(v))) {
     useSceneStore.getState().loadTemplate(template);
     // --defect=R forces every scanner's defect rate (e.g. 0 removes ScannerInspection randomness).
@@ -116,6 +119,7 @@ try {
     console.log(`\n=== speed ${speed}x · ${clock.stats.simTime.toFixed(0)}s sim · ${frames} frames · ${realMs.toFixed(0)}ms CPU · ${perStep.toFixed(3)}ms/step · est. browser max ~${(10 / perStep).toFixed(0)}x`);
     const sensors = [...world.inspection.sensors.values()].map(x => x.snapshot), scanned = sensors.reduce((a, x) => a + x.scanned, 0), faults = sensors.reduce((a, x) => a + x.faults, 0);
     console.log(`spawned ${world.stats.spawned} scanned ${scanned} ok ${scanned - faults} rejected ${faults} placed ${world.placed} passed ${world.passed}`);
+    if (world.rackStored?.size) console.log('   racks:', [...world.rackStored].map(([id, s]) => id + ' ' + s.filter(Boolean).length + '/' + s.length).join(' | '), '· agents:', world.agents.map((a) => a.object.id + ':' + a.dispatch.phase + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '));
     for (const p of world.pallets) { const per = Array.from({ length: p.layers }, (_, l) => p.states.filter((st, i) => st === "placed" && p.layerOf(i) === l).length);
       console.log(`   pallet ${p.object.id}: ${p.count}/${p.slots.length} (${p.layers} layers x ${p.perLayer}) per layer [${per.join(", ")}] shipped ${world.stats.completedPallets}`); }
     for (const r of robots) {
