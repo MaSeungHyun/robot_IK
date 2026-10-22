@@ -1,12 +1,12 @@
 import { Group, Vector3 } from "three";
 import type { SceneEquipment } from "@/types/layout";
-import { BOX_SIZES, STREAM_CONFIG } from "@/constants/simulation";
+import { BOX_SIZES, PALLET_STACKING, STREAM_CONFIG } from "@/constants/simulation";
 import { planStack } from "@/domain/pallet/packing/stacking";
 import { createPalletModel } from "@/lib/three/palletModel";
 
 const Y = new Vector3(0, 1, 0);
-/** Depth (m) within which slots count as one row for far-first ordering. */
-const ROW_TOLERANCE = 0.02;
+/** Distance (m) within which slots count as equally far (deterministic tie-break by position). */
+const DISTANCE_TOLERANCE = 1e-6;
 
 /** Pallet-local behavior; robot assignment and AMR traffic stay with the factory. */
 export class PalletController {
@@ -19,10 +19,19 @@ export class PalletController {
   readyAt: number | null = null;
   private asset: Group;
 
+  /** Slots per layer and layer count actually used (capacity is capped to PALLET_STACKING.layers full layers). */
+  readonly perLayer: number;
+  readonly layers: number;
+
   constructor(object: SceneEquipment, asset: Group, capacity: number) {
     this.object = object;
     this.asset = asset;
-    this.slots = planStack(capacity, new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth), BOX_SIZES[0], 0).slots.map(slot => slot.position.clone()
+    const palletSize = new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
+    this.perLayer = planStack(1, palletSize, BOX_SIZES[0], 0).capacity;
+    const total = Math.max(1, Math.min(capacity, this.perLayer * PALLET_STACKING.layers));
+    this.layers = Math.ceil(total / this.perLayer);
+    // Slot y = pallet top + (layer + 1) * box height: the top face of the box (suction contact).
+    this.slots = planStack(total, new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth), BOX_SIZES[0], 0).slots.map(slot => slot.position.clone()
       .add(new Vector3(0, STREAM_CONFIG.palletHeight + BOX_SIZES[0].y, 0))
       .applyAxisAngle(Y, object.yaw).add(new Vector3(object.x, 0, object.z)));
     this.states = this.slots.map(() => "free");
@@ -30,35 +39,38 @@ export class PalletController {
   }
 
   /**
-   * Reorders the (still empty) slots for the robot at (x, z): layer by layer bottom-up and,
-   * within a layer, the row farthest from the robot first, sweeping across each row, so a
-   * placed box never sits between the robot and a later slot. Positions are untouched.
+   * Reorders the (still empty) slots for the loading robot(s): layer by layer bottom-up and, within a
+   * layer, by horizontal distance to the nearest loader descending (farthest first), so the arm never
+   * reaches over a box already placed in the current layer. Several loaders sharing a pallet each fill
+   * from their far side towards the boundary between them. Slots no loader can reach (horizontal
+   * distance > its reach) are dropped so the pallet can still complete. Positions are untouched.
    */
-  orderFrom(x: number, z: number) {
-    if (this.count || this.states.some(state => state !== "free")) return;
-    const dx = this.object.x - x, dz = this.object.z - z, length = Math.hypot(dx, dz);
-    // Robot on the pallet centre: keep the packer's own order.
-    if (length < 1e-6) return;
-    const ax = dx / length, az = dz / length;
-    const depth = (slot: Vector3) => (slot.x - x) * ax + (slot.z - z) * az;
-    const side = (slot: Vector3) => (slot.z - z) * ax - (slot.x - x) * az;
-    const layers = new Map<number, Vector3[]>();
-    for (const slot of this.slots) {
-      const key = Math.round(slot.y * 1000);
-      layers.set(key, [...(layers.get(key) ?? []), slot]);
-    }
-    const ordered = [...layers.keys()].sort((a, b) => a - b).flatMap(key => {
-      const layer = layers.get(key)!.sort((a, b) => depth(b) - depth(a));
-      const rows: Vector3[][] = [];
-      // Slots within ROW_TOLERANCE of the row's first (farthest) slot share a row.
-      for (const slot of layer) {
-        const row = rows.at(-1);
-        if (row && depth(row[0]) - depth(slot) < ROW_TOLERANCE) row.push(slot);
-        else rows.push([slot]);
-      }
-      return rows.flatMap(row => row.sort((a, b) => side(a) - side(b)));
+  orderFrom(loaders: readonly { x: number; z: number; reach: number }[]) {
+    if (!loaders.length || this.count || this.states.some(state => state !== "free")) return;
+    const near = (slot: Vector3) => Math.min(...loaders.map(l => Math.hypot(slot.x - l.x, slot.z - l.z)));
+    const reachable = this.slots.filter(slot => loaders.some(l => Math.hypot(slot.x - l.x, slot.z - l.z) <= l.reach));
+    if (!reachable.length) return;
+    const ordered = reachable.sort((a, b) => {
+      const layer = Math.round(a.y * 1000) - Math.round(b.y * 1000);
+      if (layer) return layer;
+      const far = near(b) - near(a);
+      if (Math.abs(far) > DISTANCE_TOLERANCE) return far;
+      return a.x - b.x || a.z - b.z;
     });
     this.slots.splice(0, this.slots.length, ...ordered);
+    this.states.length = this.slots.length;
+  }
+
+  /** Layer index (0 = bottom) of slot `slot`. */
+  layerOf(slot: number) {
+    return Math.round((this.slots[slot].y - STREAM_CONFIG.palletHeight) / BOX_SIZES[0].y) - 1;
+  }
+
+  /** Top face (world y) of the tallest box on the pallet, or the pallet top when empty. */
+  get stackTop() {
+    let top = STREAM_CONFIG.palletHeight;
+    this.states.forEach((state, i) => { if (state === "placed") top = Math.max(top, this.slots[i].y); });
+    return top;
   }
 
   get full() { return this.count === this.slots.length; }

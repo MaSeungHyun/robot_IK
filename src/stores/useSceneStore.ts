@@ -25,7 +25,7 @@ export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSi
   return next;
 }
 const snapFloor=(object:SceneEquipment):SceneEquipment=>object.kind==="floor"&&object.floor?{...object,x:snapFloorCenter(object.x,object.floor.width),z:snapFloorCenter(object.z,object.floor.depth)}:object;
-const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:20,spawnInterval:8,enabled:true});
+const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:40,spawnInterval:8,enabled:true});
 /** Defaults (and legacy/preset values) in real units for `kind`. Exported for the template export snippet (scripts/export-scene-template.devtools.js). */
 const DOOR_DEFAULTS:Partial<EquipmentSettings>={doorWidth:DOOR_CONFIG.width,doorHeight:DOOR_CONFIG.height,doorOpen:false};
 export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...(kind==="door"?DOOR_DEFAULTS:{}),...values});

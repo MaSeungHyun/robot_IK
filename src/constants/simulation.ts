@@ -10,6 +10,12 @@ export const CONVEYOR_PATH = [
   new Vector3(1.0625, 0.25, 0.375),
   new Vector3(1.0625, 0.25, 1.25),
 ];
+/** Pallet stacking: full layers bottom-up; each layer fills far-to-near from its loading robot(s). */
+export const PALLET_STACKING = {
+  layers: 2,
+  /** Hover/retreat stays this far (m) above the tallest placed box on the pallet. */
+  clearance: 0.05,
+};
 export const STREAM_CONFIG = {
   robotScale: 0.5,
   palletHeight: 0.15,

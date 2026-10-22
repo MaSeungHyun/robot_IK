@@ -48,6 +48,8 @@ const TOOL_AXIS = new Vector3(0, 1, 0);
 const toolTurn = new Quaternion(), toolInverse = new Quaternion(), toolOffset = new Vector3(), toolAxisWorld = new Vector3();
 const wrapAngle = (angle: number) => angle - 2 * Math.PI * Math.round(angle / (2 * Math.PI));
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
+/** Hover height over the destination: prePlaceHeight above the slot, never below the pallet stack clearance. */
+const hoverY=(job:Transfer)=>Math.max(job.destination.y+ROBOT_PICKING.prePlaceHeight,job.clearanceY??-Infinity);
 const LINEAR_PHASES: readonly RobotPhase[] = ["GRASP","LIFT","PLACE","RETREAT"];
 type CargoPose = { parent: Object3D | null; position: Vector3; quaternion: Quaternion; scale: Vector3 };
 
@@ -227,11 +229,11 @@ export class SuctionRobotController implements RobotController {
     grip.getWorldPosition(r.segmentStart);
     r.segmentEnd.copy(r.segmentStart);
     const carryPhase=["SHOULDER_TRANSFER","ALIGN_BASE","TRANSIT","PRE_PLACE"].includes(phase);
-    this.ik.setMinimumToolHeight(carryPhase?Math.min(job.destination.y+ROBOT_PICKING.prePlaceHeight,r.segmentStart.y-MOTION.contactTolerance)
+    this.ik.setMinimumToolHeight(carryPhase?Math.min(hoverY(job),r.segmentStart.y-MOTION.contactTolerance)
       :["LIFT","RETREAT"].includes(phase)?r.segmentStart.y-MOTION.contactTolerance:null);
     if(phase==="GRASP") r.segmentEnd.y=job.pickup.y;
     if(phase==="LIFT") {
-      r.segmentEnd.y=Math.max(r.segmentStart.y+ROBOT_PICKING.preGraspHeight,job.destination.y+ROBOT_PICKING.prePlaceHeight);
+      r.segmentEnd.y=Math.max(r.segmentStart.y+ROBOT_PICKING.preGraspHeight,hoverY(job));
       if(this.transferMode==="shoulder"){
         r.segmentEnd.y=Math.max(r.segmentEnd.y,r.segmentStart.y+ROBOT_PICKING.rearLiftHeight);
         // Retract in the current arm plane, keeping hand00 fixed as cargo clears the belt.
@@ -241,7 +243,7 @@ export class SuctionRobotController implements RobotController {
         r.point.addScaledVector(r.command,-r.point.dot(r.command));
         const distance=ROBOT_PICKING.liftRearwardDistance;
         if(r.point.lengthSq()>1e-12)r.segmentEnd.addScaledVector(r.point.normalize(),distance);
-        const hover=job.destination.clone();hover.y+=ROBOT_PICKING.prePlaceHeight;
+        const hover=job.destination.clone();hover.y=hoverY(job);
         r.preparedShoulder=null;
         r.transferPlanning=this.ik.prepareShoulderTransfer(r.segmentEnd,hover,job.destination);
       }
@@ -251,7 +253,7 @@ export class SuctionRobotController implements RobotController {
       r.gripOffset.copy(r.segmentStart).sub(r.point);
       r.segmentEnd.y=job.destination.y+r.gripOffset.y;
     }
-    if(phase==="RETREAT") r.segmentEnd.y+=ROBOT_PICKING.retreatHeight;
+    if(phase==="RETREAT") r.segmentEnd.y=Math.max(r.segmentEnd.y+ROBOT_PICKING.retreatHeight,(job.clearanceY??-Infinity)+r.gripOffset.y);
     const loaded=job.box.parent===grip;
     r.duration=Math.max(0.1,r.segmentEnd.distanceTo(r.segmentStart)/ROBOT_PICKING.verticalSpeed*1.875/(loaded?ROBOT_PICKING.loadedSpeedScale:1));
     if(phase==="PRE_PLACE") {
@@ -302,7 +304,7 @@ export class SuctionRobotController implements RobotController {
       :ik.startPickupPlan(target);
     if(r.phase==="TRANSIT"&&this.transferMode==="base")return ik.startBaseTransfer(target,job.destination);
     if(r.phase==="SHOULDER_TRANSFER"){
-      const hover=job.destination.clone();hover.y+=ROBOT_PICKING.prePlaceHeight;
+      const hover=job.destination.clone();hover.y=hoverY(job);
       return ik.startShoulderTransfer(hover,job.destination,r.preparedShoulder??undefined);
     }
     if(r.phase==="ALIGN_BASE")return ik.startBaseAlignment(job.destination);
@@ -616,7 +618,7 @@ export class SuctionRobotController implements RobotController {
         if(job.moving&&job.velocity)this.predictIntercept(r.command,job.velocity);
       }
       else if(r.phase==="TRANSIT"){
-        r.command.copy(job.destination);r.command.y+=ROBOT_PICKING.prePlaceHeight;
+        r.command.copy(job.destination);r.command.y=hoverY(job);
       }
       const fast=r.phase==="PRE_GRASP"&&job.moving?this.approachMoving(r.command,dt):null;
       reached=fast!==null?fast:this.moveTo(r.command,job,dt);

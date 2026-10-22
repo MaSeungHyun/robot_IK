@@ -10,7 +10,7 @@ import type {
 import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
 import type { EquipmentSnapshot } from "@/types/simulation";
-import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING } from "@/constants/simulation";
+import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING } from "@/constants/simulation";
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
 import { amrSpeedFactor, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
@@ -227,11 +227,16 @@ export class FactorySimulator {
             distance(robot.object, a.object) - distance(robot.object, b.object),
         ),
       );
-    // Far-first fill order relative to the robot that serves each pallet (its nearest robot).
+    // Far-first fill order per layer relative to the robots that load each pallet (linked loaders, else the nearest robot).
     for (const pallet of this.pallets) {
-      const robot = this.loaderOf(pallet) ?? this.robots.reduce<FactoryRobot | null>((best, next) =>
-        !best || distance(next.object, pallet.object) < distance(best.object, pallet.object) ? next : best, null);
-      if (robot) pallet.orderFrom(robot.object.x, robot.object.z);
+      const linked = this.links.incoming(pallet.object.id, "load");
+      let loaders = this.robots.filter((robot) => linked.includes(robot.object.id));
+      if (!loaders.length) {
+        const nearest = this.robots.reduce<FactoryRobot | null>((best, next) =>
+          !best || distance(next.object, pallet.object) < distance(best.object, pallet.object) ? next : best, null);
+        loaders = nearest ? [nearest] : [];
+      }
+      pallet.orderFrom(loaders.map((robot) => ({ x: robot.object.x, z: robot.object.z, reach: this.settings()[robot.object.id]?.reach ?? Infinity })));
     }
     this.inspection.onScan = (node, scannerId, result) => {
       if (node.userData.boxId)
@@ -650,6 +655,7 @@ export class FactorySimulator {
       box: box.node,
       pickup: box.node.position.clone(),
       destination: pallet.slots[slot].clone(),
+      clearanceY: pallet.stackTop + PALLET_STACKING.clearance,
       moving: true,
       yaw: pallet.object.yaw,
       velocity: new Vector3(),

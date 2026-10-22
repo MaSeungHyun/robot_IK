@@ -19,6 +19,8 @@ export type Transfer = {
   box: Group;
   pickup: Vector3;
   destination: Vector3;
+  /** Minimum world Y for hover/retreat over the destination (clears boxes already placed). */
+  clearanceY?: number;
   moving?: boolean;
   yaw?: number;
   velocity?: Vector3;

@@ -116,6 +116,8 @@ try {
     console.log(`\n=== speed ${speed}x · ${clock.stats.simTime.toFixed(0)}s sim · ${frames} frames · ${realMs.toFixed(0)}ms CPU · ${perStep.toFixed(3)}ms/step · est. browser max ~${(10 / perStep).toFixed(0)}x`);
     const sensors = [...world.inspection.sensors.values()].map(x => x.snapshot), scanned = sensors.reduce((a, x) => a + x.scanned, 0), faults = sensors.reduce((a, x) => a + x.faults, 0);
     console.log(`spawned ${world.stats.spawned} scanned ${scanned} ok ${scanned - faults} rejected ${faults} placed ${world.placed} passed ${world.passed}`);
+    for (const p of world.pallets) { const per = Array.from({ length: p.layers }, (_, l) => p.states.filter((st, i) => st === "placed" && p.layerOf(i) === l).length);
+      console.log(`   pallet ${p.object.id}: ${p.count}/${p.slots.length} (${p.layers} layers x ${p.perLayer}) per layer [${per.join(", ")}] shipped ${world.stats.completedPallets}`); }
     for (const r of robots) {
       const counts = {}; for (const s of r.log) { const k = s.split(" · ").slice(0, 2).join(" · "); counts[k] = (counts[k] ?? 0) + 1; }
       console.log(`-- ${r.id}: phaseTime`, Object.fromEntries(Object.entries(r.phaseTime).map(([k, v]) => [k, +v.toFixed(1)])));
