@@ -10,11 +10,12 @@ import { SelectionOutline } from "@/viewport/selection/SelectionOutline";
 import { SceneInstances } from "@/viewport/instancing/SceneInstances";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { InstanceContext } from "@/viewport/instancing/useInstanceModel";
+import { INSTANCE_SYNC_PRIORITY } from "@/constants/viewport";
 function InstanceRenderer({instances}:{instances:SceneInstances}){
   const outline=useMemo(()=>new SelectionOutline(),[]),resolution=useMemo(()=>new Vector2(),[]);
   useEffect(()=>()=>outline.dispose(),[outline]);
-  // Run after every robot/AMR update so attached cargo uses this frame's joint transforms.
-  useFrame(state=>{instances.sync();outline.sync(instances,useCargoStore.getState().selectedBoxId??useSceneStore.getState().selected,state.gl.getDrawingBufferSize(resolution));state.gl.render(state.scene,state.camera);},1);
+  // Only synchronize here. EffectComposer owns rendering, including the stencil outline.
+  useFrame(state=>{instances.sync();outline.sync(instances,useCargoStore.getState().selectedBoxId??useSceneStore.getState().selected,state.gl.getDrawingBufferSize(resolution));},INSTANCE_SYNC_PRIORITY);
   return <><primitive object={outline.root} dispose={null}/><primitive object={instances.root} dispose={null} {...playHover} onClick={(event:ThreeEvent<MouseEvent>)=>{
     const owner=event.object.userData.instanceOwners?.[event.instanceId??-1]??null,box=cargoBoxId(owner);
     if(box){clickBox(event,box);return;}

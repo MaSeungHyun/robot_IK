@@ -10,6 +10,8 @@ export function createPalletModel(asset: Group) {
   if (!template) {
     template = createUnitPallet(asset);
     template.scale.set(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
+    // Pallets (and what they carry) only receive shadows; see SceneInstances.
+    template.traverse((node) => { node.userData.noCastShadow = true; });
     templates.set(asset, template);
   }
   return template.clone(true);

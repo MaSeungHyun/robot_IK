@@ -54,6 +54,13 @@ const sourcePaths = {
   equipmentSpeeds:'src/domain/simulation/equipmentSpeeds.ts',
   planningScheduler:'src/domain/robot/ik/planningScheduler.ts',
   SceneInstances:'src/viewport/instancing/SceneInstances.ts',
+  viewport:'src/constants/viewport.ts',
+  rack:'src/constants/rack.ts',
+  links:'src/types/links.ts',
+  TransportQueue:'src/domain/amr/TransportQueue.ts',
+  CargoRegistry:'src/domain/cargo/CargoRegistry.ts',
+  useLogStore:'src/stores/useLogStore.ts',
+  useLinkModeStore:'src/stores/useLinkModeStore.ts',
   SelectionOutline:'src/viewport/selection/SelectionOutline.ts',
   conveyorTemplate:'src/objects/conveyor/conveyorTemplate.ts',
   conveyorLayout:'src/domain/conveyor/conveyorLayout.ts',
@@ -583,20 +590,24 @@ if(process.argv.includes('--instances')){
   selection.register(selectedModel);selection.register(selectedCargo);selectedModel.children[0].add(selectedCargo);selection.sync();
   let sourceDisposed=false;selectedModel.children[0].geometry.addEventListener('dispose',()=>{sourceDisposed=true;});
   outline.sync(selection,'robot',new T.Vector2(800,600));
-  if(outline.root.children.length!==1)throw Error('Selection outline included cargo owned by another object');
+  // The stencil outline consists of a mask and a hull, both from the selected geometry.
+  if(outline.root.children.length!==2||outline.root.children.some(mesh=>mesh.geometry!==selectedModel.children[0].geometry))throw Error('Selection mask/hull included cargo owned by another object');
+  if(outline.root.children.filter(mesh=>mesh.material.colorWrite===false).length!==1)throw Error('Selection silhouette mask missing');
   selectionRoot.position.x=4;selection.sync();outline.sync(selection,'robot',new T.Vector2(800,600));
   if(Math.abs(outline.root.children[0].matrix.elements[12]-4)>1e-8)throw Error('Selection outline did not follow movement');
   selectionRoot.visible=false;selection.sync();outline.sync(selection,'robot',new T.Vector2(800,600));
   if(outline.root.children.length)throw Error('Hidden selection still outlined');
   selectionRoot.visible=true;selection.sync();outline.sync(selection,'cargo',new T.Vector2(800,600));
-  if(outline.root.children.length!==1)throw Error('Selection change lost the outline');
+  if(outline.root.children.length!==2||outline.root.children.some(mesh=>mesh.geometry!==selectedCargo.children[0].geometry))throw Error('Selection change lost the mask/hull or retained previous geometry');
   outline.sync(selection,null,new T.Vector2(800,600));if(outline.root.children.length)throw Error('Deselection left an outline');
   outline.dispose();if(sourceDisposed)throw Error('Outline disposed shared model geometry');selection.dispose();
   const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
-  const objects=[{id:'belt',name:'Belt',kind:'conveyor',x:0,z:0,yaw:0}],settings={belt:{speed:1,enabled:true,spawnInterval:1000}};
+  const objects=[{id:'belt',name:'Belt',kind:'conveyor',x:0,z:0,yaw:0}],settings={belt:{speed:1,enabled:true,spawnInterval:.1}};
   const runtime=new SceneInstances(),world=new FactorySimulator(objects,load('box'),load('pallet'),()=>settings,runtime);
   world.connectInstances();runtime.sync();
-  if(!runtime.root.children.length||runtime.root.children.some(mesh=>mesh.count!==3))throw Error('Runtime cargo not instanced');
+  if(runtime.root.children.length)throw Error('Empty runtime unexpectedly rendered cargo');
+  world.advance(.1);runtime.sync();
+  if(world.boxes.length!==1||!runtime.root.children.length||runtime.root.children.some(mesh=>mesh.count!==1))throw Error('Spawned runtime cargo not instanced');
   const cargo=world.boxes[0],hand=new T.Group();hand.position.set(3,2,0);hand.attach(cargo.node);hand.position.z=4;runtime.sync();
   const cargoBatch=runtime.root.children[0],slot=cargoBatch.userData.instanceOwners.indexOf(cargo.node);cargoBatch.getMatrixAt(slot,matrix);
   if(Math.abs(matrix.elements[14]-cargo.node.children[0].children[0].matrixWorld.elements[14])>1e-4)throw Error('Held cargo render pose differs from source');

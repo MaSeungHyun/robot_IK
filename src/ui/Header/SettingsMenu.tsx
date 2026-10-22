@@ -1,6 +1,7 @@
 import { Popover } from "radix-ui";
 import IconButton from "@/components/IconButton";
 import ShadowQualitySelect from "@/ui/Hud/simulation/ShadowQualitySelect";
+import RenderQualitySelect from "@/ui/Hud/simulation/RenderQualitySelect";
 
 /** Header dropdown for simulation/view settings; KPIs live in the Dashboard tab. */
 export default function SettingsMenu() {
@@ -17,6 +18,7 @@ export default function SettingsMenu() {
           className="z-50 w-64 rounded-md border border-brand-primary/20 bg-bg-primary/95 p-3 text-text-primary shadow-2xl backdrop-blur-md"
         >
           <h2 className="text-sm font-semibold">시뮬레이션 설정</h2>
+          <RenderQualitySelect />
           <ShadowQualitySelect />
         </Popover.Content>
       </Popover.Portal>
