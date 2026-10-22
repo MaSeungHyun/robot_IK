@@ -4,6 +4,7 @@ import InspectorTabs from "@/ui/Header/InspectorTabs";
 import SettingsMenu from "@/ui/Header/SettingsMenu";
 import Box from "@/components/Box";
 import ConnectionStatus from "@/ui/Header/ConnectionStatus";
+import ViewToggles from "@/ui/Header/ViewToggles";
 
 export default function Header() {
   return (
@@ -17,6 +18,7 @@ export default function Header() {
         <ConnectionStatus />
         <span aria-hidden className="mx-1 h-4 w-px bg-white/10" />
         <InspectorTabs />
+        <ViewToggles />
         <SettingsMenu />
       </div>
     </header>

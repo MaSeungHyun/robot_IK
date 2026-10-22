@@ -1,3 +1,5 @@
+import type { Object3D } from "three";
+import { minimapLive } from "@/viewport/minimap/minimapBridge";
 import FloorRoom from "@/objects/room/FloorRoom";
 import { useEffect } from "react";
 import { clickBox, clickEquipment, inspectEquipment, playHover, resetCursor } from "@/viewport/selection/inspectEquipment";
@@ -49,7 +51,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
       ))}
 
       {world.agents.map((agent) => (
-        <primitive key={agent.object.id} object={agent.dispatch.carrier} {...playHover} onClick={(event: ThreeEvent<MouseEvent>) => handleEquipmentSelect(event, agent.object.id)} onDoubleClick={(event: ThreeEvent<MouseEvent>) => inspectEquipment(event, agent.object.id)}>
+        <primitive key={agent.object.id} object={agent.dispatch.carrier} ref={(carrier: Object3D | null) => { if (carrier) minimapLive.set(agent.object.id, carrier); else minimapLive.delete(agent.object.id); }} {...playHover} onClick={(event: ThreeEvent<MouseEvent>) => handleEquipmentSelect(event, agent.object.id)} onDoubleClick={(event: ThreeEvent<MouseEvent>) => inspectEquipment(event, agent.object.id)}>
           <AMR route={agent.dispatch} />
         </primitive>
       ))}
@@ -62,7 +64,8 @@ export default function FactoryRun(props: SimulatorRunProps) {
       ) : (
         <group
           key={object.id}
-          userData={{ sceneId: object.id }}
+          // Racks, docks and conveyors never move while running (scanners animate, so they stay dynamic).
+          userData={{ sceneId: object.id, instanceStatic: object.kind !== "scanner" }}
           position={[object.x, 0, object.z]}
           rotation={[0, object.yaw, 0]}
           {...playHover}
