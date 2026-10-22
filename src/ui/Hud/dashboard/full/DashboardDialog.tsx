@@ -31,7 +31,7 @@ export default function DashboardDialog() {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-x-0 top-10 bottom-0 z-500 bg-bg-primary/70 backdrop-blur-sm" />
+        <Dialog.Overlay className="fixed inset-x-0 top-10 bottom-0 z-500 bg-bg-primary/80" />
         <Dialog.Content
           aria-describedby={undefined}
           className="fixed top-14 right-4 bottom-4 left-4 z-500 flex min-h-0 flex-col rounded-[3px] border border-white/10 bg-bg-primary text-text-primary outline-none"
