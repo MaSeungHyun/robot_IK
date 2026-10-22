@@ -68,7 +68,7 @@ export default function ConveyorExtensionControls({ entity }: { entity: SceneEqu
     },
   ];
   return (
-    <group>
+    <group userData={{ noOutline: true }}>
       {selected && <Line points={points} color="#38bdf8" lineWidth={3} />}
       {selected && !connected && hover && extension && (
         <group

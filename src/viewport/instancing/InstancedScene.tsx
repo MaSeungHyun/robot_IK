@@ -8,7 +8,7 @@ import { useCargoStore } from "@/stores/useCargoStore";
 import { Vector2 } from "three";
 import { SelectionOutline } from "@/viewport/selection/SelectionOutline";
 import { SceneInstances } from "@/viewport/instancing/SceneInstances";
-import { useSceneStore } from "@/stores/useSceneStore";
+import { selectedIds, useSceneStore } from "@/stores/useSceneStore";
 import { InstanceContext } from "@/viewport/instancing/useInstanceModel";
 import { INSTANCE_SYNC_PRIORITY } from "@/constants/viewport";
 import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
@@ -16,7 +16,7 @@ function InstanceRenderer({instances}:{instances:SceneInstances}){
   const outline=useMemo(()=>new SelectionOutline(),[]),resolution=useMemo(()=>new Vector2(),[]);
   useEffect(()=>()=>outline.dispose(),[outline]);
   // Only synchronize here. EffectComposer owns rendering, including the stencil outline.
-  useFrame(state=>{const t0=profileStart();instances.sync();profileEnd("instances",t0);const t1=profileStart();outline.sync(instances,useCargoStore.getState().selectedBoxId??useSceneStore.getState().selected,state.gl.getDrawingBufferSize(resolution));profileEnd("outline",t1);},INSTANCE_SYNC_PRIORITY);
+  useFrame(state=>{const t0=profileStart();instances.sync();profileEnd("instances",t0);const t1=profileStart();const box=useCargoStore.getState().selectedBoxId;const scene=useSceneStore.getState();outline.sync(instances,box?[box]:selectedIds(scene).filter(id=>!id.startsWith("floor-")),state.gl.getDrawingBufferSize(resolution));profileEnd("outline",t1);},INSTANCE_SYNC_PRIORITY);
   return <><primitive object={outline.root} dispose={null}/><primitive object={instances.root} dispose={null} {...playHover} onClick={(event:ThreeEvent<MouseEvent>)=>{
     const owner=event.object.userData.instanceOwners?.[event.instanceId??-1]??null,box=cargoBoxId(owner);
     if(box){clickBox(event,box);return;}

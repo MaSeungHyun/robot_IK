@@ -12,6 +12,7 @@ import {
   NotEqualStencilFunc,
   ReplaceStencilOp,
   ShaderMaterial,
+  InstancedMesh,
   Vector2,
 } from "three";
 import type { SceneInstances } from "@/viewport/instancing/SceneInstances";
@@ -38,6 +39,9 @@ const MASK_ORDER = 9998,
 export class SelectionOutline {
   readonly root = new Group();
   private selected: string | null = null;
+  /** Non-instanced meshes of the selection (scanner, door, AMR lamps, skinned parts), re-collected periodically. */
+  private direct: Mesh[] = [];
+  private directAge = 0;
   private inverse = new Matrix4();
   private shells = new Map<Mesh, Mesh | LineSegments>();
   private masks = new Map<Mesh, Mesh>();
@@ -117,17 +121,23 @@ export class SelectionOutline {
     shell.matrix.multiplyMatrices(this.inverse, source.matrixWorld);
     this.masks.get(source)?.matrix.copy(shell.matrix);
   };
-  sync(instances: SceneInstances, id: string | null, resolution: Vector2) {
-    if (id !== this.selected) {
+  /** `ids`: every selected scene object / box (multi-select outlines all of them). */
+  sync(instances: SceneInstances, ids: readonly string[], resolution: Vector2) {
+    const key = ids.length ? ids.join("|") : null;
+    if (key !== this.selected) {
       this.clear();
-      this.selected = id;
+      this.selected = key;
+      this.directAge = Infinity;
     }
-    if (!id) return;
+    if (!key) return;
     this.material.uniforms.resolution.value.copy(resolution);
     this.root.updateWorldMatrix(true, false);
     this.inverse.copy(this.root.matrixWorld).invert();
     for (const shell of this.shells.values()) shell.visible = false;
-    instances.forEachSelected(id, this.add);
+    for (const id of ids) instances.forEachSelected(id, this.add);
+    // Equipment that is not instanced at all (scanner, door) or partly (AMR lamps, skinned meshes).
+    if (++this.directAge > 30) this.collectDirect(ids);
+    for (const mesh of this.direct) if (mesh.visible && mesh.parent) this.add(mesh);
     for (const [source, shell] of this.shells)
       if (!shell.visible) {
         if (shell instanceof LineSegments) shell.geometry.dispose();
@@ -136,6 +146,34 @@ export class SelectionOutline {
         this.masks.get(source)?.removeFromParent();
         this.masks.delete(source);
       }
+  }
+  /**
+   * Real (non-instanced) meshes under each selected `userData.sceneId` group. Instanced sources are
+   * hidden (visible=false) and skipped; helper overlays tagged `userData.noOutline` and transparent
+   * meshes (range discs, beams) are skipped; nested objects with another sceneId are not descended.
+   */
+  private collectDirect(ids: readonly string[]) {
+    this.directAge = 0;
+    this.direct = [];
+    let top = this.root as import("three").Object3D;
+    while (top.parent) top = top.parent;
+    const wanted = new Set(ids);
+    const collect = (node: import("three").Object3D, id: string) => {
+      if (!node.visible || node.userData.noOutline) return;
+      if (node.userData.sceneId && node.userData.sceneId !== id) return;
+      if (node instanceof Mesh && !(node instanceof InstancedMesh)) {
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        if (!materials.some((m) => m.transparent && m.opacity < 1)) this.direct.push(node);
+      }
+      for (const child of node.children) collect(child, id);
+    };
+    const find = (node: import("three").Object3D) => {
+      if (node === this.root) return;
+      const id = node.userData.sceneId as string | undefined;
+      if (id && wanted.has(id) && !node.userData.cargo) { collect(node, id); return; }
+      for (const child of node.children) find(child);
+    };
+    find(top);
   }
   private clear() {
     for (const shell of this.shells.values())
