@@ -246,39 +246,59 @@ export default function PerfReadout() {
         return { key, label, format, values };
       })
     : [];
-  // The bar sits at the bottom, so the panel opens upward from it (column-reverse keeps the bar fixed).
+  const readout = items.map(([label, value]) => (
+    <span
+      key={label}
+      style={{
+        color: COLORS[label.toLowerCase() as keyof typeof COLORS],
+      }}
+    >
+      {label} <span className="text-text-primary tabular-nums">{value}</span>
+    </span>
+  ));
+  const setExpanded = (next: boolean) => {
+    if (useViewportSettingsStore.getState().perfExpanded !== next)
+      useViewportSettingsStore.getState().togglePerfExpanded();
+  };
+  // One container (same bottom offset and chrome as the minimap) that grows upward in place:
+  // bottom-anchored, graphs above the readout row. Only the collapse button closes it.
   return (
-    <div className="absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 flex-col-reverse items-center gap-1.5 font-mono text-[11px]">
-      <button
-        type="button"
-        aria-label="성능"
-        aria-expanded={expanded}
-        title={`성능 오버레이 (Shift+P) · 클릭: 추이 ${expanded ? "접기" : "펼치기"}`}
-        onClick={() => useViewportSettingsStore.getState().togglePerfExpanded()}
-        className="flex gap-3 rounded-md border border-white/10 bg-bg-primary/90 px-3 py-1.5 text-text-secondary outline-none backdrop-blur-sm transition-colors hover:bg-bg-primary focus-visible:ring-1 focus-visible:ring-brand-primary"
-      >
-        {items.map(([label, value]) => (
-          <span
-            key={label}
-            style={{
-              color: COLORS[label.toLowerCase() as keyof typeof COLORS],
-            }}
-          >
-            {label}{" "}
-            <span className="text-text-primary tabular-nums">{value}</span>
-          </span>
-        ))}
-      </button>
-      {expanded && (
-        <div
-          role="region"
-          aria-label="성능 추이 (최근 2분)"
-          className="grid grid-cols-3 gap-x-4 gap-y-3 rounded-md border border-white/10 bg-bg-primary/95 p-3 backdrop-blur-sm"
+    <div
+      role={expanded ? "region" : undefined}
+      aria-label={expanded ? "성능 추이 (최근 2분)" : undefined}
+      className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-md border border-white/10 bg-bg-primary/70 p-1 font-mono text-xs backdrop-blur-sm z-50"
+    >
+      {expanded ? (
+        <>
+          <div className="grid grid-cols-3 gap-x-4 gap-y-3 p-2">
+            {trends.map(({ key, label, format, values }) => (
+              <Trend key={key} label={label} values={values} format={format} />
+            ))}
+          </div>
+          <div className="flex items-center gap-3 px-2 py-0.5 text-text-secondary">
+            {readout}
+            <button
+              type="button"
+              aria-label="성능 추이 접기"
+              title="접기"
+              onClick={() => setExpanded(false)}
+              className="ml-auto flex size-5 items-center justify-center rounded-sm text-text-secondary outline-none transition-colors hover:bg-white/10 hover:text-text-primary focus-visible:ring-1 focus-visible:ring-brand-primary"
+            >
+              ×
+            </button>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          aria-label="성능"
+          aria-expanded={false}
+          title="성능 오버레이 (Shift+P) · 클릭: 추이 펼치기"
+          onClick={() => setExpanded(true)}
+          className="flex h-6 items-center gap-3 rounded-sm px-2 text-text-secondary outline-none transition-colors hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-brand-primary"
         >
-          {trends.map(({ key, label, format, values }) => (
-            <Trend key={key} label={label} values={values} format={format} />
-          ))}
-        </div>
+          {readout}
+        </button>
       )}
     </div>
   );
