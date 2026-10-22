@@ -15,12 +15,19 @@ import CameraTracker from "@/viewport/camera/CameraTracker";
 import CameraRig from "@/viewport/camera/CameraRig";
 import ShadowLight from "@/viewport/shadows/ShadowLight";
 import WorldAxes from "@/viewport/WorldAxes";
-
 import PostProcessing from "./PostProcessing";
+import { RENDER_QUALITY } from "@/constants/viewport";
+import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
+import PerfReadout, { PerfCollector } from "./PerfOverlay";
+import Minimap from "@/viewport/minimap/Minimap";
+import MinimapProbe from "@/viewport/minimap/MinimapProbe";
 
 const CAMERA = { position: [5, 4.5, 6] as [number, number, number], fov: 45 };
 
 export default function Viewport() {
+  const renderQuality = useViewportSettingsStore(
+    (state) => state.renderQuality,
+  );
   const ambientLight = useRef<AmbientLight>(null);
   const bloomLights = useMemo(() => [ambientLight], []);
   const { transferMode, run, running, setStats, setProgress } =
@@ -44,9 +51,10 @@ export default function Viewport() {
       <SceneBoundary resetKey={run}>
         <Canvas
           camera={CAMERA}
-          gl={{ antialias: true, stencil: true }}
+          // No canvas MSAA: the EffectComposer renders the frame with its own multisampling.
+          gl={{ antialias: false, stencil: true }}
           shadows="percentage"
-          dpr={[1, 1.5]}
+          dpr={[1, RENDER_QUALITY[renderQuality].maxDpr]}
           onCreated={({ gl }) => {
             // Synchronous shader error checks block on every compile; keep them for development.
             if (import.meta.env.PROD) gl.debug.checkShaderErrors = false;
@@ -76,7 +84,8 @@ export default function Viewport() {
 
           <CameraRig />
           <CameraTracker />
-
+          {import.meta.env.DEV && <PerfCollector />}
+          <MinimapProbe />
           <Selection>
             {/* <color attach="background" args={["#101820"]} /> */}
             <ambientLight ref={ambientLight} intensity={1.5} />
@@ -98,6 +107,8 @@ export default function Viewport() {
           </Selection>
         </Canvas>
       </SceneBoundary>
+      {import.meta.env.DEV && <PerfReadout />}
+      <Minimap />
     </div>
   );
 }
