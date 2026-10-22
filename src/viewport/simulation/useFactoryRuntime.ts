@@ -11,7 +11,7 @@ import { useSceneInstances } from "@/viewport/instancing/useInstanceModel";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { useCargoStore } from "@/stores/useCargoStore";
-import { simulationDelta } from "@/domain/simulation/simulationTime";
+import { simulationClock } from "@/domain/simulation/simulationClock";
 import { ikSolveStats } from "@/domain/robot/ik/robotIK";
 import { log } from "@/stores/useLogStore";
 import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
@@ -42,6 +42,9 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
     [objects, box.scene, pallet.scene, instances],
   );
 
+  // A new world (new run / reset) starts the shared fixed-step clock from zero.
+  useEffect(() => { simulationClock.reset(); }, [world]);
+
   useEffect(() => {
     world.connectInstances();
     useCargoStore.getState().setRegistry(world.cargo, world.transport);
@@ -61,11 +64,10 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   }, [world, onStats, onProgress, setEquipment]);
 
   useFrame((_, delta) => {
+    // One fixed-step clock per frame: boxes/belts/AMRs and every robot advance together (robots register in Robot.tsx).
+    simulationClock.frame(delta, running ? speed : 0, world);
     if (!running) return;
 
-    const simulationStart = profileStart();
-    world.advance(simulationDelta(delta, speed));
-    profileEnd("simulation", simulationStart);
     reportElapsed.current += Math.min(delta, REPORT_INTERVAL);
 
     if (reportElapsed.current < REPORT_INTERVAL) return;

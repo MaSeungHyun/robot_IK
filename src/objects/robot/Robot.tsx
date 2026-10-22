@@ -1,6 +1,6 @@
 import useRobotJointReadings from "@/hooks/robot/useRobotJointReadings";
 import { useGLTF } from "@react-three/drei";
-import { useFrame, type ThreeElements } from "@react-three/fiber";
+import type { ThreeElements } from "@react-three/fiber";
 import { useEffect, useId, useMemo, useRef, type RefObject } from "react";
 import type { Mesh } from "three";
 import { geometryAtScale } from "@/lib/three/geometryAtScale";
@@ -13,10 +13,9 @@ import type { RobotController } from "@/domain/robot/RobotController";
 import { SuctionRobotController } from "@/domain/robot/SuctionRobotController";
 import robot from "@/assets/models/robot.glb?url";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
-import { useSimulationStore } from "../../stores/useSimulationStore";
-import { simulationDelta } from "@/domain/simulation/simulationTime";
+import { simulationClock } from "@/domain/simulation/simulationClock";
 import { planningScheduler } from "@/domain/robot/ik/planningScheduler";
-import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
+import { MOTION } from "@/constants/simulation";
 
 
 type Props = ThreeElements["group"] & {
@@ -43,7 +42,6 @@ export default function Robot({
   simulationSpeed = 1,
   ...props
 }: Props) {
-  const playbackSpeed = useSimulationStore((state) => state.speed);
   const instanceId = useId();
   const { scene } = useGLTF(robot);
   const model = useMemo(() => {
@@ -61,7 +59,9 @@ export default function Robot({
   useInstanceModel(model);
 
   const controller = useRef<RobotController | null>(null);
-  const inputs = useRef({ jobs, onProgress });
+  const inputs = useRef({ jobs, onProgress, running, simulationSpeed, jointAnglesRef });
+  // Latest props for the clock callbacks (they run outside React, once per frame / per step).
+  useEffect(() => { inputs.current = { jobs, onProgress, running, simulationSpeed, jointAnglesRef }; });
   useEffect(() => {
     const instance = new SuctionRobotController({
       id: robotId ?? instanceId,
@@ -81,27 +81,33 @@ export default function Robot({
 
   useRobotJointReadings(robotId, controller);
 
-  useFrame((state, delta) => {
-    inputs.current = { jobs, onProgress };
-    const instance = controller.current;
-    if (!instance) return;
-    if (running) instance.start();
-    else instance.pause();
-    // Shared per-frame IK budget, consumed once across all sub-steps of this frame.
-    instance.setPlanningBudget?.(planningScheduler.budget(instance.id, state.clock.elapsedTime));
-    let remaining = simulationDelta(delta, playbackSpeed, simulationSpeed);
-    if (!Number.isFinite(remaining)) remaining = 0;
-    // Defensive cap for extreme speed multipliers (normal speeds need far fewer sub-steps).
-    let steps = 0;
-    const robotStart = profileStart();
-    do {
-      const step = Math.min(remaining, 0.05);
-      instance.update(step);
-      remaining -= step;
-    } while (remaining > 1e-9 && ++steps < 400);
-    profileEnd("robots", robotStart);
-    if (jointAnglesRef) jointAnglesRef.current = instance.getJointAngles();
-  });
+  // Advanced by the shared fixed-step simulation clock (same steps and dt as boxes/belts/AMRs).
+  useEffect(() => simulationClock.register({
+    beginFrame: (frameKey) => {
+      const instance = controller.current;
+      if (!instance) return;
+      if (inputs.current.running) instance.start();
+      else instance.pause();
+      // Shared per-frame IK budget, consumed once across all steps of this frame.
+      instance.setPlanningBudget?.(planningScheduler.budget(instance.id, frameKey));
+    },
+    step: (dt) => {
+      const instance = controller.current;
+      if (!instance) return;
+      // Equipment speed multiplier; the controller clamps single updates to MOTION.maxDelta, so split.
+      let remaining = dt * inputs.current.simulationSpeed;
+      if (!Number.isFinite(remaining) || remaining <= 0) { instance.update(0); return; }
+      while (remaining > 1e-9) {
+        const step = Math.min(remaining, MOTION.maxDelta);
+        instance.update(step);
+        remaining -= step;
+      }
+    },
+    endFrame: () => {
+      const instance = controller.current, ref = inputs.current.jointAnglesRef;
+      if (instance && ref) ref.current = instance.getJointAngles();
+    },
+  }), []);
 
   return (
     <group {...props} userData={{ ...props.userData, sceneId: robotId }}>
