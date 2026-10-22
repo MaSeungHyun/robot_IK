@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { footprint } from "@/domain/amr/navigation/layoutNavigation";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
@@ -8,8 +8,13 @@ import {
   minimapCommands,
   minimapLive,
 } from "@/viewport/minimap/minimapBridge";
+import { cn } from "@/lib/style";
+import { useSimulationStore } from "@/stores/useSimulationStore";
 
-const SIZE = 180,
+/** Width follows the viewport (18 %, clamped); height = width / viewport aspect. */
+const WIDTH_RATIO = 0.18,
+  MIN_WIDTH = 180,
+  MAX_WIDTH = 300,
   PAD = 10,
   MARGIN = 2;
 
@@ -55,7 +60,36 @@ function layoutBounds(objects: SceneEquipment[]): Bounds {
 export default function Minimap() {
   const enabled = useViewportSettingsStore((state) => state.minimap);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const running = useSimulationStore((state) => state.running);
+
+  const isPlaying = running;
   const view = useRef({ scale: 1, ox: 0, oz: 0 });
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 220, height: 124 });
+
+  // Match the 3D viewport's aspect (the positioned parent); ResizeObserver also covers window resizes.
+  useEffect(() => {
+    if (!enabled) return;
+    const viewport = box.current?.parentElement;
+    if (!viewport) return;
+    const update = () => {
+      const { width: vw, height: vh } = viewport.getBoundingClientRect();
+      if (vw <= 0 || vh <= 0) return;
+      const width = Math.round(
+        Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, vw * WIDTH_RATIO)),
+      );
+      const height = Math.round(width / (vw / vh));
+      setSize((previous) =>
+        previous.width === width && previous.height === height
+          ? previous
+          : { width, height },
+      );
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -63,8 +97,9 @@ export default function Minimap() {
       context = element?.getContext("2d");
     if (!element || !context) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    element.width = SIZE * dpr;
-    element.height = SIZE * dpr;
+    const { width: W, height: H } = size;
+    element.width = Math.round(W * dpr);
+    element.height = Math.round(H * dpr);
     const colors = {
       floor: "rgba(255,255,255,0.05)",
       wall: "rgba(255,255,255,0.18)",
@@ -75,15 +110,16 @@ export default function Minimap() {
     const draw = () => {
       const { objects } = useSceneStore.getState();
       const b = layoutBounds(objects);
-      const scale =
-        (SIZE - PAD * 2) / Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
-      const ox =
-        PAD + (SIZE - PAD * 2 - (b.maxX - b.minX) * scale) / 2 - b.minX * scale;
-      const oz =
-        PAD + (SIZE - PAD * 2 - (b.maxZ - b.minZ) * scale) / 2 - b.minZ * scale;
+      // Uniform scale that fits the layout (with its 2 m margin) into the box, centred.
+      const scale = Math.min(
+        (W - PAD * 2) / (b.maxX - b.minX),
+        (H - PAD * 2) / (b.maxZ - b.minZ),
+      );
+      const ox = (W - (b.maxX - b.minX) * scale) / 2 - b.minX * scale;
+      const oz = (H - (b.maxZ - b.minZ) * scale) / 2 - b.minZ * scale;
       view.current = { scale, ox, oz };
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      context.clearRect(0, 0, SIZE, SIZE);
+      context.clearRect(0, 0, W, H);
       const rect = (
         x: number,
         z: number,
@@ -128,6 +164,12 @@ export default function Minimap() {
           );
       for (const o of objects) {
         if (o.kind === "floor") continue;
+        if (o.kind === "door") {
+          // Door: a gap in the wall line plus a thin marker across it.
+          const width = useSceneStore.getState().settings[o.id]?.doorWidth ?? 4;
+          rect(o.x, o.z, o.yaw, width, 0.5, "rgba(0,0,0,0.55)", colors.camera);
+          continue;
+        }
         const live = minimapLive.get(o.id);
         if (o.kind === "amr") {
           const x = live?.position.x ?? o.x,
@@ -188,20 +230,26 @@ export default function Minimap() {
       }
     };
     draw();
-    const timer = window.setInterval(draw, 250);
+    const timer = window.setInterval(draw, 100);
     return () => window.clearInterval(timer);
-  }, [enabled]);
+  }, [enabled, size]);
 
   if (!enabled) return null;
   return (
     // Bottom-left, offset past the editor asset rail (w-12); the perf bar is bottom-centre.
-    <div className="absolute bottom-3 left-3 z-30 rounded-md border border-white/10 bg-bg-primary/30 p-1 backdrop-blur-sm">
+    <div
+      ref={box}
+      className={cn(
+        "absolute bottom-3 left-16 z-50 rounded-md border border-white/10 bg-bg-primary/80 p-1 backdrop-blur-sm",
+        isPlaying ? "left-3" : "left-16",
+      )}
+    >
       <canvas
         ref={canvas}
         role="img"
         aria-label="미니맵: 클릭하면 해당 위치로 시점 이동"
         title="미니맵 · 클릭: 시점 이동"
-        style={{ width: SIZE, height: SIZE }}
+        style={{ width: size.width, height: size.height }}
         className="block cursor-crosshair"
         onClick={(event) => {
           const bounds = event.currentTarget.getBoundingClientRect();
