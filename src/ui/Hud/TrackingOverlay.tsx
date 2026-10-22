@@ -8,7 +8,7 @@ export default function TrackingOverlay() {
   //   state.objects.find((object) => object.id === id),
   // );
   return (
-    <div className="pointer-events-none absolute inset-0 z-2 ">
+    <div className="pointer-events-none absolute inset-0 z-2">
       <div
         aria-hidden="true"
         className={cn(
