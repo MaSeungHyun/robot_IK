@@ -27,6 +27,8 @@ const flyout =
  */
 export default function AssetRail() {
   const [open, setOpen] = useState<Item | null>(null);
+  // The log panel is independent of the flyouts: only its own button/close button closes it.
+  const [logOpen, setLogOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const pending = useSceneStore((s) => s.pending);
   const errors = useLogStore((s) => s.entries.filter((entry) => entry.level === "error").length);
@@ -49,7 +51,10 @@ export default function AssetRail() {
     };
   }, [open]);
 
-  const toggle = (item: Item) => setOpen(open === item ? null : item);
+  const toggle = (item: Item) => {
+    if (item === "log") setLogOpen((value) => !value);
+    else setOpen(open === item ? null : item);
+  };
   const items: { id: Item; label: string; icon: string }[] = [
     { id: "templates", label: "템플릿", icon: "LayoutTemplate" },
     ...ASSET_PRESETS.map(({ kind, icon }) => ({ id: kind, label: EQUIPMENT_NAMES[kind], icon })),
@@ -82,10 +87,10 @@ export default function AssetRail() {
         <button
           type="button"
           aria-label="로그"
-          aria-expanded={open === "log"}
+          aria-expanded={logOpen}
           title="로그"
           onClick={() => toggle("log")}
-          className={cn(railButton, "relative mt-auto", open === "log" && "bg-brand-primary/10 text-brand-primary")}
+          className={cn(railButton, "relative mt-auto", logOpen && "bg-brand-primary/10 text-brand-primary")}
         >
           <Icon icon="Terminal" aria-hidden="true" className="size-5" />
           {/* Red (errors) takes precedence over yellow (warnings). */}
@@ -97,9 +102,20 @@ export default function AssetRail() {
         </button>
       </nav>
       {open === "templates" && <TemplateFlyout onDone={() => setOpen(null)} />}
-      {open === "log" && (
-        <div role="dialog" aria-label="로그" className={cn(flyout, "top-auto bottom-2 w-96")}>
-          <h2 className="mb-2 text-sm font-semibold text-text-primary">로그</h2>
+      {logOpen && (
+        <div role="region" aria-label="로그" className={cn(flyout, "top-auto bottom-2 w-96")}>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-text-primary">로그</h2>
+            <button
+              type="button"
+              aria-label="로그 닫기"
+              title="닫기"
+              onClick={() => setLogOpen(false)}
+              className="flex size-6 items-center justify-center rounded-md text-text-secondary outline-none transition hover:bg-white/10 hover:text-text-primary focus-visible:ring-1 focus-visible:ring-brand-primary"
+            >
+              <Icon icon="X" aria-hidden="true" className="size-3.5" />
+            </button>
+          </div>
           <LogPanel />
         </div>
       )}
