@@ -56,6 +56,12 @@ try {
     // --defect=R forces every scanner's defect rate (e.g. 0 removes ScannerInspection randomness).
     if (defectArg) { const rate = +defectArg.slice(9); const st = useSceneStore.getState();
       useSceneStore.setState({ settings: Object.fromEntries(Object.entries(st.settings).map(([id, v]) => [id, { ...v, defectRate: rate }])) }); }
+    // --rack-amr adds an east-wall door and a rack-unloading AMR (amrRole "rack") to check rack pallet outfeed.
+    if (args.includes('--rack-amr')) { const st = useSceneStore.getState();
+      st.add('door', { x: 10.5, z: 10, yaw: -Math.PI / 2 }); st.add('amr', { x: 8, z: 8, yaw: 0 });
+      const after = useSceneStore.getState(), door = after.objects.filter(o => o.kind === 'door').at(-1), amr = after.objects.filter(o => o.kind === 'amr').at(-1);
+      useSceneStore.setState({ objects: after.objects.map(o => o.id === door.id ? { ...o, x: 10.5, z: 10, yaw: -Math.PI / 2 } : o.id === amr.id ? { ...o, x: 8, z: 8, yaw: 0 } : o),
+        settings: { ...after.settings, [amr.id]: { ...after.settings[amr.id], amrRole: 'rack' } } }); }
     const { objects, links } = useSceneStore.getState();
     const getSettings = () => useSceneStore.getState().settings;
     let seed = 12345; const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -120,6 +126,7 @@ try {
     const sensors = [...world.inspection.sensors.values()].map(x => x.snapshot), scanned = sensors.reduce((a, x) => a + x.scanned, 0), faults = sensors.reduce((a, x) => a + x.faults, 0);
     console.log(`spawned ${world.stats.spawned} scanned ${scanned} ok ${scanned - faults} rejected ${faults} placed ${world.placed} passed ${world.passed}`);
     if (world.rackStored?.size) console.log('   racks:', [...world.rackStored].map(([id, s]) => id + ' ' + s.filter(Boolean).length + '/' + s.length).join(' | '), '· agents:', world.agents.map((a) => a.object.id + ':' + a.dispatch.phase + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '));
+    if (world.rackAgents?.length) console.log('   rackAMR:', world.rackAgents.map((a) => a.object.id + ':' + (a.controller.stage ?? 'idle') + ' done=' + a.controller.completed + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '), '· unloaded:', world.unloaded);
     for (const p of world.pallets) { const per = Array.from({ length: p.layers }, (_, l) => p.states.filter((st, i) => st === "placed" && p.layerOf(i) === l).length);
       console.log(`   pallet ${p.object.id}: ${p.count}/${p.slots.length} (${p.layers} layers x ${p.perLayer}) per layer [${per.join(", ")}] shipped ${world.stats.completedPallets}`); }
     for (const r of robots) {

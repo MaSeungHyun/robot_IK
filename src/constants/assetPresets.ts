@@ -49,7 +49,10 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
   {
     kind: "amr",
     icon: "Truck",
-    presets: [{ id: "default", label: "기본", description: "완성 팔레트를 출고 구역·랙으로 운반합니다." }],
+    presets: [
+      { id: "default", label: "기본", description: "완성 팔레트를 출고 구역·랙으로 운반합니다." },
+      { id: "rack", label: "랙 반출 AMR", description: "랙이 가득 차면 오래된 팔레트부터 꺼내 문 밖으로 반출합니다.", settings: { amrRole: "rack" } },
+    ],
   },
   {
     kind: "dock",

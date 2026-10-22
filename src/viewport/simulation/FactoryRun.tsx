@@ -14,6 +14,7 @@ import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
 import Rack from "@/objects/rack/Rack";
 import Door from "@/objects/door/Door";
+import RackAMR from "@/objects/amr/RackAMR";
 
 // Play mode: a click opens the object's Details (see clickEquipment).
 const handleEquipmentSelect = clickEquipment;
@@ -57,6 +58,8 @@ export default function FactoryRun(props: SimulatorRunProps) {
         </primitive>
       ))}
 
+      {world.rackAgents.map((agent) => <RackAMR key={agent.object.id} id={agent.object.id} controller={agent.controller} />)}
+
       {staticObjects.map((object) => object.kind === "floor" ? (
         // Floors/walls are scenery while simulating: not selectable, hoverable or trackable.
         <group key={object.id} position={[object.x, 0, object.z]} rotation={[0, object.yaw, 0]}>
@@ -73,7 +76,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
           onClick={(event) => handleEquipmentSelect(event, object.id)}
           onDoubleClick={(event) => inspectEquipment(event, object.id)}
         >
-          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "rack" ? <Rack /> : object.kind === "door" ? <Door id={object.id} /> : <Dock id={object.id} />}
+          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "rack" ? <Rack /> : object.kind === "door" ? <Door id={object.id} simOpening={() => world.doorOpening(object.id)} /> : <Dock id={object.id} />}
         </group>
       ))}
     </>

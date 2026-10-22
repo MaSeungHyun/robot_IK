@@ -32,6 +32,8 @@ import {
 import type { SimulationRenderer } from "@/domain/simulation/SimulationRenderer";
 import { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import { log } from "@/stores/useLogStore";
+import { RackAMRController } from "@/domain/amr/RackAMRController";
+import { DOOR_CONFIG } from "@/constants/door";
 
 type Cargo = {
   /** Registry id (B-0001...). */
@@ -64,6 +66,20 @@ export type FactoryAgent = {
   battery: number;
   charging: boolean;
 };
+/** Dedicated rack-unloading AMR (amrRole "rack"); see RackAMRController. */
+export type FactoryRackAgent = {
+  object: SceneEquipment;
+  controller: RackAMRController;
+  /** Why the last assignment attempt failed (shown while idle). */
+  waitingReason: string | null;
+};
+/** A pallet stored in a rack slot: its group and the box nodes registered for rendering. */
+type StoredPallet = { group: Group; boxes: Group[] };
+/** Seconds between rack-unload assignment checks (sim time). */
+const RACK_UNLOAD_RETRY_S = 1;
+/** Distance of the inside / outside door waypoints from the door plane (m). */
+const DOOR_INSIDE = 1.6;
+const DOOR_OUTSIDE = 2;
 type Shipment = {
   pallet: PalletController;
   group: Group;
@@ -93,6 +109,8 @@ const distance = (a: { x: number; z: number }, b: { x: number; z: number }) =>
 const SHIP_ATTEMPTS_PER_TICK = 2;
 const SHIP_RESUME_S = 0.15;
 
+/** Placeholder pose far from the scene for unused FactoryLayout entries of rack AMR routing. */
+const FAR_POSE = { x: 1e5, z: 1e5, yaw: 0 };
 const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
   config?.grade ?? "normal";
 export class FactorySimulator {
@@ -104,6 +122,7 @@ export class FactorySimulator {
   private scanTo = new Vector3();
   readonly robots: FactoryRobot[] = [];
   readonly agents: FactoryAgent[] = [];
+  readonly rackAgents: FactoryRackAgent[] = [];
   readonly pallets: PalletController[] = [];
   readonly belts: { object: SceneEquipment; elapsed: number }[] = [];
   boxes: Cargo[] = [];
@@ -180,7 +199,13 @@ export class FactorySimulator {
         this.root.add(state.group);
         this.render(state.group);
       }
-      if (object.kind === "amr")
+      if (object.kind === "amr" && this.settings()[object.id]?.amrRole === "rack")
+        this.rackAgents.push({
+          object,
+          controller: new RackAMRController(object, (from, to, loaded) => this.rackRoute(from, to, loaded)),
+          waitingReason: null,
+        });
+      else if (object.kind === "amr")
         this.agents.push({
           object,
           dispatch: new PalletDispatchController({
@@ -197,6 +222,9 @@ export class FactorySimulator {
     }
     // AMR meshes render through the instanced scene; tagging the carrier lets viewport hits resolve to the AMR.
     for (const agent of this.agents) agent.dispatch.carrier.userData.sceneId = agent.object.id;
+    for (const agent of this.rackAgents) agent.controller.carrier.userData.sceneId = agent.object.id;
+    this.doors = objects.filter((o) => o.kind === "door");
+    for (const door of this.doors) this.doorFraction.set(door.id, 0);
     this.trafficVehicles = this.agents.map((agent) => ({
       id: agent.object.id,
       dispatch: agent.dispatch,
@@ -212,6 +240,20 @@ export class FactorySimulator {
     for (const rack of this.racks)
       this.rackStored.set(rack.id, RACK_CONFIG.slots.map(() => false));
     for (const rack of this.racks) this.rackPallets.set(rack.id, RACK_CONFIG.slots.map(() => undefined));
+    for (const rack of this.racks) this.rackGroups.set(rack.id, RACK_CONFIG.slots.map(() => undefined));
+    this.rackLayout = {
+      robot: this.robots[0]?.object ?? FAR_POSE,
+      conveyor: this.belts[0]?.object ?? FAR_POSE,
+      pallet: FAR_POSE,
+      amr: FAR_POSE,
+      dock: FAR_POSE,
+    };
+    this.rackObstacles = [
+      ...this.robots.map((r) => ({ kind: r.object.kind, pose: r.object })),
+      ...this.belts.map((b) => ({ kind: b.object.kind, pose: b.object })),
+      ...this.pallets.map((p) => ({ kind: p.object.kind, pose: p.object })),
+      ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
+    ];
     for (const robot of this.robots) {
       const fed = this.links.incoming(robot.object.id, "feed");
       if (fed.length) {
@@ -265,6 +307,18 @@ export class FactorySimulator {
   private rackStored = new Map<string, boolean[]>();
   /** Display only: pallet stored in each rack slot (kept here; finished cargo records are evicted). */
   private rackPallets = new Map<string, ({ id: string; grade: CargoGrade; boxes: number; storedAt: number } | undefined)[]>();
+  /** Scene nodes of stored pallets, so the rack AMR can take them out again. */
+  private rackGroups = new Map<string, (StoredPallet | undefined)[]>();
+  private doors: SceneEquipment[] = [];
+  /** Door opening 0..1 driven by rack AMR traffic (sim time; display reads it). */
+  private doorFraction = new Map<string, number>();
+  /** "rackId:slot" pallets already claimed by a rack AMR job. */
+  private unloadClaims = new Set<string>();
+  private rackUnloadRetry = 0;
+  private rackLayout!: FactoryLayout;
+  private rackObstacles: NavigationObstacle[] = [];
+  /** Pallets taken out of racks and shipped through a door. */
+  unloaded = 0;
   /** First PalletPoint that is neither filled nor booked by a delivery in progress. */
   private freeSlot(rack: SceneEquipment) {
     const stored = this.rackStored.get(rack.id) ?? [];
@@ -522,6 +576,7 @@ export class FactorySimulator {
       );
     });
     this.advanceBatteries(dt, settings);
+    this.advanceRackAgents(dt, settings);
     for (const shipment of this.shipments) {
       if (shipment.replaced || shipment.agent.dispatch.phase !== "dispatch")
         continue;
@@ -884,6 +939,8 @@ export class FactorySimulator {
             const slots = this.rackPallets.get(dock.id);
             if (record && slots) slots[shipment.slot] = { id: record.id, grade: record.grade, boxes: record.boxIds.length, storedAt: this.elapsed };
           }
+          const groups = this.rackGroups.get(dock.id);
+          if (groups) groups[shipment.slot] = { group, boxes: [...shipment.cargo].map((box) => box.node) };
         } else {
           group.position.y = 0;
           if (shipment.palletId)
@@ -931,6 +988,119 @@ export class FactorySimulator {
     this.root.add(pallet.replace());
     this.render(pallet.group);
     this.startPalletRecord(pallet);
+  }
+  /** Rack AMR floor route around fixed equipment (other AMRs are not considered). */
+  private rackRoute(from: Vector3, to: Vector3, loaded: boolean) {
+    return layoutPath(this.rackLayout, from, to, loaded, this.rackObstacles);
+  }
+  /** Door opening for display (0 closed … 1 open). */
+  doorOpening(id: string) {
+    return this.doorFraction.get(id) ?? 0;
+  }
+  private doorWaypoints(door: SceneEquipment) {
+    const sx = Math.sin(door.yaw), cz = Math.cos(door.yaw);
+    // Door-local +Z faces the room interior (see roomWalls.wallFrames).
+    return {
+      inside: new Vector3(door.x + sx * DOOR_INSIDE, 0, door.z + cz * DOOR_INSIDE),
+      outside: new Vector3(door.x - sx * DOOR_OUTSIDE, 0, door.z - cz * DOOR_OUTSIDE),
+    };
+  }
+  /** Rack AMRs: move every step; a full rack with stored pallets gets its oldest pallet taken out through a door. */
+  private advanceRackAgents(dt: number, settings: Record<string, EquipmentSettings>) {
+    if (!this.rackAgents.length) return;
+    for (const agent of this.rackAgents) {
+      const config = settings[agent.object.id];
+      if (!config.enabled) continue;
+      const controller = agent.controller;
+      const doorId = controller.job?.doorId;
+      controller.doorOpen = doorId !== undefined && (this.doorFraction.get(doorId) ?? 0) >= 1;
+      controller.advance(dt * amrSpeedFactor(config));
+    }
+    for (const door of this.doors) {
+      const open = this.rackAgents.some((agent) => agent.controller.job?.doorId === door.id && agent.controller.needsDoor);
+      const current = this.doorFraction.get(door.id) ?? 0,
+        step = dt / DOOR_CONFIG.travelSeconds;
+      this.doorFraction.set(door.id, open ? Math.min(1, current + step) : Math.max(0, current - step));
+    }
+    this.rackUnloadRetry -= dt;
+    if (this.rackUnloadRetry > 0) return;
+    this.rackUnloadRetry = RACK_UNLOAD_RETRY_S;
+    for (const agent of this.rackAgents)
+      if (agent.controller.idle) agent.waitingReason = null;
+    for (const rack of this.racks) {
+      if (!settings[rack.id]?.enabled || this.freeSlot(rack) >= 0) continue;
+      const stored = this.rackPallets.get(rack.id) ?? [],
+        groups = this.rackGroups.get(rack.id) ?? [];
+      // Oldest stored pallet first (FIFO by storedAt), skipping pallets already claimed.
+      let slot = -1;
+      for (let i = 0; i < stored.length; i++)
+        if (stored[i] && groups[i] && !this.unloadClaims.has(`${rack.id}:${i}`) && (slot < 0 || stored[i]!.storedAt < stored[slot]!.storedAt)) slot = i;
+      if (slot < 0) continue;
+      const idle = this.rackAgents.filter((agent) => agent.controller.idle && settings[agent.object.id].enabled);
+      if (!idle.length) return;
+      if (!this.doors.length) {
+        for (const agent of idle) agent.waitingReason = "반출할 문이 없습니다. 문을 배치해 주세요.";
+        return;
+      }
+      const away = (agent: FactoryRackAgent) => distance(agent.controller.carrier.position, rack);
+      idle.sort((a, b) => away(a) - away(b));
+      const door = [...this.doors].sort((a, b) => distance(a, rack) - distance(b, rack))[0];
+      const { inside, outside } = this.doorWaypoints(door);
+      const approach = rackApproachPoint(rack, slot);
+      const key = `${rack.id}:${slot}`;
+      for (const agent of idle) {
+        const started = agent.controller.start({
+          rackId: rack.id,
+          slot,
+          approach,
+          slotPoint: rackSlotPoint(rack, slot),
+          heading: rack.yaw + Math.PI,
+          doorId: door.id,
+          inside,
+          outside,
+          pick: () => this.takeFromRack(rack, slot),
+          drop: (payload) => this.shipThroughDoor(agent, rack, door, payload, key),
+        });
+        if (started) {
+          this.unloadClaims.add(key);
+          agent.waitingReason = null;
+          break;
+        }
+        agent.waitingReason = `${rack.name} 반출 위치로 가는 경로가 없습니다.`;
+      }
+    }
+  }
+  /** Frees the slot and hands its pallet (with boxes) to the rack AMR as a dynamic object. */
+  private takeFromRack(rack: SceneEquipment, slot: number) {
+    const groups = this.rackGroups.get(rack.id),
+      stored = groups?.[slot];
+    if (!groups || !stored) return null;
+    groups[slot] = undefined;
+    this.rackStored.get(rack.id)![slot] = false;
+    const record = this.rackPallets.get(rack.id)![slot];
+    this.rackPallets.get(rack.id)![slot] = undefined;
+    stored.group.userData.instanceStatic = false;
+    stored.group.userData.rackPallet = record?.id;
+    stored.group.userData.rackBoxes = stored.boxes;
+    // Re-register so the instancer treats the pallet and boxes as moving (static sectors are fixed at registration).
+    this.unrender(stored.group);
+    for (const box of stored.boxes) this.unrender(box);
+    this.render(stored.group);
+    for (const box of stored.boxes) this.render(box);
+    log("info", `${rack.name}에서 팔레트 ${record?.id ?? ""} 반출 시작`.replace("  ", " "));
+    return stored.group;
+  }
+  private shipThroughDoor(agent: FactoryRackAgent, rack: SceneEquipment, door: SceneEquipment, payload: Group, key: string) {
+    this.unloadClaims.delete(key);
+    const palletId = payload.userData.rackPallet as string | undefined,
+      boxes = (payload.userData.rackBoxes as Group[] | undefined) ?? [];
+    this.unrender(payload);
+    for (const box of boxes) this.unrender(box);
+    payload.removeFromParent();
+    payload.clear();
+    if (palletId && this.cargo.pallet(palletId)) this.cargo.shipPallet({ t: this.elapsed, palletId, dockId: door.id });
+    this.unloaded++;
+    log("info", `팔레트 ${palletId ?? "-"} ${door.name} 밖으로 반출 완료`, `${rack.name} · ${agent.object.name}`);
   }
   get status() {
     const active = this.agents.find((agent) => agent.dispatch.phase !== "idle");
@@ -997,6 +1167,23 @@ export class FactorySimulator {
         completed: agent.completed,
         battery: Math.round(agent.battery * 10) / 10,
       })),
+      ...this.rackAgents.map((agent) => {
+        const controller = agent.controller,
+          enabled = settings[agent.object.id].enabled;
+        return {
+          id: agent.object.id,
+          name: agent.object.name,
+          state: !enabled
+            ? ("disabled" as const)
+            : controller.idle
+              ? agent.waitingReason ? ("waiting" as const) : ("idle" as const)
+              : controller.loaded ? ("dispatch" as const) : ("pickup" as const),
+          status: controller.idle ? (agent.waitingReason ?? controller.status) : controller.status,
+          target: controller.job ? (this.racks.find((rack) => rack.id === controller.job!.rackId)?.name ?? null) : null,
+          completed: controller.completed,
+          battery: 100,
+        };
+      }),
       pallets: this.pallets.map((pallet) => ({
         id: pallet.object.id,
         name: pallet.object.name,

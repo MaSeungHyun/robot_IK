@@ -27,4 +27,6 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** Dock and rack; default "any". */
   acceptGrade?:DockAcceptGrade;
   /** Door only: opening width/height in m and whether it is open (persisted = initial state). */
-  doorWidth?:number;doorHeight?:number;doorOpen?:boolean};
+  doorWidth?:number;doorHeight?:number;doorOpen?:boolean;
+  /** AMR role: "rack" = dedicated rack-unloading AMR (RackAMRController); default pallet AMR. */
+  amrRole?:"pallet"|"rack"};
