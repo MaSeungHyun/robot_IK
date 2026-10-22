@@ -6,6 +6,7 @@ import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";
 import PlacementFloor from "@/viewport/editor/PlacementFloor";
 import ModalTransform from "@/viewport/editor/ModalTransform";
 import LinkOverlay from "@/viewport/editor/links/LinkOverlay";
+import GroupTransform from "@/viewport/editor/GroupTransform";
 import useRobotRangeOverlaps from "@/hooks/robot/useRobotRangeOverlaps";
 
 export default function SceneEditor() {
@@ -17,6 +18,7 @@ export default function SceneEditor() {
       <PlacementFloor />
       <ModalTransform />
       <LinkOverlay />
+      <GroupTransform />
 
       {ids.map((id) => (
         <ModelErrorBoundary key={id} label={`설비 ${id}`}>
