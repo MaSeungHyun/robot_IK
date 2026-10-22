@@ -22,7 +22,8 @@ type Props = {
 };
 
 const DRAFT = /^\d*\.?\d*$/;
-const format = (value: number, decimals: number) => String(Number(value.toFixed(decimals)));
+const format = (value: number, decimals: number) =>
+  String(Number(value.toFixed(decimals)));
 
 /**
  * Free-typing non-negative number input. Intermediate text ("1.", "") is allowed while typing;
@@ -30,25 +31,50 @@ const format = (value: number, decimals: number) => String(Number(value.toFixed(
  * reverts to the last valid value when invalid. Esc reverts.
  */
 export default function NumberField({
-  label, value, onCommit, unit, min = 0, max = Number.POSITIVE_INFINITY, exclusiveMin = false,
-  integer = false, disabled = false, className, inputClassName, decimals = 4, mixed = false,
+  label,
+  value,
+  onCommit,
+  unit,
+  min = 0,
+  max = Number.POSITIVE_INFINITY,
+  exclusiveMin = false,
+  integer = false,
+  disabled = false,
+  className,
+  inputClassName,
+  decimals = 4,
+  mixed = false,
 }: Props) {
   const shown = format(value, decimals);
   const [draft, setDraft] = useState<string | null>(null);
 
   const commit = () => {
     if (draft === null) return;
-    const text = draft.trim(), next = Number(text);
-    const valid = text !== "" && text !== "." && Number.isFinite(next) && next >= 0
-      && (exclusiveMin ? next > min : next >= min) && next <= max && (!integer || Number.isInteger(next));
+    const text = draft.trim(),
+      next = Number(text);
+    const valid =
+      text !== "" &&
+      text !== "." &&
+      Number.isFinite(next) &&
+      next >= 0 &&
+      (exclusiveMin ? next > min : next >= min) &&
+      next <= max &&
+      (!integer || Number.isInteger(next));
     setDraft(null);
     // Unchanged (rounded) text keeps the stored value as is: no drift from display rounding.
     if (valid && (mixed || next !== Number(shown))) onCommit(next);
   };
 
   return (
-    <label className={cn("block text-xs text-text-secondary", className)}>
-      {label}
+    <label
+      className={cn(
+        "flex justify-between text-xs text-text-secondary",
+        className,
+      )}
+    >
+      <div className="min-w-24 overflow-hidden text-ellipsis whitespace-nowrap flex items-center">
+        {label}
+      </div>
       <span className="relative block">
         <input
           aria-label={label}
@@ -60,7 +86,8 @@ export default function NumberField({
           className={cn(inputClassName, unit && "pr-10")}
           onChange={(event) => {
             const text = event.currentTarget.value;
-            if (DRAFT.test(text) && (!integer || !text.includes("."))) setDraft(text);
+            if (DRAFT.test(text) && (!integer || !text.includes(".")))
+              setDraft(text);
           }}
           onBlur={commit}
           onKeyDown={(event) => {

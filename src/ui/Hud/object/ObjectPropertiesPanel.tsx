@@ -273,7 +273,6 @@ export default function ObjectPropertiesPanel({
           <section className="mt-5 border-t border-white/10 pt-4">
             <h3 className="mb-1 text-xs text-text-primary">문</h3>
             <DoorSettings id={object.id} ids={targets} inputClassName={input} />
-            <p className="mt-2 text-[11px] text-text-secondary">벽에서 0.5 m 안으로 옮기면 벽면에 붙고 개구부가 뚫립니다.</p>
           </section>
         )}
         {mixedKinds && (
@@ -319,10 +318,6 @@ export default function ObjectPropertiesPanel({
                     read={(c) => c.speed}
                     write={(value) => ({ speed: value })}
                   />
-                  <p className="mt-1 text-xs text-text-secondary">
-                    개별 {settings.speed}× · 전체 {playbackSpeed}× → 실제{" "}
-                    {Number((settings.speed * playbackSpeed).toFixed(2))}×
-                  </p>
                 </>
               )}
               {object.kind === "amr" && (
@@ -439,16 +434,16 @@ export default function ObjectPropertiesPanel({
               </div>
             </section>
           )}
-        {state.editing && object.kind === "conveyor" && (
+        {/* {state.editing && object.kind === "conveyor" && (
           <p className="mt-4 text-[11px] leading-relaxed text-sky-300/80">
             끝점의 +를 눌러 좌회전 · 직진 · 우회전 구간을 연결하세요. 끝점끼리
             가까이 놓으면 자동으로 붙습니다.
           </p>
-        )}
+        )} */}
         <div className="mt-3">
           <LinkSection object={object} />
         </div>
-        {state.editing && (
+        {/* {state.editing && (
           <Button
             type="button"
             onClick={() => useSceneStore.getState().removeMany(ids)}
@@ -456,7 +451,7 @@ export default function ObjectPropertiesPanel({
           >
             {multi ? `Delete (${ids.length})` : "Delete"}
           </Button>
-        )}
+        )} */}
       </div>
     </Panel>
   );
