@@ -18,6 +18,8 @@ interface ViewportSettings {
   perfExpanded: boolean;
   /** Top-down minimap at the viewport's bottom-left. */
   minimap: boolean;
+  /** Steel deck ceiling with trusses and LED panels inside rooms. */
+  ceiling: boolean;
 }
 
 interface ViewportSettingsState extends ViewportSettings {
@@ -27,6 +29,7 @@ interface ViewportSettingsState extends ViewportSettings {
   togglePerfOverlay: () => void;
   togglePerfExpanded: () => void;
   toggleMinimap: () => void;
+  setCeiling: (enabled: boolean) => void;
 }
 
 const DEFAULT_SETTINGS: ViewportSettings = {
@@ -36,6 +39,7 @@ const DEFAULT_SETTINGS: ViewportSettings = {
   perfOverlay: false,
   perfExpanded: false,
   minimap: false,
+  ceiling: true,
 };
 
 export const SETTINGS_COOKIE = "sf_settings";
@@ -59,6 +63,7 @@ function sanitize(raw: unknown): ViewportSettings {
     perfExpanded:
       typeof value.perfExpanded === "boolean" ? value.perfExpanded : DEFAULT_SETTINGS.perfExpanded,
     minimap: typeof value.minimap === "boolean" ? value.minimap : DEFAULT_SETTINGS.minimap,
+    ceiling: typeof value.ceiling === "boolean" ? value.ceiling : DEFAULT_SETTINGS.ceiling,
   };
 }
 
@@ -72,19 +77,21 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
       togglePerfOverlay: () => set((state) => ({ perfOverlay: !state.perfOverlay })),
       togglePerfExpanded: () => set((state) => ({ perfExpanded: !state.perfExpanded })),
       toggleMinimap: () => set((state) => ({ minimap: !state.minimap })),
+      setCeiling: (ceiling) => set({ ceiling }),
     }),
     {
       name: SETTINGS_COOKIE,
       version: SETTINGS_VERSION,
       // A corrupt cookie throws inside persist's hydrate, which is caught, so defaults stay.
       storage: createJSONStorage(() => createCookieStorage()),
-      partialize: ({ renderQuality, bloomEnabled, shadowQuality, perfOverlay, perfExpanded, minimap }) => ({
+      partialize: ({ renderQuality, bloomEnabled, shadowQuality, perfOverlay, perfExpanded, minimap, ceiling }) => ({
         renderQuality,
         bloomEnabled,
         shadowQuality,
         perfOverlay,
         perfExpanded,
         minimap,
+        ceiling,
       }),
       // Future schema changes: transform `persisted` by `version` here; sanitize() covers the rest.
       migrate: (persisted) => sanitize(persisted),

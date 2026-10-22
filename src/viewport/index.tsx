@@ -77,7 +77,7 @@ export default function Viewport() {
             // sectionColor="#344656"
             cellColor="#666666"
             sectionColor="#555555"
-            fadeDistance={1100}
+            fadeDistance={1000}
             position={[0, -0.01, 0]}
           />
           <WorldAxes />
@@ -88,7 +88,7 @@ export default function Viewport() {
           <MinimapProbe />
           <Selection>
             {/* <color attach="background" args={["#101820"]} /> */}
-            <ambientLight ref={ambientLight} intensity={1.5} />
+            <ambientLight ref={ambientLight} intensity={2} />
             <ShadowLight />
 
             <ModelLoader />

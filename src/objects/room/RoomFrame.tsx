@@ -9,7 +9,7 @@ export type RoomBeam = {
 };
 
 /** All members in a frame share one box geometry/material and one draw call. */
-export default function RoomFrame({ beams }: { beams: RoomBeam[] }) {
+export default function RoomFrame({ beams, color = FACTORY_ROOM.steelColor, metalness = 0.5 }: { beams: RoomBeam[]; color?: string; metalness?: number }) {
   const mesh = useRef<InstancedMesh>(null);
   useLayoutEffect(() => {
     if (!mesh.current) return;
@@ -32,7 +32,7 @@ export default function RoomFrame({ beams }: { beams: RoomBeam[] }) {
   return (
     <instancedMesh key={beams.length} ref={mesh} args={[undefined, undefined, beams.length]} raycast={() => {}}>
       <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial color={FACTORY_ROOM.steelColor} metalness={0.5} roughness={0.4} />
+      <meshStandardMaterial color={color} metalness={metalness} roughness={0.4} />
     </instancedMesh>
   );
 }

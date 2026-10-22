@@ -53,7 +53,7 @@ export default function WorldAxes() {
   return (
     <>
       {lines.map((line) => (
-        <primitive key={line.uuid} object={line} />
+        <primitive key={line.uuid} object={line} renderOrder={3} />
       ))}
     </>
   );
