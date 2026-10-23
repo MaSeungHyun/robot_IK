@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { Object3D, Vector3, type DirectionalLight } from "three";
 import { useSceneStore } from "@/stores/useSceneStore";
 import {
+  selectShadowQuality,
   useViewportSettingsStore,
   type ShadowQuality,
 } from "@/stores/useViewportSettingsStore";
@@ -51,7 +52,7 @@ function layoutBounds(objects: SceneEquipment[]): [number, number, number] {
  * robots and AMRs move. A ShadowMaterial plane catches shadows on the open grid.
  */
 export default function ShadowLight() {
-  const quality = useViewportSettingsStore((state) => state.shadowQuality);
+  const quality = useViewportSettingsStore(selectShadowQuality);
   const [cx, cz, radius] = useSceneStore(
     useShallow((state) => layoutBounds(state.objects)),
   );

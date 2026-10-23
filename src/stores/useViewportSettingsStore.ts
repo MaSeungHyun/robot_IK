@@ -23,6 +23,12 @@ interface ViewportSettings {
 }
 
 interface ViewportSettingsState extends ViewportSettings {
+  /**
+   * Transient (never persisted): fullscreen minimap covers the 3D view, so the scene renders in
+   * performance mode without shadows/bloom. User prefs stay untouched; read via the select* helpers.
+   */
+  minimapFullscreen: boolean;
+  setMinimapFullscreen: (open: boolean) => void;
   setRenderQuality: (quality: RenderQuality) => void;
   setBloomEnabled: (enabled: boolean) => void;
   setShadowQuality: (quality: ShadowQuality) => void;
@@ -71,12 +77,15 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
   persist(
     (set) => ({
       ...DEFAULT_SETTINGS,
+      minimapFullscreen: false,
+      setMinimapFullscreen: (minimapFullscreen) => set({ minimapFullscreen }),
       setRenderQuality: (renderQuality) => set({ renderQuality }),
       setBloomEnabled: (bloomEnabled) => set({ bloomEnabled }),
       setShadowQuality: (shadowQuality) => set({ shadowQuality }),
       togglePerfOverlay: () => set((state) => ({ perfOverlay: !state.perfOverlay })),
       togglePerfExpanded: () => set((state) => ({ perfExpanded: !state.perfExpanded })),
-      toggleMinimap: () => set((state) => ({ minimap: !state.minimap })),
+      toggleMinimap: () =>
+        set((state) => ({ minimap: !state.minimap, minimapFullscreen: false })),
       setCeiling: (ceiling) => set({ ceiling }),
     }),
     {
@@ -99,3 +108,11 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
     },
   ),
 );
+
+/** Effective render settings for the scene (performance overrides while the minimap is fullscreen). */
+export const selectRenderQuality = (state: ViewportSettingsState): RenderQuality =>
+  state.minimapFullscreen ? "performance" : state.renderQuality;
+export const selectBloomEnabled = (state: ViewportSettingsState) =>
+  !state.minimapFullscreen && state.bloomEnabled;
+export const selectShadowQuality = (state: ViewportSettingsState): ShadowQuality =>
+  state.minimapFullscreen ? "off" : state.shadowQuality;

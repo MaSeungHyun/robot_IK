@@ -17,7 +17,10 @@ import ShadowLight from "@/viewport/shadows/ShadowLight";
 import WorldAxes from "@/viewport/WorldAxes";
 import PostProcessing from "./PostProcessing";
 import { RENDER_QUALITY } from "@/constants/viewport";
-import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
+import {
+  selectRenderQuality,
+  useViewportSettingsStore,
+} from "@/stores/useViewportSettingsStore";
 import PerfReadout, { PerfCollector } from "./PerfOverlay";
 import Minimap from "@/viewport/minimap/Minimap";
 import MinimapProbe from "@/viewport/minimap/MinimapProbe";
@@ -26,7 +29,7 @@ const CAMERA = { position: [5, 4.5, 6] as [number, number, number], fov: 45 };
 
 export default function Viewport() {
   const renderQuality = useViewportSettingsStore(
-    (state) => state.renderQuality,
+    selectRenderQuality,
   );
   const ambientLight = useRef<AmbientLight>(null);
   const bloomLights = useMemo(() => [ambientLight], []);

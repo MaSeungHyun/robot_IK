@@ -9,7 +9,11 @@ import { useContext, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { AmbientLight, Camera } from "three";
 import { RENDER_QUALITY } from "@/constants/viewport";
-import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
+import {
+  selectBloomEnabled,
+  selectRenderQuality,
+  useViewportSettingsStore,
+} from "@/stores/useViewportSettingsStore";
 
 export default function PostProcessing({
   lights,
@@ -17,9 +21,9 @@ export default function PostProcessing({
   lights: RefObject<AmbientLight | null>[];
 }) {
   const renderQuality = useViewportSettingsStore(
-    (state) => state.renderQuality,
+    selectRenderQuality,
   );
-  const bloomEnabled = useViewportSettingsStore((state) => state.bloomEnabled);
+  const bloomEnabled = useViewportSettingsStore(selectBloomEnabled);
   const selection = useContext(selectionContext);
   const bloomActive = bloomEnabled && (selection?.selected.length ?? 0) > 0;
   // The composer (and SelectiveBloom) rebuild every pass and render target whenever their camera
