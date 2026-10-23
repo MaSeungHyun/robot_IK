@@ -1,5 +1,5 @@
 import { Group, Vector3 } from "three";
-import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
+import { SIMULATOR_CONFIG, AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { RACK_CONFIG } from "@/constants/rack";
 
 /**
@@ -87,6 +87,45 @@ export class RackAMRController {
   get loaded() {
     return this.payload !== null;
   }
+  /** Traffic body radius: the carried pallet's envelope while loaded. */
+  get radius() {
+    return this.loaded ? AMR_TRAFFIC.loadedRadius : AMR_TRAFFIC.emptyRadius;
+  }
+  /** Driving a floor route (traffic applies); rack insert/retreat and lifting are not. */
+  get moving() {
+    return this.stage === "toRack" || this.stage === "toDoor" || this.stage === "toOutside" || this.stage === "toInside" || this.stage === "returning";
+  }
+  /** End of the current route. */
+  get goal() {
+    return this.path[this.path.length - 1] ?? null;
+  }
+  /** Position after driving `delta` (s, speed-scaled) along the route, without moving. */
+  predict(delta: number, out: Vector3) {
+    out.copy(this.carrier.position);
+    if (!this.moving) return out;
+    let remaining = delta * SIMULATOR_CONFIG.amrSpeed;
+    for (let i = this.cursor; i < this.path.length && remaining > 0; i++) {
+      const point = this.path[i],
+        length = out.distanceTo(point);
+      if (length <= remaining) {
+        out.copy(point);
+        remaining -= length;
+      } else {
+        out.lerp(point, remaining / length);
+        break;
+      }
+    }
+    return out;
+  }
+  /** Replaces the rest of the current route (traffic detour); the stage is unchanged. */
+  reroute(points: Vector3[]) {
+    if (!this.moving || points.length < 2) return;
+    this.path = points;
+    this.cursor = 1;
+    this.version++;
+  }
+  /** Set by the owner each step: true holds the AMR in place while driving (traffic). */
+  held = false;
   get status() {
     return this.stage ? STATUS[this.stage] : "랙 반출 대기";
   }
@@ -178,6 +217,7 @@ export class RackAMRController {
       this.turn(delta);
       return;
     }
+    if (this.held && this.moving) return;
     switch (this.stage) {
       case "toRack":
         if (!this.drive(delta)) return;

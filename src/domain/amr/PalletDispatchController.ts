@@ -30,6 +30,8 @@ export class PalletDispatchController {
   goal: Vector3 | null = null;
   version = 0;
   yielding = false;
+  /** Backing out of another AMR's way: keeps its heading and drives backward (slower). */
+  reversing = false;
   get moving() {
     return (
       this.phase === "pickup" ||
@@ -105,7 +107,13 @@ export class PalletDispatchController {
     if (!this.moving || points.length < 2) return;
     this.path = points;
     this.cursor = 1;
+    this.reversing = false;
     this.version++;
+  }
+  /** Like reroute, but drives the first leg backward with the current heading kept. */
+  reverse(points: Vector3[]) {
+    this.reroute(points);
+    if (this.moving && points.length >= 2) this.reversing = true;
   }
   private layout: FactoryLayout;
   private obstacles: NavigationObstacle[] = [];
@@ -130,8 +138,20 @@ export class PalletDispatchController {
     this.carrier.position.set(layout.amr.x, 0, layout.amr.z);
     this.carrier.rotation.y = layout.amr.yaw;
   }
+  /** Free for a new task: idle, or empty on the way home (the return leg is dropped and it heads straight to the next job). */
+  get available() {
+    return this.phase === "idle" || this.phase === "returning";
+  }
   request(payload: Group, complete: () => void, routes?: DispatchRoutes) {
-    if (this.phase !== "idle") throw Error("AMR already has a pallet task");
+    if (!this.available) throw Error("AMR already has a pallet task");
+    if (this.phase === "returning") {
+      this.path = [];
+      this.goal = null;
+      this.routes = null;
+      this.turnTarget = null;
+      this.aligned = false;
+      this.phase = "idle";
+    }
     this.payload = payload;
     this.complete = complete;
     this.routes = routes ?? null;
@@ -248,7 +268,12 @@ export class PalletDispatchController {
       }
       // A carried pallet is parented to the carrier (attached at pickup with its
       // relative pose preserved), so it and its boxes turn with the AMR.
-      this.carrier.rotation.y = Math.atan2(dx, dz);
+      // Reversing keeps the heading while the leg points backward; once the yield path bends away it turns and drives forward.
+      if (this.reversing) {
+        const yaw = this.carrier.rotation.y;
+        if (-(Math.sin(yaw) * dx + Math.cos(yaw) * dz) / length < 0.5) this.reversing = false;
+      }
+      this.carrier.rotation.y = this.reversing ? Math.atan2(-dx, -dz) : Math.atan2(dx, dz);
       if (distance >= length) {
         position.x = point.x;
         position.z = point.z;
@@ -260,6 +285,7 @@ export class PalletDispatchController {
         distance = 0;
       }
     }
+    if (this.cursor >= this.path.length) this.reversing = false;
     if (this.cursor < this.path.length || this.holding) return;
     // Under the pallet: align with it (square pallet, so any 90° equivalent) before lifting.
     if (this.phase === "pickup" && this.payload) {
@@ -350,6 +376,7 @@ export class PalletDispatchController {
     this.storeStage = "retreat";
   }
   get status() {
+    if (this.reversing) return "다른 AMR에게 길 양보 중 · 후진";
     if (this.yielding) return "다른 AMR 통과 대기 · 안전거리 확보 후 자동 출발";
     return {
       idle: "완성 팔레트 대기",

@@ -35,6 +35,12 @@ export const TRAFFIC_RESOLUTION = {
   attempts: 14,
   /** Holding longer than this (s) resumes even if the winner is still near. */
   maxHold: 10,
+  /** Straight back-off distances (m) tried when no side cell is reachable. */
+  reverse: [1.2, 0.8, 0.5],
+  /** Speed factor while reversing. */
+  reverseSpeed: 0.5,
+  /** Seconds a vehicle that backed off for a rack AMR waits before replanning. */
+  bodyHold: 2,
 };
 
 // Closest separation of two swept discs, including crossings between frames.
@@ -60,11 +66,16 @@ function conflicts(
   grows = false,
 ) {
   const distance = separation(a, b, c, d);
-  return (
-    distance < limit - 1e-8 &&
-    (grows || distance < Math.hypot(a.x - c.x, a.z - c.z) - 1e-7)
-  );
+  if (distance >= limit - 1e-8) return false;
+  if (grows) return true;
+  const now = Math.hypot(a.x - c.x, a.z - c.z),
+    end = Math.hypot(b.x - d.x, b.z - d.z);
+  // Inside the limit only a move that actually opens the gap is allowed: closing in, dipping
+  // closer on the way, or sliding alongside at the same distance (bodies passing through) conflict.
+  return distance < now - 1e-7 || end <= now + 1e-6;
 }
+/** A body the traffic controller must keep clear of but does not drive (e.g. a rack AMR). */
+export type TrafficBody = { position: Vector3; radius: number };
 const grows = (vehicle: Vehicle, next: Vector3) =>
   vehicle.dispatch.radiusAt(next) > vehicle.dispatch.radius + 1e-9;
 function polylineDistance(point: Vector3, path: readonly Vector3[]) {
@@ -137,7 +148,7 @@ export class AMRTrafficController {
     if (Math.abs(remaining) > 0.5) return remaining;
     return a.id.localeCompare(b.id);
   }
-  advance(vehicles: Vehicle[], delta: number, replan: TrafficPlanner) {
+  advance(vehicles: Vehicle[], delta: number, replan: TrafficPlanner, bodies: readonly TrafficBody[] = []) {
     const steps = Math.max(1, Math.ceil(delta / (1 / 30))),
       dt = delta / steps;
     for (const vehicle of vehicles)
@@ -190,6 +201,20 @@ export class AMRTrafficController {
             (priority(a, b) <= 0 ? mb : ma).allowed = false;
           }
         }
+      // Bodies outside this controller (rack AMRs) never yield here: stop short of them.
+      for (const vehicle of vehicles) {
+        const motion = this.motions.get(vehicle.id)!,
+          position = vehicle.dispatch.carrier.position;
+        if (!motion.allowed || !vehicle.dispatch.moving) continue;
+        for (const body of bodies)
+          if (
+            conflicts(position, motion.ahead, body.position, body.position, vehicle.dispatch.radius + body.radius + this.margin) ||
+            conflicts(position, motion.next, body.position, body.position, vehicle.dispatch.radiusAt(motion.next) + body.radius + this.margin, grows(vehicle, motion.next))
+          ) {
+            motion.allowed = false;
+            break;
+          }
+      }
       // Recheck after every stop: the winner must also clear the stopped vehicle's actual body.
       for (let pass = 0; pass < vehicles.length; pass++) {
         let changed = false;
@@ -261,7 +286,14 @@ export class AMRTrafficController {
             grows(vehicle, motion.next) || grows(other, next),
           );
         });
-        if (safe) motion.allowed = true;
+        if (
+          safe &&
+          bodies.every(
+            (body) =>
+              !conflicts(dispatch.carrier.position, motion.next, body.position, body.position, dispatch.radiusAt(motion.next) + body.radius + this.margin, grows(vehicle, motion.next)),
+          )
+        )
+          motion.allowed = true;
       }
       for (const vehicle of vehicles) {
         const motion = this.motions.get(vehicle.id)!,
@@ -272,7 +304,7 @@ export class AMRTrafficController {
           continue;
         }
         if (motion.allowed) {
-          dispatch.advance(dt * vehicle.speed);
+          dispatch.advance(dt * vehicle.speed * (dispatch.reversing ? TRAFFIC_RESOLUTION.reverseSpeed : 1));
           motion.wait = 0;
         } else if (dispatch.moving) {
           dispatch.yielding = true;
@@ -286,7 +318,7 @@ export class AMRTrafficController {
             continue;
           }
           // Still stuck: a deadlock. The lower-priority vehicle of the pair steps aside.
-          this.resolve(vehicle, vehicles, replan);
+          this.resolve(vehicle, vehicles, replan, bodies);
         }
       }
     }
@@ -310,42 +342,106 @@ export class AMRTrafficController {
     }
     return best;
   }
-  private resolve(vehicle: Vehicle, vehicles: Vehicle[], replan: TrafficPlanner) {
+  /** Nearest rack AMR body stopping `vehicle`. */
+  private blockingBody(vehicle: Vehicle, bodies: readonly TrafficBody[]) {
+    const position = vehicle.dispatch.carrier.position,
+      ahead = this.motions.get(vehicle.id)!.ahead;
+    let best: TrafficBody | null = null,
+      distance = Infinity;
+    for (const body of bodies) {
+      const gap = Math.min(position.distanceTo(body.position), ahead.distanceTo(body.position)),
+        range = vehicle.dispatch.radius + body.radius + this.margin + 0.8 * vehicle.speed;
+      if (gap < range && gap < distance) {
+        best = body;
+        distance = gap;
+      }
+    }
+    return best;
+  }
+  private resolve(vehicle: Vehicle, vehicles: Vehicle[], replan: TrafficPlanner, bodies: readonly TrafficBody[]) {
     const other = this.blocker(vehicle, vehicles);
     if (!other) {
+      // A rack AMR never yields to regular AMRs here, so the regular AMR backs off / steps aside for it.
+      const body = this.blockingBody(vehicle, bodies);
+      if (body) {
+        // Its route is unknown here: assume it drives on through this vehicle, so step off that line.
+        const through = vehicle.dispatch.carrier.position.clone().sub(body.position).setY(0);
+        const corridor = [body.position.clone()];
+        if (through.lengthSq() > 1e-8)
+          corridor.push(body.position.clone().addScaledVector(through.normalize(), TRAFFIC_RESOLUTION.corridor));
+        const peer = { id: BODY_YIELD, position: body.position, radius: body.radius, corridor };
+        if (this.stepAside(vehicle, peer, vehicles, replan, bodies) || this.backOff(vehicle, peer, vehicles, replan, bodies)) return;
+      }
       const path = replan(vehicle);
       if (path) vehicle.dispatch.reroute(path);
       return;
     }
     const otherMoves = other.enabled && other.dispatch.moving;
-    // A parked/loading/unloading peer cannot move: detour around it (goal may be shared).
+    // A parked/loading/unloading peer cannot move: detour around it, else back off so a detour opens up.
     if (!otherMoves) {
       const path = replan(vehicle);
       if (path) vehicle.dispatch.reroute(path);
+      else this.backOff(vehicle, this.peer(other), vehicles, replan, bodies);
       return;
     }
     const [loser, winner] =
       this.priority(vehicle, other) <= 0 ? [other, vehicle] : [vehicle, other];
     if (this.motions.get(loser.id)!.yieldFrom === winner.id && loser.dispatch.holding) return;
-    if (!this.stepAside(loser, winner, vehicles, replan))
-      this.stepAside(winner, loser, vehicles, replan);
+    // Deterministic order: the lower-priority vehicle yields (side cell, else straight reverse); only if it
+    // cannot move at all does the winner try the same.
+    if (this.stepAside(loser, this.peer(winner), vehicles, replan, bodies)) return;
+    if (this.backOff(loser, this.peer(winner), vehicles, replan, bodies)) return;
+    if (this.stepAside(winner, this.peer(loser), vehicles, replan, bodies)) return;
+    this.backOff(winner, this.peer(loser), vehicles, replan, bodies);
   }
-  /** Moves `loser` to a nearby cell clear of `winner`'s next stretch of route. */
+  private peer(vehicle: Vehicle): Peer {
+    return {
+      id: vehicle.id,
+      position: vehicle.dispatch.carrier.position,
+      radius: vehicle.dispatch.radius,
+      corridor: vehicle.dispatch.moving
+        ? vehicle.dispatch.remaining(TRAFFIC_RESOLUTION.corridor)
+        : [vehicle.dispatch.carrier.position.clone()],
+    };
+  }
+  /** True when `point` keeps clear of every other AMR body and rack AMR body (except the peer). */
+  private clearOfOthers(point: Vector3, loser: Vehicle, peer: Peer, vehicles: Vehicle[], bodies: readonly TrafficBody[]) {
+    const radius = loser.dispatch.radius;
+    return (
+      vehicles.every(
+        (other) =>
+          other === loser ||
+          other.id === peer.id ||
+          point.distanceTo(other.dispatch.carrier.position) >=
+            radius + other.dispatch.radius + this.margin + 0.05,
+      ) &&
+      bodies.every(
+        (body) =>
+          body.position === peer.position ||
+          point.distanceTo(body.position) >= radius + body.radius + this.margin + 0.05,
+      )
+    );
+  }
+  private commitYield(loser: Vehicle, peer: Peer, path: Vector3[], reverse: boolean) {
+    if (reverse) loser.dispatch.reverse(path);
+    else loser.dispatch.reroute(path);
+    const motion = this.motions.get(loser.id)!;
+    motion.yieldFrom = peer.id;
+    motion.hold = 0;
+    motion.wait = 0;
+  }
+  /** Moves `loser` to a nearby cell clear of the peer's next stretch of route. */
   private stepAside(
     loser: Vehicle,
-    winner: Vehicle,
+    peer: Peer,
     vehicles: Vehicle[],
     replan: TrafficPlanner,
+    bodies: readonly TrafficBody[],
   ) {
     if (!loser.enabled || !loser.dispatch.moving) return false;
     const config = TRAFFIC_RESOLUTION,
       position = loser.dispatch.carrier.position,
-      peer = winner.dispatch.carrier.position,
-      radius = loser.dispatch.radius,
-      corridor = winner.dispatch.moving
-        ? winner.dispatch.remaining(config.corridor)
-        : [peer.clone()],
-      need = radius + winner.dispatch.radius + this.margin;
+      need = loser.dispatch.radius + peer.radius + this.margin;
     const candidates: { point: Vector3; score: number }[] = [];
     for (const ring of config.rings)
       for (let k = 0; k < config.angles; k++) {
@@ -355,32 +451,70 @@ export class AMRTrafficController {
             0,
             position.z + ring * Math.sin(angle),
           );
-        if (polylineDistance(point, corridor) < need + 0.05) continue;
-        if (
-          vehicles.some(
-            (other) =>
-              other !== loser &&
-              other !== winner &&
-              point.distanceTo(other.dispatch.carrier.position) <
-                radius + other.dispatch.radius + this.margin + 0.05,
-          )
-        )
-          continue;
-        // Prefer short moves that head away from the winner.
-        candidates.push({ point, score: ring - 0.5 * (point.distanceTo(peer) - position.distanceTo(peer)) });
+        if (polylineDistance(point, peer.corridor) < need + 0.05) continue;
+        if (!this.clearOfOthers(point, loser, peer, vehicles, bodies)) continue;
+        // Prefer short moves that head away from the peer.
+        candidates.push({ point, score: ring - 0.5 * (point.distanceTo(peer.position) - position.distanceTo(peer.position)) });
       }
     candidates.sort((a, b) => a.score - b.score);
-    const floor = Math.min(position.distanceTo(peer), need) - 1e-6;
+    const floor = Math.min(position.distanceTo(peer.position), need) - 1e-6;
     for (const { point } of candidates.slice(0, config.attempts)) {
       const path = replan(loser, point);
       if (!path) continue;
-      // The side step itself must never close in on the winner.
-      if (samples(path).some((sample) => sample.distanceTo(peer) < floor)) continue;
-      loser.dispatch.reroute(path);
-      const motion = this.motions.get(loser.id)!;
-      motion.yieldFrom = winner.id;
-      motion.hold = 0;
-      motion.wait = 0;
+      // The side step itself must never close in on the peer.
+      if (samples(path).some((sample) => sample.distanceTo(peer.position) < floor)) continue;
+      this.commitYield(loser, peer, path, this.backward(loser, path));
+      return true;
+    }
+    return false;
+  }
+  /** True when the path's first leg points behind the vehicle (drive it in reverse). */
+  private backward(vehicle: Vehicle, path: readonly Vector3[]) {
+    const position = vehicle.dispatch.carrier.position,
+      yaw = vehicle.dispatch.carrier.rotation.y;
+    for (const point of path) {
+      const dx = point.x - position.x,
+        dz = point.z - position.z,
+        length = Math.hypot(dx, dz);
+      if (length < 0.05) continue;
+      return -(Math.sin(yaw) * dx + Math.cos(yaw) * dz) / length > 0.5;
+    }
+    return false;
+  }
+  /**
+   * Fallback when no side cell is reachable: back straight away from the peer (heading kept) so it
+   * gets room to detour. Validated by the planner (navigation grid, walls, other bodies).
+   */
+  private backOff(
+    loser: Vehicle,
+    peer: Peer,
+    vehicles: Vehicle[],
+    replan: TrafficPlanner,
+    bodies: readonly TrafficBody[],
+  ) {
+    if (!loser.enabled || !loser.dispatch.moving) return false;
+    const position = loser.dispatch.carrier.position,
+      yaw = loser.dispatch.carrier.rotation.y;
+    let dx = position.x - peer.position.x,
+      dz = position.z - peer.position.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-6) return false;
+    dx /= length;
+    dz /= length;
+    // Straight back along the heading when the peer is in front; otherwise directly away from it.
+    const fx = Math.sin(yaw),
+      fz = Math.cos(yaw);
+    if (-(fx * dx + fz * dz) > 0.7) {
+      dx = -fx;
+      dz = -fz;
+    }
+    for (const distance of TRAFFIC_RESOLUTION.reverse) {
+      const point = new Vector3(position.x + dx * distance, 0, position.z + dz * distance);
+      if (!this.clearOfOthers(point, loser, peer, vehicles, bodies)) continue;
+      const path = replan(loser, point);
+      // Only a (nearly) straight move: a long detour is not a back-off.
+      if (!path || pathLength(path) > distance * 1.5 + 0.2) continue;
+      this.commitYield(loser, peer, path, this.backward(loser, path));
       return true;
     }
     return false;
@@ -398,6 +532,8 @@ export class AMRTrafficController {
     motion.hold += dt;
     if (motion.retry > 0) return;
     motion.retry = 0.5;
+    // Yielded to a rack AMR (no known route): give it a moment to pass first.
+    if (motion.yieldFrom === BODY_YIELD && motion.hold < TRAFFIC_RESOLUTION.bodyHold) return;
     const winner = vehicles.find((other) => other.id === motion.yieldFrom);
     const path = replan(vehicle);
     if (!path) return;
@@ -417,4 +553,11 @@ export class AMRTrafficController {
     motion.hold = 0;
     motion.wait = 0;
   }
+}
+type Peer = { id: string; position: Vector3; radius: number; corridor: Vector3[] };
+const BODY_YIELD = "\u0000rack-body";
+function pathLength(path: readonly Vector3[]) {
+  let length = 0;
+  for (let i = 1; i < path.length; i++) length += path[i - 1].distanceTo(path[i]);
+  return length;
 }
