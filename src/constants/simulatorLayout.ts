@@ -6,7 +6,7 @@ export const SIMULATOR_CONFIG = {
   navigationPadding: 3,
   grid: 0.2,
   snap: 0.1,
-  amrSpeed: 0.8,
+  amrSpeed: 1.6,
   amrTurnRate: Math.PI / 2,
   palletCapacity: 20,
 };

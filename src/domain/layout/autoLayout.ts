@@ -133,7 +133,7 @@ export const LAYOUT_RULES = {
     robot: [0.65, 0.65], amr: [0.9, 0.9], scanner: [0.65, 0.65], floor: [0, 0], door: [0, 0],
   } as Record<EquipmentKind, [number, number]>,
   /** Belt speed so boxes (0.275 m) keep >= 0.5 m spacing at the inlet. */
-  minBeltSpeed: 0.1875,
+  minBeltSpeed: 0.25,
 };
 
 type Rect = { cx: number; cz: number; yaw: number; w: number; d: number; tag: string; index?: number };
