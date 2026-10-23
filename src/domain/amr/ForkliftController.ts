@@ -204,8 +204,8 @@ export class ForkliftController {
     this.tries = 0;
     if (job.kind === "store") {
       const pickup = job.pickup!;
-      // Pallets can be forked from either open side: try the delivery heading, then the flipped one.
-      for (const heading of [pickup.heading, pickup.heading + Math.PI]) {
+      // Pallets are four-way: try the delivery heading, the flipped one, then both sideways (narrow aisles).
+      for (const heading of [pickup.heading, pickup.heading + Math.PI, pickup.heading + Math.PI / 2, pickup.heading - Math.PI / 2]) {
         const standoff = forkliftStop(pickup.point, heading, FORKLIFT_CONFIG.forkLength),
           route = this.plan(this.carrier.position, standoff, false);
         if (!route) continue;
