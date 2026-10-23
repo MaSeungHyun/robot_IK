@@ -122,7 +122,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -132,7 +131,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -142,7 +140,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -152,7 +149,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -162,7 +158,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -172,7 +167,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -182,7 +176,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -192,7 +185,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -202,7 +194,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -212,7 +203,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -222,7 +212,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -232,7 +221,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -242,7 +230,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -252,7 +239,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -262,7 +248,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -272,7 +257,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -282,7 +266,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -292,7 +275,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -382,6 +364,7 @@ export const SCENE_TEMPLATES = [
         z: -1.6,
         yaw: 0,
         settings: {
+          capacity: 3,
           grade: "defect",
         },
       },
@@ -391,6 +374,7 @@ export const SCENE_TEMPLATES = [
         z: -1.6,
         yaw: 0,
         settings: {
+          capacity: 3,
           grade: "defect",
         },
       },
@@ -399,54 +383,81 @@ export const SCENE_TEMPLATES = [
         x: 4.1,
         z: 2.5,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: 4.1,
         z: 6.7,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: 4.1,
         z: 10.9,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: -0.1,
         z: 2.5,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: -0.1,
         z: 6.7,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: 0,
         z: 10.9,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: -4.5,
         z: 10.9,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: -4.5,
         z: 6.7,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: -4.4,
         z: 2.5,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
@@ -454,6 +465,7 @@ export const SCENE_TEMPLATES = [
         z: -1.6,
         yaw: 0,
         settings: {
+          capacity: 3,
           grade: "defect",
         },
       },
@@ -507,10 +519,12 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "amr",
-        x: 5.9,
-        z: -6,
+        x: 8.2,
+        z: -5.7,
         yaw: 0,
-        settings: { amrRole: "rack" },
+        settings: {
+          amrRole: "forklift",
+        },
       },
       {
         kind: "scanner",
@@ -541,7 +555,7 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 9.1,
+        x: 14.5,
         z: -7.2,
         yaw: 1.570796,
         settings: {
@@ -562,19 +576,19 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "floor",
-        x: 4,
+        x: 9,
         z: 6,
         yaw: 0,
         floor: {
-          width: 26,
+          width: 36,
           depth: 30,
           wallHeight: 6.5,
         },
       },
       {
         kind: "rack",
-        x: 9.1,
-        z: -4.3,
+        x: 14.5,
+        z: -2.1,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -582,8 +596,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 9.1,
-        z: -1.4,
+        x: 14.5,
+        z: 8.5,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -591,8 +605,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 9.1,
-        z: 1.5,
+        x: 14.5,
+        z: 13.9,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -600,8 +614,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 9.1,
-        z: 4.3,
+        x: 14.6,
+        z: 19.6,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -609,43 +623,7 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 9.1,
-        z: 7.1,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 9.1,
-        z: 12.9,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 9.1,
-        z: 15.8,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 9.1,
-        z: 18.7,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 12.5,
+        x: 19.4,
         z: -7.2,
         yaw: 1.570796,
         settings: {
@@ -654,7 +632,7 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 15.9,
+        x: 24.3,
         z: -7.2,
         yaw: 1.570796,
         settings: {
@@ -663,8 +641,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 12.5,
-        z: -4.3,
+        x: 19.4,
+        z: -2.1,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -672,8 +650,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 15.8,
-        z: -4.3,
+        x: 24.3,
+        z: -2.1,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -681,8 +659,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 9.1,
-        z: -1.4,
+        x: 14.5,
+        z: 3,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -690,8 +668,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 12.5,
-        z: -1.4,
+        x: 19.5,
+        z: 3,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -699,8 +677,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 15.8,
-        z: -1.4,
+        x: 24.4,
+        z: 3,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -708,8 +686,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 12.5,
-        z: 1.5,
+        x: 19.4,
+        z: 8.5,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -717,8 +695,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 15.8,
-        z: 1.5,
+        x: 24.3,
+        z: 8.5,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -726,8 +704,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 12.5,
-        z: 4.3,
+        x: 19.4,
+        z: 13.9,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -735,8 +713,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 15.8,
-        z: 4.3,
+        x: 24.3,
+        z: 13.9,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -744,8 +722,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 12.5,
-        z: 7.1,
+        x: 19.5,
+        z: 19.6,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -753,62 +731,8 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: 15.8,
-        z: 7.1,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 12.5,
-        z: 12.9,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 15.8,
-        z: 12.9,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 15.8,
-        z: 15.8,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 12.5,
-        z: 15.8,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 12.5,
-        z: 18.7,
-        yaw: 1.570796,
-        settings: {
-          acceptGrade: "normal",
-        },
-      },
-      {
-        kind: "rack",
-        x: 15.8,
-        z: 18.7,
+        x: 24.4,
+        z: 19.6,
         yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
@@ -821,7 +745,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -831,7 +754,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -841,7 +763,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -851,7 +772,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -861,7 +781,6 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
       {
@@ -871,10 +790,8 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.25,
         },
       },
-
       {
         kind: "robot",
         x: -4.5,
@@ -898,18 +815,27 @@ export const SCENE_TEMPLATES = [
         x: -4.5,
         z: 14.8,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: 0,
         z: 14.9,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
       {
         kind: "pallet",
         x: 4.1,
         z: 14.9,
         yaw: 0,
+        settings: {
+          capacity: 3,
+        },
       },
     ],
     // Explicit relations equal to the simulator's distance-based fallback (shown as link lines).
@@ -1341,7 +1267,7 @@ export const SCENE_TEMPLATES = [
         z: 6.7,
         yaw: 0,
         settings: {
-          amrRole: "rack",
+          amrRole: "forklift",
         },
       },
     ],

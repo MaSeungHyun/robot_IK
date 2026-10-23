@@ -7,7 +7,7 @@ import type { RobotController, RobotControllerOptions } from "@/domain/robot/Rob
 import type { JointAngleReading, RobotPhase, RobotTransferMode, Transfer } from "@/types/robot";
 import { createRobotIK, ikSolveStats, type IKPose, type LineLock } from "@/domain/robot/ik/robotIK";
 import type { PlanningBudget } from "@/domain/robot/ik/planningScheduler";
-import { setJointAngle } from "@/domain/robot/ik/joints";
+import { poseRobotHome, setJointAngle } from "@/domain/robot/ik/joints";
 import { isPickupInRange, isWristAboveBox, setCargoWorldPose } from "@/domain/robot/ik/picking";
 
 const createRuntime = () => ({
@@ -43,10 +43,6 @@ function homeHeading(current:number,initial:number){
 }
 /** Retry a rejected (non-tracking) plan after waitSeconds of sim time; relax/abandon after N rejections. */
 const RETRY = { waitSeconds: 0.5, relaxAfter: 3, abortAfter: 8 } as const;
-/** hand05 tool roll: three.js local +Y (Blender local Z), the tool shaft; GripPoint sits ~3 mm off it. */
-const TOOL_AXIS = new Vector3(0, 1, 0);
-const toolTurn = new Quaternion(), toolInverse = new Quaternion(), toolOffset = new Vector3(), toolAxisWorld = new Vector3();
-const wrapAngle = (angle: number) => angle - 2 * Math.PI * Math.round(angle / (2 * Math.PI));
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
 /** Hover height over the destination: prePlaceHeight above the slot, never below the pallet stack clearance. */
 const hoverY=(job:Transfer)=>Math.max(job.destination.y+ROBOT_PICKING.prePlaceHeight,job.clearanceY??-Infinity);
@@ -70,49 +66,17 @@ export class SuctionRobotController implements RobotController {
   private readonly pickupRadius: number;
 
   private readonly options: RobotControllerOptions;
-  /** hand05 (tool roll) node and its export pose; null when the model has no hand05 above GripPoint. */
-  private readonly toolNode: Object3D | null;
-  private readonly toolRest = new Quaternion();
-  private readonly toolRestPosition = new Vector3();
-  private readonly toolGripLocal = new Vector3();
-  private toolRoll = 0;
-  private toolRollFrom = 0;
-  private toolRollGoal = 0;
 
   constructor(options: RobotControllerOptions) {
     this.options = options;
     this.id = options.id;
     this.model = options.model;
     this.transferMode = options.transferMode ?? ROBOT_PICKING.transferMode;
-    this.pickupRadius = options.pickupRadius ?? ROBOT_PICKING.radius * (options.geometryScale ?? 1);
+    this.pickupRadius = options.pickupRadius ?? ROBOT_PICKING.radius;
     if (!Number.isFinite(this.pickupRadius) || this.pickupRadius <= 0) throw new Error("Pickup radius must be positive");
-    this.ik = createRobotIK(this.model, options.geometryScale ?? 1, "none");
+    poseRobotHome(this.model);
+    this.ik = createRobotIK(this.model, "none");
     this.initialAngles = [this.ik.baseControl, ...this.ik.controls].map(control => control.angle);
-    const tool = this.ik.grip.parent;
-    this.toolNode = tool?.name === "hand05" ? tool : null;
-    if (this.toolNode) {
-      this.toolRest.copy(this.toolNode.quaternion);
-      this.toolRestPosition.copy(this.toolNode.position);
-      this.toolGripLocal.copy(this.ik.grip.position);
-    }
-  }
-
-  /**
-   * Turn hand05 about its local Y (tool shaft) by `angle` from the export pose, clamped to the roll limit.
-   * hand05 is shifted so GripPoint stays exactly where it was: IK/planning (which never see hand05) stay valid,
-   * and a held box turns in place about the suction point.
-   */
-  private setToolRoll(angle: number): void {
-    const node = this.toolNode;
-    if (!node) return;
-    const limit = ROBOT_PICKING.toolRollLimitDegrees * Math.PI / 180;
-    this.toolRoll = Math.max(-limit, Math.min(limit, angle));
-    toolTurn.setFromAxisAngle(TOOL_AXIS, this.toolRoll);
-    node.quaternion.copy(this.toolRest).multiply(toolTurn);
-    toolOffset.copy(this.toolGripLocal).applyQuaternion(toolTurn).negate().add(this.toolGripLocal)
-      .multiply(node.scale).applyQuaternion(this.toolRest);
-    node.position.copy(this.toolRestPosition).add(toolOffset);
-    node.updateWorldMatrix(false, true);
   }
 
   /**
@@ -189,7 +153,6 @@ export class SuctionRobotController implements RobotController {
     this.ik.setContactMode(false);
     this.cargo.clear();
     [this.ik.baseControl, ...this.ik.controls].forEach((control, index) => setJointAngle(control, this.initialAngles[index]));
-    this.setToolRoll(0);
     this.runtime = createRuntime();
     this.homePose = null;
     this.manualAngle = null;
@@ -263,20 +226,6 @@ export class SuctionRobotController implements RobotController {
       // A rectangular box occupies the same slot after a half turn about Y.
       r.rotation.setFromAxisAngle(new Vector3(0,1,0),(job.yaw??0)+Math.PI);
       if(r.releaseRotation.angleTo(r.rotation)<r.releaseRotation.angleTo(r.destinationRotation))r.destinationRotation.copy(r.rotation);
-      if(this.toolNode){
-        // hand05 carries the box yaw: twist of (destination * release^-1) about world Y, mapped onto the tool axis.
-        toolTurn.copy(r.destinationRotation).multiply(toolInverse.copy(r.releaseRotation).invert());
-        const yaw=wrapAngle(2*Math.atan2(toolTurn.y,toolTurn.w));
-        toolAxisWorld.copy(TOOL_AXIS).transformDirection(this.toolNode.matrixWorld);
-        const sign=toolAxisWorld.y>=0?1:-1,limit=ROBOT_PICKING.toolRollLimitDegrees*Math.PI/180;
-        let goal=this.toolRoll+sign*yaw;
-        if(Math.abs(goal)>limit){
-          // Past the roll stop: use the half-turn-equivalent slot orientation, turning the other way.
-          goal-=Math.sign(goal)*Math.PI;
-          r.destinationRotation.premultiply(toolTurn.setFromAxisAngle(TOOL_AXIS,Math.PI));
-        }
-        this.toolRollFrom=this.toolRoll;this.toolRollGoal=goal;
-      }
       r.duration=Math.max(ROBOT_PICKING.releaseSeconds,
         r.releaseRotation.angleTo(r.destinationRotation)*1.875/ROBOT_PICKING.releaseAngularSpeed);
     }
@@ -541,11 +490,6 @@ export class SuctionRobotController implements RobotController {
     if(!this.running)return;
     const dt=Math.min(delta,MOTION.maxDelta);
     const job=this.options.getJobs()[r.index];
-    // Unwind hand05 whenever nothing is held (GripPoint stays fixed, so this never disturbs a plan).
-    if(this.toolRoll!==0&&(!job||job.box.parent!==ik.grip)&&r.phase!=="PRE_PLACE"){
-      const step=ROBOT_PICKING.releaseAngularSpeed*dt;
-      this.setToolRoll(Math.abs(this.toolRoll)<=step?0:this.toolRoll-Math.sign(this.toolRoll)*step);
-    }
     if(!job){
       if(r.phase==="HOME"){
         // hand00 is continuous: return to the initial heading by the nearest equivalent
@@ -603,8 +547,7 @@ export class SuctionRobotController implements RobotController {
       r.elapsed=Math.min(r.duration+MOTION.contactHold,r.elapsed+dt);
       const progress=minimumJerk(Math.min(1,r.elapsed/r.duration));
       r.rotation.copy(r.releaseRotation).slerp(r.destinationRotation,progress);
-      // hand05 turns with the box; the cargo pose below stays authoritative (absorbs residual tool tilt).
-      this.setToolRoll(this.toolRollFrom+(this.toolRollGoal-this.toolRollFrom)*progress);
+      // No tool-roll joint: the held box turns about the suction point; the cargo pose stays authoritative.
       setCargoWorldPose(job.box,ik.grip,r.releasePosition,r.rotation);
       if(r.elapsed>=r.duration+MOTION.contactHold)this.enter("PLACE",job);
       return;

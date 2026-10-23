@@ -1,7 +1,9 @@
 import { useMemo, useRef } from "react";
 import { Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { Box3, Group, Matrix4, Mesh, Vector3 } from "three";
+import { Box3, Euler, Group, Matrix4, Mesh, Quaternion, Vector3 } from "three";
+
+const UP = new Vector3(0, 1, 0);
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSceneInstances } from "@/viewport/instancing/useInstanceModel";
@@ -49,6 +51,8 @@ export default function ObjectTrackingTarget() {
     id: null as string | null,
     radius: 0,
     center: new Vector3(),
+    /** `center` is in the object frame (turned with it each frame) instead of a fixed world offset. */
+    local: false,
   });
   // Last measured mesh bounds, relative to the object origin (or absolute when unresolved).
   const live = useRef({
@@ -75,6 +79,7 @@ export default function ObjectTrackingTarget() {
       point: new Vector3(),
       origin: new Vector3(),
       inverse: new Matrix4(),
+      quaternion: new Quaternion(),
       corners: Array.from({ length: 8 }, () => new Vector3()),
     }),
     [],
@@ -148,10 +153,11 @@ export default function ObjectTrackingTarget() {
       if (!footprint.isEmpty()) {
         // Footprint center as a fixed world-space (unrotated) offset from the origin, so in-place
         // turns can't swing the ring around.
-        footprint
-          .getCenter(ground.center)
-          .applyMatrix4(object.matrixWorld)
-          .sub(origin);
+        footprint.getCenter(ground.center);
+        // Off-centre models (forklift: footprint centre ~0.9 m ahead of its origin) keep the offset
+        // in the object frame and turn it with the object; others keep a fixed world offset.
+        ground.local = Math.hypot(ground.center.x, ground.center.z) > 0.2;
+        if (!ground.local) ground.center.applyMatrix4(object.matrixWorld).sub(origin);
         ground.center.y = 0;
         footprint.getSize(size);
         ground.radius = ringScale(size.x, size.z);
@@ -160,7 +166,10 @@ export default function ObjectTrackingTarget() {
     }
     if (object && ground.id === id) {
       // Glued to the origin every frame; no rotation is inherited (the layers spin on their own).
-      center.copy(origin).add(ground.center);
+      if (ground.local) {
+        const yaw = new Euler().setFromQuaternion(object.getWorldQuaternion(scratch.quaternion), "YXZ").y;
+        center.copy(ground.center).applyAxisAngle(UP, yaw).add(origin);
+      } else center.copy(origin).add(ground.center);
       ring.current.position.set(center.x, C.groundHeight, center.z);
       ring.current.scale.setScalar(ground.radius);
     } else {

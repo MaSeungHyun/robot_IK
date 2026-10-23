@@ -12,17 +12,18 @@ type Slot = NonNullable<
 >[number]["slots"][number];
 
 /**
- * Real rack layout from the model's PalletPoints: columns = distinct x (left to right as seen
+ * Real rack layout from the model's slot points: columns = distinct z (left to right as seen
  * from the loading face), rows = distinct shelf heights (top level first).
  */
 function rackLayout() {
-  // PalletPoint coordinates come from the model and differ by a few mm between bays, so exact
+  // Slot point coordinates come from the model and differ by a few mm between bays, so exact
   // Set() matching split one shelf into several rows. Snap to 5 cm before grouping.
   const snap = (value: number) => Math.round(value / 0.05);
-  const xs = [...new Set(RACK_CONFIG.slots.map(([x]) => snap(x)))].sort((a, b) => a - b);
-  const ys = [...new Set(RACK_CONFIG.slots.map(([, y]) => snap(y)))].sort((a, b) => b - a);
+  // Seen from the +X loading face, left is +Z.
+  const xs = [...new Set(RACK_CONFIG.slots.map(({ z }) => snap(z)))].sort((a, b) => b - a);
+  const ys = [...new Set(RACK_CONFIG.slots.map(({ y }) => snap(y)))].sort((a, b) => b - a);
   const cells = ys.flatMap((y) =>
-    xs.map((x) => RACK_CONFIG.slots.findIndex(([sx, sy]) => snap(sx) === x && snap(sy) === y)),
+    xs.map((x) => RACK_CONFIG.slots.findIndex((slot) => snap(slot.z) === x && snap(slot.y) === y)),
   );
   return { columns: xs.length, levels: ys.length, cells };
 }

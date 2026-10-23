@@ -35,7 +35,7 @@ type Category =
   | "scanner"
   | "rack"
   | "amr"
-  | "rackAmr";
+  | "forklift";
 const CATEGORY: Record<Category, { label: string; color: string }> = {
   floor: { label: "바닥·룸", color: "rgba(255,255,255,0.18)" },
   door: { label: "문", color: "rgba(255,255,255,0.85)" },
@@ -46,7 +46,7 @@ const CATEGORY: Record<Category, { label: string; color: string }> = {
   scanner: { label: "스캐너", color: "#fde047" },
   rack: { label: "랙", color: "#f87171" },
   amr: { label: "AMR", color: "#2dd4bf" },
-  rackAmr: { label: "랙 AMR", color: "#fb923c" },
+  forklift: { label: "지게차", color: "#fb923c" },
 };
 const CATEGORY_ORDER = Object.keys(CATEGORY) as Category[];
 
@@ -102,7 +102,7 @@ export default function Minimap() {
     const kinds = new Set<string>(state.objects.map((o) => o.kind));
     return CATEGORY_ORDER.filter((c) => kinds.has(c)).join(",");
   });
-  const [hasRackAmr, setHasRackAmr] = useState(false);
+  const [hasForklift, setHasForklift] = useState(false);
 
   // Match the 3D viewport's aspect (the positioned parent); ResizeObserver also covers window resizes.
   useEffect(() => {
@@ -270,18 +270,18 @@ export default function Minimap() {
           o.kind in CATEGORY ? CATEGORY[o.kind as Category].color : colors.equipment,
         );
       }
-      // Rack AMRs: live carriers without an "amr" scene object of their own.
-      let rackAmrs = 0;
+      // Forklifts: live carriers without an "amr" scene object of their own.
+      let forklifts = 0;
       for (const [id, carrier] of minimapLive) {
         if (amrIds.has(id)) continue;
-        rackAmrs++;
+        forklifts++;
         const x = ox + carrier.position.x * scale,
           z = oz + carrier.position.z * scale,
           r = Math.max(2.5, 0.35 * scale);
-        context.fillStyle = CATEGORY.rackAmr.color;
+        context.fillStyle = CATEGORY.forklift.color;
         context.fillRect(x - r, z - r, r * 2, r * 2);
       }
-      setHasRackAmr(rackAmrs > 0);
+      setHasForklift(forklifts > 0);
       if (minimapCamera.ready) {
         // View cone from the camera's ground position along its horizontal heading.
         const cx = ox + minimapCamera.x * scale,
@@ -357,7 +357,7 @@ export default function Minimap() {
         >
           {CATEGORY_ORDER.filter(
             (c) =>
-              (c === "rackAmr" ? hasRackAmr : presentKey.split(",").includes(c)),
+              (c === "forklift" ? hasForklift : presentKey.split(",").includes(c)),
           ).map((c) => (
             <li key={c} className="flex items-center gap-2">
               <span

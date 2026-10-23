@@ -42,9 +42,15 @@ const SHORTCUT_ATTEMPTS = 8;
 /** Largest single-joint change (rad) accepted per tracking update of a moving pickup (hand00 included). */
 const TRACK_STEP_CONTINUITY = 0.6;
 
-export function createRobotIK(model: Group, motionScale = 1, collisionMode: "world" | "held-box-hand03" | "none" = "world") {
-  if (motionScale <= 0) throw new Error("Robot geometry scale must be positive");
-  const grip = model.getObjectByName("GripPoint")!;
+/** Tool tip (suction point): the `RobotArm_point` Empty (any case), or legacy `GripPoint`. */
+export function findGripPoint(model: Object3D): Object3D | undefined {
+  let found: Object3D | undefined;
+  model.traverse(node => { if (!found && /^(robotarm_point|grippoint)$/i.test(node.name)) found = node; });
+  return found;
+}
+
+export function createRobotIK(model: Group, collisionMode: "world" | "held-box-hand03" | "none" = "world") {
+  const grip = findGripPoint(model)!;
   const wrist = model.getObjectByName("hand04")!;
   const baseNode = model.getObjectByName("hand00")!;
   if (!grip || !wrist || !baseNode) throw new Error("Robot is missing its tool or base joint");

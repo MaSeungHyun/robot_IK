@@ -17,7 +17,6 @@ export const PALLET_STACKING = {
   clearance: 0.05,
 };
 export const STREAM_CONFIG = {
-  robotScale: 0.5,
   palletHeight: 0.15,
   palletWidth: 1.1,
   palletDepth: 1.1,
@@ -66,7 +65,7 @@ export const MOTION = {
 // Radius is robot-local; waypoint clearances and speeds use world metres.
 export const ROBOT_PICKING = {
   transferMode: "base" as const,
-  radius: 3,
+  radius: 2.5,
   preGraspHeight: 0.15,
   liftRearwardDistance: 0.5,
   rearLiftHeight: 0.4,
@@ -78,8 +77,6 @@ export const ROBOT_PICKING = {
   releaseSeconds: 0.15,
   releaseAngularSpeed: Math.PI,
   loadedSpeedScale: 0.8,
-  /** hand05 tool roll (about its local Y = tool shaft) travel limit, degrees either way from the export pose. */
-  toolRollLimitDegrees: 180,
   /** Moving pickup: GripPoint within this distance (m) of the box grasp point counts as contact. */
   graspTolerance: 0.04,
   /** Horizontal part of graspTolerance (m): suction must stay over the box top. */
@@ -156,6 +153,11 @@ export const IK_CONFIG = {
   collisionEscapeDegrees: [5, 10, 20, 40] as const,
 };
 export const JOINT_SETTINGS = { lockHand3: true } as const;
+/**
+ * Robot home (rest) pose, Blender joint angles in degrees. RobotArm.glb is exported stretched out; this is the
+ * upright pose the previous robot.glb was exported in, applied on load so behaviour and look stay the same.
+ */
+export const ROBOT_HOME_DEGREES = { hand00: -90, hand01: -60, hand02: -120, hand04: -90, hand03: 0 } as const;
 export const NUMERICAL_IK = {
   iterations: 100,
   iterationsPerSlice: 4,

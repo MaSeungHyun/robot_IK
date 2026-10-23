@@ -6,7 +6,7 @@
 import "@/workers/workerShims";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { Group } from "three";
-import robotUrl from "@/assets/models/robot.glb?url";
+import robotUrl from "@/assets/models/RobotArm.glb?url";
 import boxUrl from "@/assets/models/box.glb?url";
 import palletUrl from "@/assets/models/pallet.glb?url";
 import { stripGlbTextures } from "@/domain/layout/stripGlbTextures";

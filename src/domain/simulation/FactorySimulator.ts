@@ -14,7 +14,7 @@ import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING } from "@/cons
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
 import { amrSpeedFactor, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
-import { RACK_CONFIG, rackApproachPoint, rackSlotPoint } from "@/constants/rack";
+import { RACK_CONFIG, rackApproachPoint, rackFacePoint, rackHeading, rackSlotPoint } from "@/constants/rack";
 import { LinkIndex, type SceneLink } from "@/types/links";
 import { TransportQueue } from "@/domain/amr/TransportQueue";
 import { PalletController } from "@/domain/pallet/PalletController";
@@ -32,7 +32,9 @@ import {
 import type { SimulationRenderer } from "@/domain/simulation/SimulationRenderer";
 import { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import { log } from "@/stores/useLogStore";
-import { RackAMRController } from "@/domain/amr/RackAMRController";
+import { ForkliftController, type ForkliftJob, type ForkliftTarget } from "@/domain/amr/ForkliftController";
+import { isForkliftRole } from "@/types/layout";
+import { FORKLIFT_CONFIG, forkliftStop } from "@/constants/forklift";
 import { DOOR_CONFIG } from "@/constants/door";
 import { wallSegments } from "@/domain/room/roomWalls";
 
@@ -47,7 +49,7 @@ function mulberry32(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-/** FNV-1a hash of the scene layout (ids, kinds, poses): the rack AMR PRNG seed. */
+/** FNV-1a hash of the scene layout (ids, kinds, poses): the forklift PRNG seed. */
 function sceneSeed(objects: readonly SceneEquipment[]) {
   let hash = 0x811c9dc5;
   for (const o of objects)
@@ -89,10 +91,10 @@ export type FactoryAgent = {
   battery: number;
   charging: boolean;
 };
-/** Dedicated rack-unloading AMR (amrRole "rack"); see RackAMRController. */
-export type FactoryRackAgent = {
+/** Forklift (amrRole "forklift"; legacy "rack" is read as forklift); see ForkliftController. */
+export type FactoryForkliftAgent = {
   object: SceneEquipment;
-  controller: RackAMRController;
+  controller: ForkliftController;
   /** Why the last assignment attempt failed (shown while idle). */
   waitingReason: string | null;
 };
@@ -100,6 +102,26 @@ export type FactoryRackAgent = {
 type StoredPallet = { group: Group; boxes: Group[] };
 /** Seconds between rack-unload assignment checks (sim time). */
 const RACK_UNLOAD_RETRY_S = 1;
+/** A forklift held by traffic this long (s) switches target side / rack or backs off and replans. */
+const FORKLIFT_STUCK_S = 6;
+/** Extra distance (m) of the floor hand-off point beyond the regular rack approach point. */
+const HANDOFF_EXTRA = 0.6;
+/** Level-1 centre slot: hand-off pallets are left in front of it. */
+const HANDOFF_SLOT = (() => {
+  const low = Math.min(...RACK_CONFIG.slots.map((s) => s.y));
+  const index = RACK_CONFIG.slots.findIndex((s) => s.column === "C" && s.y === low);
+  return index >= 0 ? index : 0;
+})();
+/** Pallet an AMR left on a rack's floor hand-off point, waiting for a forklift to store it. */
+type Handoff = {
+  rack: SceneEquipment;
+  /** Booked slot (key in slotBookings); a forklift may move the booking to another slot / rack. */
+  slot: number;
+  group: Group;
+  boxes: Group[];
+  palletId?: string;
+  claimed: boolean;
+};
 /** Distance of the inside / outside door waypoints from the door plane (m). */
 const DOOR_INSIDE = 1.6;
 const DOOR_OUTSIDE = 2;
@@ -119,6 +141,8 @@ type Shipment = {
   slot?: number;
   /** Set once the pallet sits in its rack slot; it stays there. */
   stored?: boolean;
+  /** Forklift storage: the AMR leaves the pallet on the rack's floor hand-off point (slot stays booked). */
+  handoff?: boolean;
   /** Pallet record (P-001...) travelling with this shipment. */
   palletId?: string;
 };
@@ -134,7 +158,7 @@ const distance = (a: { x: number; z: number }, b: { x: number; z: number }) =>
 const SHIP_ATTEMPTS_PER_TICK = 2;
 const SHIP_RESUME_S = 0.15;
 
-/** Placeholder pose far from the scene for unused FactoryLayout entries of rack AMR routing. */
+/** Placeholder pose far from the scene for unused FactoryLayout entries of forklift routing. */
 const FAR_POSE = { x: 1e5, z: 1e5, yaw: 0 };
 const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
   config?.grade ?? "normal";
@@ -147,8 +171,8 @@ export class FactorySimulator {
   private scanTo = new Vector3();
   readonly robots: FactoryRobot[] = [];
   readonly agents: FactoryAgent[] = [];
-  readonly rackAgents: FactoryRackAgent[] = [];
-  /** Rack AMR pallet choice; seeded from the scene layout so every run (and playback speed) picks the same pallets. */
+  readonly forkliftAgents: FactoryForkliftAgent[] = [];
+  /** Forklift pallet choice; seeded from the scene layout so every run (and playback speed) picks the same pallets. */
   private rackRandom: () => number;
   readonly pallets: PalletController[] = [];
   readonly belts: { object: SceneEquipment; elapsed: number }[] = [];
@@ -231,10 +255,10 @@ export class FactorySimulator {
         this.root.add(state.group);
         this.render(state.group);
       }
-      if (object.kind === "amr" && this.settings()[object.id]?.amrRole === "rack")
-        this.rackAgents.push({
+      if (object.kind === "amr" && isForkliftRole(this.settings()[object.id]?.amrRole))
+        this.forkliftAgents.push({
           object,
-          controller: new RackAMRController(object, (from, to, loaded) => this.rackRoute(from, to, loaded)),
+          controller: new ForkliftController(object, (from, to, loaded) => this.forkliftRoute(from, to, loaded)),
           waitingReason: null,
         });
       else if (object.kind === "amr")
@@ -254,9 +278,9 @@ export class FactorySimulator {
     }
     // AMR meshes render through the instanced scene; tagging the carrier lets viewport hits resolve to the AMR.
     for (const agent of this.agents) agent.dispatch.carrier.userData.sceneId = agent.object.id;
-    for (const agent of this.rackAgents) agent.controller.carrier.userData.sceneId = agent.object.id;
+    for (const agent of this.forkliftAgents) agent.controller.carrier.userData.sceneId = agent.object.id;
     this.doors = objects.filter((o) => o.kind === "door");
-    // Room walls (split at door openings) block AMR and rack AMR routes; the planner's body radius covers a carried pallet.
+    // Room walls (split at door openings) block AMR and forklift routes; the planner's body radius covers a carried pallet.
     this.wallObstacles = wallSegments(objects, this.settings()).map(({ a, b }) => ({
       kind: "floor" as const,
       pose: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, yaw: 0 },
@@ -347,13 +371,19 @@ export class FactorySimulator {
   private rackStored = new Map<string, boolean[]>();
   /** Display only: pallet stored in each rack slot (kept here; finished cargo records are evicted). */
   private rackPallets = new Map<string, ({ id: string; grade: CargoGrade; boxes: number; storedAt: number } | undefined)[]>();
-  /** Scene nodes of stored pallets, so the rack AMR can take them out again. */
+  /** Scene nodes of stored pallets, so the forklift can take them out again. */
   private rackGroups = new Map<string, (StoredPallet | undefined)[]>();
   private doors: SceneEquipment[] = [];
-  /** Door opening 0..1 driven by rack AMR traffic (sim time; display reads it). */
+  /** Door opening 0..1 driven by forklift traffic (sim time; display reads it). */
   private doorFraction = new Map<string, number>();
-  /** "rackId:slot" pallets already claimed by a rack AMR job. */
+  /** "rackId:slot" pallets already claimed by a forklift job. */
   private unloadClaims = new Set<string>();
+  /** Rack slots ("rack:slot") booked for a hand-off pallet until a forklift stores it. */
+  private slotBookings = new Set<string>();
+  private handoffs: Handoff[] = [];
+  /** Pallets left at hand-off points / stored into racks by forklifts. */
+  handedOff = 0;
+  forkliftStored = 0;
   private rackUnloadRetry = 0;
   private rackLayout!: FactoryLayout;
   private rackObstacles: NavigationObstacle[] = [];
@@ -365,7 +395,9 @@ export class FactorySimulator {
     const stored = this.rackStored.get(rack.id) ?? [];
     return stored.findIndex(
       (filled, slot) =>
-        !filled && !this.shipments.some((s) => s.dock.id === rack.id && s.slot === slot),
+        !filled &&
+        !this.slotBookings.has(`${rack.id}:${slot}`) &&
+        !this.shipments.some((s) => s.dock.id === rack.id && s.slot === slot),
     );
   }
   private render(object: Group) {
@@ -635,9 +667,10 @@ export class FactorySimulator {
       vehicle.speed = amrSpeedFactor(settings[vehicle.id]);
       vehicle.enabled = settings[vehicle.id].enabled;
     }
-    const rackBodies = this.rackAgents
+    const forkliftBodies = this.forkliftAgents
       .filter((agent) => settings[agent.object.id].enabled)
-      .map((agent) => ({ position: agent.controller.carrier.position, radius: agent.controller.radius }));
+      // Capsule footprint as a row of circles (body + tines), so clearance matches the model.
+      .flatMap((agent) => agent.controller.bodies.map((position) => ({ position, radius: agent.controller.radius })));
     this.traffic.advance(this.trafficVehicles, dt, (vehicle, target) => {
       const navigation = this.navigation.get(vehicle.id);
       if (!navigation) return null;
@@ -671,8 +704,8 @@ export class FactorySimulator {
           radius,
         });
       }
-      // Rack AMRs are moving obstacles too (shrunk like the AMRs above when already touching).
-      for (const body of rackBodies) {
+      // Forklifts are moving obstacles too (shrunk like the AMRs above when already touching).
+      for (const body of forkliftBodies) {
         const at = body.position,
           radius = Math.max(0, Math.min(body.radius + AMR_TRAFFIC.safetyMargin, Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3));
         if (!target && Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)) continue;
@@ -687,9 +720,9 @@ export class FactorySimulator {
         dispatch.radius === AMR_TRAFFIC.loadedRadius,
         obstacles,
       );
-    }, rackBodies);
+    }, forkliftBodies);
     this.advanceBatteries(dt, settings);
-    this.advanceRackAgents(dt, settings);
+    this.advanceForklifts(dt, settings);
     for (const shipment of this.shipments) {
       if (shipment.replaced || shipment.agent.dispatch.phase !== "dispatch")
         continue;
@@ -895,7 +928,7 @@ export class FactorySimulator {
     const docks = accepting
       .filter((dock) =>
         dock.kind === "rack"
-          ? this.freeSlot(dock) >= 0
+          ? this.freeSlot(dock) >= 0 && (!this.forkliftAgents.length || !this.handoffBusy(dock))
           : !this.shipments.some((s) => s.dock.id === dock.id),
       )
       .sort((a, b) => distance(a, pallet.object) - distance(b, pallet.object));
@@ -960,7 +993,9 @@ export class FactorySimulator {
     for (const destination of docks) {
       // A rack is reached at the floor point in front of its first free slot.
       const slot = destination.kind === "rack" ? this.freeSlot(destination) : undefined;
-      const approach = slot === undefined ? null : rackApproachPoint(destination, slot);
+      // With forklifts the AMR only brings the pallet to the rack's floor hand-off point.
+      const handoff = slot !== undefined && this.forkliftAgents.length > 0;
+      const approach = slot === undefined ? null : handoff ? this.handoffPoint(destination) : rackApproachPoint(destination, slot);
       const dock = approach
         ? { ...destination, x: approach.x, z: approach.z }
         : destination;
@@ -1000,11 +1035,11 @@ export class FactorySimulator {
         continue;
       }
       routes = { pickup, dispatch: outbound, returning };
-      if (slot !== undefined)
+      if (slot !== undefined && !handoff)
         routes.store = {
           slot: rackSlotPoint(destination, slot),
-          // Face into the rack: its loading face looks along local +Z.
-          heading: destination.yaw + Math.PI,
+          // Face into the rack: its loading face looks along local +X.
+          heading: rackHeading(destination),
         };
       layout.dock = dock;
       target = destination;
@@ -1032,6 +1067,7 @@ export class FactorySimulator {
       dock: target,
       dropped: false,
       slot: targetSlot,
+      handoff: targetSlot !== undefined && this.forkliftAgents.length > 0,
       palletId: this.cargo.currentPallet(pallet.object.id)?.id,
     };
     this.shipments.push(shipment);
@@ -1055,7 +1091,22 @@ export class FactorySimulator {
         group.parent?.updateWorldMatrix(true, false);
         this.root.updateWorldMatrix(true, false);
         this.root.attach(group);
-        if (shipment.slot !== undefined) {
+        if (shipment.handoff && shipment.slot !== undefined) {
+          group.position.y = 0;
+          const key = `${dock.id}:${shipment.slot}`;
+          this.slotBookings.add(key);
+          this.handoffs.push({
+            rack: dock,
+            slot: shipment.slot,
+            group,
+            boxes: [...shipment.cargo].map((box) => box.node),
+            palletId: shipment.palletId,
+            claimed: false,
+          });
+          this.handedOff++;
+          shipment.stored = true;
+          log("info", `팔레트 ${shipment.palletId ?? "-"} ${dock.name} 인계 지점에 내려놓음 · 지게차 적재 대기`, agent.object.name);
+        } else if (shipment.slot !== undefined) {
           group.position.copy(rackSlotPoint(dock, shipment.slot));
           this.rackStored.get(dock.id)![shipment.slot] = true;
           // Stored for the rest of the run: its instances (pallet + boxes) skip per-frame updates.
@@ -1117,43 +1168,44 @@ export class FactorySimulator {
     this.render(pallet.group);
     this.startPalletRecord(pallet);
   }
-  /** Rack AMR floor route around fixed equipment (other AMRs are not considered). */
-  private rackRoute(from: Vector3, to: Vector3, loaded: boolean, extra: NavigationObstacle[] = []) {
+  /** Forklift floor route around fixed equipment (other AMRs are not considered). */
+  private forkliftRoute(from: Vector3, to: Vector3, loaded: boolean, extra: NavigationObstacle[] = []) {
     return layoutPath(this.rackLayout, from, to, loaded, extra.length ? [...this.rackObstacles, ...extra] : this.rackObstacles);
   }
-  /** Rack AMR traffic: wait seconds per rack AMR while held, and the next detour attempt. */
-  private rackTraffic = new Map<string, { wait: number; retry: number }>();
-  private rackAhead = new Vector3();
-  private rackNext = new Vector3();
+  /** Forklift traffic: wait seconds per forklift while held, and the next detour attempt. */
+  private forkliftTraffic = new Map<string, { wait: number; retry: number }>();
+  private forkliftAhead = new Vector3();
+  private forkliftNext = new Vector3();
   /**
-   * Holds a driving rack AMR short of any other AMR body (regular or rack) it would close in on; after
-   * waiting a while it plans a detour around them. Regular AMRs treat rack AMRs as bodies to keep clear of.
+   * Holds a driving forklift short of any other AMR body (regular or rack) it would close in on; after
+   * waiting a while it plans a detour around them. Regular AMRs treat forklifts as bodies to keep clear of.
    */
-  private holdRackAgent(agent: FactoryRackAgent, step: number, dt: number, settings: Record<string, EquipmentSettings>) {
+  private holdForklift(agent: FactoryForkliftAgent, step: number, dt: number, settings: Record<string, EquipmentSettings>) {
     const controller = agent.controller,
       position = controller.carrier.position;
-    const state = this.rackTraffic.get(agent.object.id) ?? { wait: 0, retry: 0 };
-    this.rackTraffic.set(agent.object.id, state);
+    const state = this.forkliftTraffic.get(agent.object.id) ?? { wait: 0, retry: 0 };
+    this.forkliftTraffic.set(agent.object.id, state);
     controller.held = false;
     if (!controller.moving) {
       state.wait = 0;
       return;
     }
-    controller.predict(step, this.rackNext);
-    controller.predict(0.8 * (step / dt), this.rackAhead);
+    controller.predict(step, this.forkliftNext);
+    controller.predict(0.8 * (step / dt), this.forkliftAhead);
     const others: { at: Vector3; radius: number }[] = [];
     for (const other of this.agents)
       if (settings[other.object.id].enabled) others.push({ at: other.dispatch.carrier.position, radius: other.dispatch.radius });
-    for (const other of this.rackAgents)
-      if (other !== agent && settings[other.object.id].enabled) others.push({ at: other.controller.carrier.position, radius: other.controller.radius });
+    for (const other of this.forkliftAgents)
+      if (other !== agent && settings[other.object.id].enabled) for (const at of other.controller.bodies) others.push({ at: at.clone(), radius: other.controller.radius });
+    // Footprint (capsule) clearance to each other body, now vs. after the predicted move.
     const closing = (to: Vector3, at: Vector3, limit: number) => {
-      const now = Math.hypot(position.x - at.x, position.z - at.z),
-        then = Math.hypot(to.x - at.x, to.z - at.z);
+      const now = controller.clearance(at.x, at.z),
+        then = controller.clearance(at.x, at.z, to);
       return then < limit && then <= now + 1e-6;
     };
     const blocked = others.some(({ at, radius }) => {
-      const limit = controller.radius + radius + AMR_TRAFFIC.safetyMargin;
-      return closing(this.rackNext, at, limit) || closing(this.rackAhead, at, limit);
+      const limit = radius + AMR_TRAFFIC.safetyMargin;
+      return closing(this.forkliftNext, at, limit) || closing(this.forkliftAhead, at, limit);
     });
     if (!blocked) {
       state.wait = 0;
@@ -1161,6 +1213,13 @@ export class FactorySimulator {
     }
     controller.held = true;
     state.wait += dt;
+    if (state.wait >= FORKLIFT_STUCK_S) {
+      // Stuck: other side / next rack, or back off along the heading and replan.
+      state.wait = 0;
+      state.retry = 1;
+      controller.blocked();
+      return;
+    }
     state.retry -= dt;
     if (state.wait < 0.8 || state.retry > 0) return;
     state.retry = 1;
@@ -1171,7 +1230,7 @@ export class FactorySimulator {
       pose: { x: at.x, z: at.z, yaw: 0 },
       radius: Math.max(0, Math.min(radius + AMR_TRAFFIC.safetyMargin, Math.hypot(at.x - position.x, at.z - position.z) - controller.radius - 1e-3)),
     }));
-    const path = this.rackRoute(position, goal, controller.loaded, extra);
+    const path = this.forkliftRoute(position, goal, controller.loaded, extra);
     if (path) controller.reroute(path);
   }
   /** Door opening for display (0 closed … 1 open). */
@@ -1186,21 +1245,21 @@ export class FactorySimulator {
       outside: new Vector3(door.x - sx * DOOR_OUTSIDE, 0, door.z - cz * DOOR_OUTSIDE),
     };
   }
-  /** Rack AMRs: move every step; about once a second an idle one takes a random stored pallet (any rack) out through a door. */
-  private advanceRackAgents(dt: number, settings: Record<string, EquipmentSettings>) {
-    if (!this.rackAgents.length) return;
-    for (const agent of this.rackAgents) {
+  /** Forklifts: move every step; about once a second an idle one takes a random stored pallet (any rack) out through a door. */
+  private advanceForklifts(dt: number, settings: Record<string, EquipmentSettings>) {
+    if (!this.forkliftAgents.length) return;
+    for (const agent of this.forkliftAgents) {
       const config = settings[agent.object.id];
       if (!config.enabled) continue;
       const controller = agent.controller;
       const doorId = controller.job?.doorId;
       controller.doorOpen = doorId !== undefined && (this.doorFraction.get(doorId) ?? 0) >= 1;
       const step = dt * amrSpeedFactor(config);
-      this.holdRackAgent(agent, step, dt, settings);
+      this.holdForklift(agent, step, dt, settings);
       controller.advance(step);
     }
     for (const door of this.doors) {
-      const open = this.rackAgents.some((agent) => agent.controller.job?.doorId === door.id && agent.controller.needsDoor);
+      const open = this.forkliftAgents.some((agent) => agent.controller.job?.doorId === door.id && agent.controller.needsDoor);
       const current = this.doorFraction.get(door.id) ?? 0,
         step = dt / DOOR_CONFIG.travelSeconds;
       this.doorFraction.set(door.id, open ? Math.min(1, current + step) : Math.max(0, current - step));
@@ -1208,11 +1267,28 @@ export class FactorySimulator {
     this.rackUnloadRetry -= dt;
     if (this.rackUnloadRetry > 0) return;
     this.rackUnloadRetry = RACK_UNLOAD_RETRY_S;
-    for (const agent of this.rackAgents)
+    for (const agent of this.forkliftAgents)
       if (agent.controller.idle) agent.waitingReason = null;
-    const idle = this.rackAgents.filter((agent) => agent.controller.idle && settings[agent.object.id].enabled);
+    const idle = this.forkliftAgents.filter((agent) => agent.controller.idle && settings[agent.object.id].enabled);
     if (!idle.length) return;
-    // Every stored pallet in an enabled rack that no rack AMR has claimed yet (racks need not be full).
+    // Hand-off pallets first (oldest first), each to the nearest idle forklift that can reach it.
+    for (const handoff of this.handoffs) {
+      if (handoff.claimed || !idle.length) continue;
+      const away = (agent: FactoryForkliftAgent) => distance(agent.controller.carrier.position, handoff.group.position);
+      idle.sort((a, b) => away(a) - away(b) || (a.object.id < b.object.id ? -1 : 1));
+      for (const agent of idle) {
+        if (!agent.controller.start(this.storeJob(handoff, settings))) {
+          agent.waitingReason = `${handoff.rack.name} 인계 지점으로 가는 경로가 없습니다.`;
+          continue;
+        }
+        handoff.claimed = true;
+        agent.waitingReason = null;
+        idle.splice(idle.indexOf(agent), 1);
+        break;
+      }
+    }
+    if (!idle.length) return;
+    // Every stored pallet in an enabled rack that no forklift has claimed yet (racks need not be full).
     const candidates: { rack: SceneEquipment; slot: number }[] = [];
     for (const rack of this.racks) {
       if (!settings[rack.id]?.enabled) continue;
@@ -1229,19 +1305,16 @@ export class FactorySimulator {
     // Random stored pallet across all racks (seeded, advanced only here on sim steps: same picks at any speed).
     while (idle.length && candidates.length) {
       const { rack, slot } = candidates.splice(Math.floor(this.rackRandom() * candidates.length), 1)[0];
-      const away = (agent: FactoryRackAgent) => distance(agent.controller.carrier.position, rack);
+      const away = (agent: FactoryForkliftAgent) => distance(agent.controller.carrier.position, rack);
       idle.sort((a, b) => away(a) - away(b));
       const door = [...this.doors].sort((a, b) => distance(a, rack) - distance(b, rack))[0];
       const { inside, outside } = this.doorWaypoints(door);
-      const approach = rackApproachPoint(rack, slot);
       const key = `${rack.id}:${slot}`;
       for (const agent of idle) {
         const started = agent.controller.start({
-          rackId: rack.id,
-          slot,
-          approach,
-          slotPoint: rackSlotPoint(rack, slot),
-          heading: rack.yaw + Math.PI,
+          kind: "retrieve",
+          // Front first, then the mirrored standoff on the back side (heading flipped).
+          targets: () => this.slotTargets(rack, slot),
           doorId: door.id,
           inside,
           outside,
@@ -1258,7 +1331,101 @@ export class FactorySimulator {
       }
     }
   }
-  /** Frees the slot and hands its pallet (with boxes) to the rack AMR as a dynamic object. */
+  /** One rack hand-off point (floor, in front of the level-1 centre slot) is in use. */
+  private handoffBusy(rack: SceneEquipment) {
+    return (
+      this.handoffs.some((h) => h.rack.id === rack.id) ||
+      this.shipments.some((s) => s.handoff && s.dock.id === rack.id && !s.stored)
+    );
+  }
+  private handoffPoint(rack: SceneEquipment) {
+    const { x } = RACK_CONFIG.slots[HANDOFF_SLOT];
+    return rackFacePoint(rack, HANDOFF_SLOT, RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2 + RACK_CONFIG.approachGap + HANDOFF_EXTRA);
+  }
+  /**
+   * Both ways into a slot: the front (+X loading face) and the mirrored standoff on the back with the
+   * heading flipped (double-sided rack). Each stops a fork length short of the insert pose.
+   */
+  private slotTargets(rack: SceneEquipment, slot: number): ForkliftTarget[] {
+    const point = rackSlotPoint(rack, slot),
+      heading = rackHeading(rack),
+      nx = Math.sin(heading),
+      nz = Math.cos(heading),
+      depth = (point.x - rack.x) * nx + (point.z - rack.z) * nz,
+      mirrored = new Vector3(point.x - 2 * depth * nx, point.y, point.z - 2 * depth * nz);
+    return [
+      { rackId: rack.id, slot, slotPoint: point, heading, approach: forkliftStop(point, heading, FORKLIFT_CONFIG.forkLength) },
+      { rackId: rack.id, slot, slotPoint: mirrored, heading: heading + Math.PI, approach: forkliftStop(mirrored, heading + Math.PI, FORKLIFT_CONFIG.forkLength) },
+    ];
+  }
+  /**
+   * Store job for a hand-off pallet. Targets in order: the booked slot from the front, the same slot
+   * from the back, then the nearest other enabled racks with a free slot (distance, then id) front/back.
+   * Moving to another slot books it and releases the previous booking.
+   */
+  private storeJob(handoff: Handoff, settings: Record<string, EquipmentSettings>): ForkliftJob {
+    const rack = handoff.rack;
+    return {
+      kind: "store",
+      pickup: { point: handoff.group.position.clone(), heading: rackHeading(rack) },
+      targets: () => {
+        const own = this.slotTargets(rack, handoff.slot);
+        const from = handoff.group.parent ? handoff.group.getWorldPosition(new Vector3()) : handoff.group.position;
+        const others = this.racks
+          .filter((other) => other.id !== rack.id && settings[other.id]?.enabled && this.freeSlot(other) >= 0)
+          .sort((a, b) => distance(a, from) - distance(b, from) || (a.id < b.id ? -1 : 1));
+        return [...own, ...others.flatMap((other) => this.slotTargets(other, this.freeSlot(other)))];
+      },
+      claim: (target) => {
+        const key = `${target.rackId}:${target.slot}`,
+          current = `${handoff.rack.id}:${handoff.slot}`;
+        if (key === current) return true;
+        if (this.rackStored.get(target.rackId)?.[target.slot] || this.slotBookings.has(key)) return false;
+        const next = this.racks.find((r) => r.id === target.rackId);
+        if (!next) return false;
+        this.slotBookings.delete(current);
+        this.slotBookings.add(key);
+        log("info", `${handoff.rack.name} 적재 불가 · ${next.name}(으)로 대체 적재`, `팔레트 ${handoff.palletId ?? "-"}`);
+        handoff.rack = next;
+        handoff.slot = target.slot;
+        return true;
+      },
+      take: () => {
+        this.handoffs.splice(this.handoffs.indexOf(handoff), 1);
+        return handoff.group;
+      },
+      store: (payload, target) => this.storeFromForklift(handoff, payload, target),
+    };
+  }
+  /** The forklift has lowered the pallet onto the shelf: it becomes a stored rack pallet. */
+  private storeFromForklift(handoff: Handoff, payload: Group, target: ForkliftTarget) {
+    const rack = this.racks.find((r) => r.id === target.rackId)!;
+    this.slotBookings.delete(`${rack.id}:${target.slot}`);
+    payload.parent?.updateWorldMatrix(true, false);
+    this.root.updateWorldMatrix(true, false);
+    this.root.attach(payload);
+    payload.position.copy(rackSlotPoint(rack, target.slot));
+    const yaw = new Euler().setFromQuaternion(payload.quaternion, "YXZ").y;
+    payload.rotation.set(0, rack.yaw + (Math.PI / 2) * Math.round((yaw - rack.yaw) / (Math.PI / 2)), 0);
+    this.rackStored.get(rack.id)![target.slot] = true;
+    // Stored for the rest of its stay: re-register so the instancer treats it as static.
+    payload.userData.instanceStatic = true;
+    this.unrender(payload);
+    for (const box of handoff.boxes) this.unrender(box);
+    this.render(payload);
+    for (const box of handoff.boxes) this.render(box);
+    if (handoff.palletId) {
+      this.cargo.storePallet({ t: this.elapsed, palletId: handoff.palletId, rackId: rack.id, slot: target.slot });
+      const record = this.cargo.pallet(handoff.palletId);
+      const slots = this.rackPallets.get(rack.id);
+      if (record && slots) slots[target.slot] = { id: record.id, grade: record.grade, boxes: record.boxIds.length, storedAt: this.elapsed };
+    }
+    const groups = this.rackGroups.get(rack.id);
+    if (groups) groups[target.slot] = { group: payload, boxes: handoff.boxes };
+    this.forkliftStored++;
+    log("info", `지게차가 팔레트 ${handoff.palletId ?? "-"} ${rack.name} ${RACK_CONFIG.slots[target.slot]?.name ?? target.slot} 칸에 적재`);
+  }
+  /** Frees the slot and hands its pallet (with boxes) to the forklift as a dynamic object. */
   private takeFromRack(rack: SceneEquipment, slot: number) {
     const groups = this.rackGroups.get(rack.id),
       stored = groups?.[slot];
@@ -1278,7 +1445,7 @@ export class FactorySimulator {
     log("info", `${rack.name}에서 팔레트 ${record?.id ?? ""} 반출 시작`.replace("  ", " "));
     return stored.group;
   }
-  private shipThroughDoor(agent: FactoryRackAgent, rack: SceneEquipment, door: SceneEquipment, payload: Group, key: string) {
+  private shipThroughDoor(agent: FactoryForkliftAgent, rack: SceneEquipment, door: SceneEquipment, payload: Group, key: string) {
     this.unloadClaims.delete(key);
     const palletId = payload.userData.rackPallet as string | undefined,
       boxes = (payload.userData.rackBoxes as Group[] | undefined) ?? [];
@@ -1355,7 +1522,7 @@ export class FactorySimulator {
         completed: agent.completed,
         battery: Math.round(agent.battery * 10) / 10,
       })),
-      ...this.rackAgents.map((agent) => {
+      ...this.forkliftAgents.map((agent) => {
         const controller = agent.controller,
           enabled = settings[agent.object.id].enabled;
         return {
@@ -1367,8 +1534,8 @@ export class FactorySimulator {
               ? agent.waitingReason ? ("waiting" as const) : ("idle" as const)
               : controller.loaded ? ("dispatch" as const) : ("pickup" as const),
           status: controller.idle ? (agent.waitingReason ?? controller.status) : controller.status,
-          target: controller.job ? (this.racks.find((rack) => rack.id === controller.job!.rackId)?.name ?? null) : null,
-          completed: controller.completed,
+          target: controller.target ? (this.racks.find((rack) => rack.id === controller.target!.rackId)?.name ?? null) : null,
+          completed: controller.completed + controller.stored,
           battery: 100,
         };
       }),

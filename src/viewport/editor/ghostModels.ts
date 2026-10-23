@@ -3,8 +3,8 @@ import type { Group } from "three";
 import { createScannerModel } from "@/objects/scanner/scannerModel";
 import { createUnitPallet } from "@/lib/three/modelNormalization";
 import { translucentClone } from "@/lib/three/translucentClone";
+import { poseRobotHome } from "@/domain/robot/ik/joints";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
-import { SIMULATOR_CONFIG as C } from "@/constants/simulatorLayout";
 import { STREAM_CONFIG } from "@/constants/simulation";
 import { AMR_CONFIG } from "@/constants/amr";
 import type { ConveyorTurn } from "@/types/layout";
@@ -30,7 +30,7 @@ export function buildModelGhost(kind: GhostModelKind, scene: Group) {
     );
   } else {
     model = scene.clone(true);
-    if (kind === "robot") model.scale.multiplyScalar(C.robotScale);
+    if (kind === "robot") return translucentClone(poseRobotHome(model));
     else if (kind === "rack") return translucentClone(model);
     else {
       const bounds = new Box3().setFromObject(model),

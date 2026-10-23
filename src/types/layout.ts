@@ -28,5 +28,8 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   acceptGrade?:DockAcceptGrade;
   /** Door only: opening width/height in m and whether it is open (persisted = initial state). */
   doorWidth?:number;doorHeight?:number;doorOpen?:boolean;
-  /** AMR role: "rack" = dedicated rack-unloading AMR (RackAMRController); default pallet AMR. */
-  amrRole?:"pallet"|"rack"};
+  /** AMR role: "forklift" = rack-unloading forklift (ForkliftController; legacy "rack" means the same); default pallet AMR. */
+  amrRole?:"pallet"|"forklift"|"rack"};
+
+/** Forklift role, including the legacy "rack" value saved by older scenes. */
+export const isForkliftRole = (role: string | undefined) => role === "forklift" || role === "rack";

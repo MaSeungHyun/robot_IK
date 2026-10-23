@@ -1,15 +1,16 @@
 import type { Object3D } from "three";
 import type { ThreeEvent } from "@react-three/fiber";
-import AMR from "@/objects/amr/AMR";
-import type { RackAMRController } from "@/domain/amr/RackAMRController";
+import { AMRPath } from "@/objects/amr/AMR";
+import ForkliftModel from "@/objects/forklift/ForkliftModel";
+import type { ForkliftController } from "@/domain/amr/ForkliftController";
 import { minimapLive } from "@/viewport/minimap/minimapBridge";
 import { clickEquipment, inspectEquipment, playHover } from "@/viewport/selection/inspectEquipment";
 
 /**
- * Dedicated rack-unloading AMR (temporary stand-in; replace this component and RackAMRController together).
- * The carrier is moved by the simulator; a pallet taken from a rack rides attached to it.
+ * Forklift driven by ForkliftController. The carrier is moved by the simulator; the controller's
+ * fork group (a child of the carrier) carries the pallet, and the model's fork node follows its height.
  */
-export default function RackAMR({ id, controller }: { id: string; controller: RackAMRController }) {
+export default function Forklift({ id, controller }: { id: string; controller: ForkliftController }) {
   return (
     <primitive
       object={controller.carrier}
@@ -21,7 +22,8 @@ export default function RackAMR({ id, controller }: { id: string; controller: Ra
       onClick={(event: ThreeEvent<MouseEvent>) => clickEquipment(event, id)}
       onDoubleClick={(event: ThreeEvent<MouseEvent>) => inspectEquipment(event, id)}
     >
-      <AMR route={controller} />
+      <ForkliftModel fork={controller.fork} />
+      <AMRPath route={controller} />
     </primitive>
   );
 }

@@ -1,5 +1,7 @@
 import Scanner from "@/objects/scanner/Scanner";
 import AMR from "@/objects/amr/AMR";
+import ForkliftModel from "@/objects/forklift/ForkliftModel";
+import { useSceneStore } from "@/stores/useSceneStore";
 import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
 import Rack from "@/objects/rack/Rack";
@@ -7,7 +9,7 @@ import Door from "@/objects/door/Door";
 import Pallet from "@/objects/pallet/index";
 import RobotPreview from "@/objects/robot/RobotPreview";
 import FloorRoom from "@/objects/room/FloorRoom";
-import type { SceneEquipment } from "@/types/layout";
+import { isForkliftRole, type SceneEquipment } from "@/types/layout";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import ConveyorExtensionControls from "@/viewport/editor/ConveyorExtensionControls";
 
@@ -28,7 +30,7 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
       );
 
     case "amr":
-      return <AMR />;
+      return <AMRModel id={object.id} />;
 
     case "scanner":
       return <Scanner entity={object} />;
@@ -52,4 +54,10 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
 function EditorFloor({ object }: { object: SceneEquipment }) {
   const linking = useLinkModeStore((state) => state.active);
   return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={!linking} pose={object} />;
+}
+
+/** Forklift-role AMRs show the forklift model. */
+function AMRModel({ id }: { id: string }) {
+  const forklift = useSceneStore((state) => isForkliftRole(state.settings[id]?.amrRole));
+  return forklift ? <ForkliftModel /> : <AMR />;
 }

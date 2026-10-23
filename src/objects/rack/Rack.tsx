@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useGLTF } from "@react-three/drei";
-import rackUrl from "@/assets/models/rack.glb?url";
+import rackUrl from "@/assets/models/Rack.glb?url";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 
 export default function Rack() {

@@ -11,12 +11,12 @@ import {
   Vector3,
 } from "three";
 import { Line2, LineGeometry, LineMaterial } from "three-stdlib";
-import amrUrl from "@/assets/models/amr.glb?url";
+import amrUrl from "@/assets/models/AMR.glb?url";
 import { AMR_CONFIG } from "@/constants/amr";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { selectionContext } from "@react-three/postprocessing";
 
-type AMRRoute = {
+export type AMRRoute = {
   readonly path: readonly Vector3[];
   readonly version: number;
   /** Next waypoint index; the line is trimmed to start at the carrier. */
@@ -42,7 +42,7 @@ const LAYERS = [
  * just moves the first vertex to the carrier (and its dash distance, so the
  * dash pattern stays fixed in world space instead of sliding).
  */
-function AMRPath({ route }: { route: AMRRoute }) {
+export function AMRPath({ route }: { route: AMRRoute }) {
   const scene = useThree((state) => state.scene);
   const size = useThree((state) => state.size);
   const { root, geometry, lines, flow } = useMemo(() => {

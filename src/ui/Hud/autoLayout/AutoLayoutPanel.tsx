@@ -164,7 +164,7 @@ function CandidateCard({ entry, rank, fixedMode = false }: { entry: EvaluatedCan
   };
   const stats: [string, string][] = [
     ["처리량", `${int(m.placedPerHour)}/h`], ["로봇 가동률", `${fixed1(m.robotUtilization * 100)}%`],
-    ["로봇 · AMR · 컨베이어", `${int(c.counts.robots)} · ${int(c.counts.amrs)}${c.counts.rackAmrs ? ` (+랙 반출 ${int(c.counts.rackAmrs)})` : ""} · ${int(c.counts.conveyors)}`],
+    ["로봇 · AMR · 컨베이어", `${int(c.counts.robots)} · ${int(c.counts.amrs)}${c.counts.forklifts ? ` (+지게차 ${int(c.counts.forklifts)})` : ""} · ${int(c.counts.conveyors)}`],
     ["랙 · 보관 슬롯", `${int(c.counts.racks)} · ${int(c.storage.slots)}/${int(c.storage.required)}`],
     ["면적", `${fixed1(c.usedArea)}m²`], ["교차 · AMR 이동", `${int(c.crossings)} · ${fixed1(c.travel)}m`], ["팔레트→랙 거리", `${fixed1(c.rackDistance)}m`],
   ];

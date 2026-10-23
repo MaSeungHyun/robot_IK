@@ -1,10 +1,10 @@
 import scannerUrl from "@/assets/models/scanner.glb?url";
 import { useGLTF } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
-import robotUrl from "@/assets/models/robot.glb?url";
+import robotUrl from "@/assets/models/RobotArm.glb?url";
 import palletUrl from "@/assets/models/pallet.glb?url";
-import amrUrl from "@/assets/models/amr.glb?url";
-import rackUrl from "@/assets/models/rack.glb?url";
+import amrUrl from "@/assets/models/AMR.glb?url";
+import rackUrl from "@/assets/models/Rack.glb?url";
 import { buildModelGhost, type GhostModelKind } from "@/viewport/editor/ghostModels";
 
 export default function ModelGhost({ kind }: { kind: GhostModelKind }) {

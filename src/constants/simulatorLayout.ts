@@ -1,8 +1,8 @@
 import type { EquipmentKind, EquipmentPose } from "@/types/layout";
 
 export const SIMULATOR_CONFIG = {
-  robotScale: 0.7,
-  reach: 1.8,
+  /** RobotArm.glb at 1:1: straight-down tool reaches 2.38 m (box top on belt); +~5% using tool tilt (old: 1.64 m -> 1.8). */
+  reach: 2.5,
   navigationPadding: 3,
   grid: 0.2,
   snap: 0.1,

@@ -5,7 +5,7 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { createDoorModel } from "@/objects/door/doorModel";
 
 /** Roller-shutter door: geometry rebuilt only on size changes; open/close animates over DOOR_CONFIG.travelSeconds. */
-export default function Door({ id, simOpening }: { id: string; /** Simulation-driven opening 0..1 (rack AMR passing); shown when wider than the manual state. */ simOpening?: () => number }) {
+export default function Door({ id, simOpening }: { id: string; /** Simulation-driven opening 0..1 (forklift passing); shown when wider than the manual state. */ simOpening?: () => number }) {
   const width = useSceneStore((state) => state.settings[id]?.doorWidth ?? DOOR_CONFIG.width);
   const height = useSceneStore((state) => state.settings[id]?.doorHeight ?? DOOR_CONFIG.height);
   const open = useSceneStore((state) => state.settings[id]?.doorOpen === true);

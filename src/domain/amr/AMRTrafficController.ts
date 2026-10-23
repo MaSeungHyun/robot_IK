@@ -39,7 +39,7 @@ export const TRAFFIC_RESOLUTION = {
   reverse: [1.2, 0.8, 0.5],
   /** Speed factor while reversing. */
   reverseSpeed: 0.5,
-  /** Seconds a vehicle that backed off for a rack AMR waits before replanning. */
+  /** Seconds a vehicle that backed off for a forklift waits before replanning. */
   bodyHold: 2,
 };
 
@@ -74,7 +74,7 @@ function conflicts(
   // closer on the way, or sliding alongside at the same distance (bodies passing through) conflict.
   return distance < now - 1e-7 || end <= now + 1e-6;
 }
-/** A body the traffic controller must keep clear of but does not drive (e.g. a rack AMR). */
+/** A body the traffic controller must keep clear of but does not drive (e.g. a forklift). */
 export type TrafficBody = { position: Vector3; radius: number };
 const grows = (vehicle: Vehicle, next: Vector3) =>
   vehicle.dispatch.radiusAt(next) > vehicle.dispatch.radius + 1e-9;
@@ -201,7 +201,7 @@ export class AMRTrafficController {
             (priority(a, b) <= 0 ? mb : ma).allowed = false;
           }
         }
-      // Bodies outside this controller (rack AMRs) never yield here: stop short of them.
+      // Bodies outside this controller (forklifts) never yield here: stop short of them.
       for (const vehicle of vehicles) {
         const motion = this.motions.get(vehicle.id)!,
           position = vehicle.dispatch.carrier.position;
@@ -342,7 +342,7 @@ export class AMRTrafficController {
     }
     return best;
   }
-  /** Nearest rack AMR body stopping `vehicle`. */
+  /** Nearest forklift body stopping `vehicle`. */
   private blockingBody(vehicle: Vehicle, bodies: readonly TrafficBody[]) {
     const position = vehicle.dispatch.carrier.position,
       ahead = this.motions.get(vehicle.id)!.ahead;
@@ -361,7 +361,7 @@ export class AMRTrafficController {
   private resolve(vehicle: Vehicle, vehicles: Vehicle[], replan: TrafficPlanner, bodies: readonly TrafficBody[]) {
     const other = this.blocker(vehicle, vehicles);
     if (!other) {
-      // A rack AMR never yields to regular AMRs here, so the regular AMR backs off / steps aside for it.
+      // A forklift never yields to regular AMRs here, so the regular AMR backs off / steps aside for it.
       const body = this.blockingBody(vehicle, bodies);
       if (body) {
         // Its route is unknown here: assume it drives on through this vehicle, so step off that line.
@@ -404,7 +404,7 @@ export class AMRTrafficController {
         : [vehicle.dispatch.carrier.position.clone()],
     };
   }
-  /** True when `point` keeps clear of every other AMR body and rack AMR body (except the peer). */
+  /** True when `point` keeps clear of every other AMR body and forklift body (except the peer). */
   private clearOfOthers(point: Vector3, loser: Vehicle, peer: Peer, vehicles: Vehicle[], bodies: readonly TrafficBody[]) {
     const radius = loser.dispatch.radius;
     return (
@@ -532,7 +532,7 @@ export class AMRTrafficController {
     motion.hold += dt;
     if (motion.retry > 0) return;
     motion.retry = 0.5;
-    // Yielded to a rack AMR (no known route): give it a moment to pass first.
+    // Yielded to a forklift (no known route): give it a moment to pass first.
     if (motion.yieldFrom === BODY_YIELD && motion.hold < TRAFFIC_RESOLUTION.bodyHold) return;
     const winner = vehicles.find((other) => other.id === motion.yieldFrom);
     const path = replan(vehicle);

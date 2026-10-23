@@ -7,7 +7,9 @@ const toSpace = new Matrix4();
 /** Skip importer wrappers, then measure only the first child model, not its siblings. */
 /** `space` (e.g. the inverse of root.matrixWorld) measures in that frame instead of world space. */
 export function trackingFootprint(root: Object3D, bounds: Box3, part: Box3, space?: Matrix4) {
-  let model = root;
+  // A root can name its model explicitly (e.g. the forklift carrier also holds the fork group and route line).
+  const marked = root.children.find((child) => child.userData.trackingModel);
+  let model = marked ?? root;
   while (!(model instanceof Mesh) && model.children.length === 1) model = model.children[0];
   const firstChild = model instanceof Mesh ? model : model.children[0];
   bounds.makeEmpty();

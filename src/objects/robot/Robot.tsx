@@ -2,8 +2,6 @@ import useRobotJointReadings from "@/hooks/robot/useRobotJointReadings";
 import { useGLTF } from "@react-three/drei";
 import type { ThreeElements } from "@react-three/fiber";
 import { useEffect, useId, useMemo, useRef, type RefObject } from "react";
-import type { Mesh } from "three";
-import { geometryAtScale } from "@/lib/three/geometryAtScale";
 import type {
   Transfer,
   JointAngleRef,
@@ -11,11 +9,12 @@ import type {
 } from "../../types/robot";
 import type { RobotController } from "@/domain/robot/RobotController";
 import { SuctionRobotController } from "@/domain/robot/SuctionRobotController";
-import robot from "@/assets/models/robot.glb?url";
+import robot from "@/assets/models/RobotArm.glb?url";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { simulationClock } from "@/domain/simulation/simulationClock";
 import { planningScheduler } from "@/domain/robot/ik/planningScheduler";
 import { MOTION } from "@/constants/simulation";
+import { poseRobotHome } from "@/domain/robot/ik/joints";
 
 
 type Props = ThreeElements["group"] & {
@@ -23,7 +22,6 @@ type Props = ThreeElements["group"] & {
   running: boolean;
   jobs: RefObject<Transfer[]>;
   onProgress: (completed: number, status: string) => void;
-  geometryScale?: number;
   pickupRadius?: number;
   transferMode?: RobotTransferMode;
   jointAnglesRef?: JointAngleRef;
@@ -35,7 +33,6 @@ export default function Robot({
   jobs,
   running,
   onProgress,
-  geometryScale = 1,
   jointAnglesRef,
   pickupRadius,
   transferMode,
@@ -44,18 +41,8 @@ export default function Robot({
 }: Props) {
   const instanceId = useId();
   const { scene } = useGLTF(robot);
-  const model = useMemo(() => {
-    const copy = scene.clone(true);
-    if (geometryScale !== 1)
-      copy.traverse((node) => {
-        node.position.multiplyScalar(geometryScale);
-        if ("geometry" in node) {
-          const mesh = node as Mesh;
-          mesh.geometry = geometryAtScale(mesh.geometry, geometryScale);
-        }
-      });
-    return copy;
-  }, [scene, geometryScale]);
+  // Used exactly as authored (no scaling).
+  const model = useMemo(() => poseRobotHome(scene.clone(true)), [scene]);
   useInstanceModel(model);
 
   const controller = useRef<RobotController | null>(null);
@@ -66,7 +53,6 @@ export default function Robot({
     const instance = new SuctionRobotController({
       id: robotId ?? instanceId,
       model,
-      geometryScale,
       pickupRadius,
       transferMode,
       getJobs: () => inputs.current.jobs.current,
@@ -77,7 +63,7 @@ export default function Robot({
       instance.dispose();
       controller.current = null;
     };
-  }, [model, geometryScale, robotId, instanceId, pickupRadius, transferMode]);
+  }, [model, robotId, instanceId, pickupRadius, transferMode]);
 
   useRobotJointReadings(robotId, controller);
 

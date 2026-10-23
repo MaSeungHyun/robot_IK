@@ -57,6 +57,6 @@ try {
   writeFileSync(path.join(outDir, "summary.json"), JSON.stringify({ constraints, seconds, warmup, storage: result.storage, diagnosis: result.diagnosis, ranked: summary, evaluated: result.evaluated }, null, 2));
   console.log(`\nstorage: ${result.storage.pallets} pallets -> ${result.storage.needed} racks (${result.storage.racks} placed) · ${result.diagnosis.code}: ${result.diagnosis.message}`);
   console.log("TOP", top);
-  for (const r of summary) console.log(`#${r.rank} ${r.id} met=${r.met} score=${r.score} robots=${r.robots} amrs=${r.amrs} rackAmrs=${r.rackAmrs} docks=${r.docks} racks=${r.racks} slots=${r.rackSlots}/${r.storageRequired} belts=${r.conveyors} area=${r.usedArea}m2 placed=${r.placedPerHour}/h passed=${r.passedPerHour}/h palletWait=${(r.palletWaitShare * 100).toFixed(1)}% util=${(r.robotUtilization * 100).toFixed(0)}% crossings=${r.crossings} travel=${r.travel}m rackDist=${r.rackDistance}m closeness=${r.closeness}`);
+  for (const r of summary) console.log(`#${r.rank} ${r.id} met=${r.met} score=${r.score} robots=${r.robots} amrs=${r.amrs} forklifts=${r.forklifts} docks=${r.docks} racks=${r.racks} slots=${r.rackSlots}/${r.storageRequired} belts=${r.conveyors} area=${r.usedArea}m2 placed=${r.placedPerHour}/h passed=${r.passedPerHour}/h palletWait=${(r.palletWaitShare * 100).toFixed(1)}% util=${(r.robotUtilization * 100).toFixed(0)}% crossings=${r.crossings} travel=${r.travel}m rackDist=${r.rackDistance}m closeness=${r.closeness}`);
   console.log("written:", outDir);
 } finally { await server.close(); }

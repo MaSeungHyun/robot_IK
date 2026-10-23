@@ -1,9 +1,9 @@
 import { useGLTF } from "@react-three/drei";
-import amrUrl from "@/assets/models/amr.glb?url";
+import amrUrl from "@/assets/models/AMR.glb?url";
 import boxUrl from "@/assets/models/box.glb?url";
 import palletUrl from "@/assets/models/pallet.glb?url";
-import rackUrl from "@/assets/models/rack.glb?url";
-import robotUrl from "@/assets/models/robot.glb?url";
+import rackUrl from "@/assets/models/Rack.glb?url";
+import robotUrl from "@/assets/models/RobotArm.glb?url";
 import scannerUrl from "@/assets/models/scanner.glb?url";
 
 export const MODEL = { robot: robotUrl, pallet: palletUrl, box: boxUrl, amr: amrUrl, scanner: scannerUrl, rack: rackUrl };

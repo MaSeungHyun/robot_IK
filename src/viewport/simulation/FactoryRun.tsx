@@ -14,7 +14,7 @@ import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
 import Rack from "@/objects/rack/Rack";
 import Door from "@/objects/door/Door";
-import RackAMR from "@/objects/amr/RackAMR";
+import Forklift from "@/objects/forklift/Forklift";
 
 // Play mode: a click opens the object's Details (see clickEquipment).
 const handleEquipmentSelect = clickEquipment;
@@ -58,7 +58,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
         </primitive>
       ))}
 
-      {world.rackAgents.map((agent) => <RackAMR key={agent.object.id} id={agent.object.id} controller={agent.controller} />)}
+      {world.forkliftAgents.map((agent) => <Forklift key={agent.object.id} id={agent.object.id} controller={agent.controller} />)}
 
       {staticObjects.map((object) => object.kind === "floor" ? (
         // Floors/walls are scenery while simulating: not selectable, hoverable or trackable.

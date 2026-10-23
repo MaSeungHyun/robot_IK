@@ -1,4 +1,4 @@
-import { JOINT_LIMITS, JOINT_SETTINGS } from "@/constants/simulation";
+import { JOINT_LIMITS, JOINT_SETTINGS, ROBOT_HOME_DEGREES } from "@/constants/simulation";
 export { JOINT_LIMITS } from "@/constants/simulation";
 import { Euler, MathUtils, Object3D, Quaternion, Vector3 } from "three";
 
@@ -35,6 +35,15 @@ export function setJointAngle(control: JointControl, angle: number) {
   control.node.updateWorldMatrix(true, true);
 }
 
+
+/** Puts a freshly loaded robot model into ROBOT_HOME_DEGREES (idempotent; missing joints are skipped). */
+export function poseRobotHome<T extends Object3D>(model: T): T {
+  for (const [name, degrees] of Object.entries(ROBOT_HOME_DEGREES)) {
+    const node = model.getObjectByName(name);
+    if (node) setJointAngle(createJointControl(node), MathUtils.degToRad(degrees));
+  }
+  return model;
+}
 
 export function blenderWorldX(rotation: Quaternion) {
   return new Euler().setFromQuaternion(TO_BLENDER.clone().multiply(rotation).multiply(TO_GLTF), "ZYX").x;

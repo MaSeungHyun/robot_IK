@@ -1,8 +1,6 @@
 import { useThree } from "@react-three/fiber";
 import { useEffect } from "react";
 import { Group, InstancedMesh, Mesh, type Material, type Object3D, type Texture } from "three";
-import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
-import { geometryAtScale } from "@/lib/three/geometryAtScale";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
 import { log } from "@/stores/useLogStore";
 import { useModelStore } from "@/stores/useModelStore";
@@ -64,16 +62,6 @@ export default function ModelWarmup() {
       const model = scenes[url];
       if (model) addWithInstances(model.clone(true));
     }
-    // Play robots use geometry scaled once per source (see Robot.tsx); build and compile it now.
-    const robot = scenes[MODEL.robot];
-    if (robot)
-      attempt("scaled robot", () => {
-        const scaled = robot.clone(true);
-        scaled.traverse((node) => {
-          if (node instanceof Mesh) node.geometry = geometryAtScale(node.geometry, SIMULATOR_CONFIG.robotScale);
-        });
-        addWithInstances(scaled);
-      });
     for (const turn of TURNS) addWithInstances(conveyorTemplate(turn).clone(true));
     for (const kind of GHOSTS) {
       const source = scenes[MODEL[kind]];

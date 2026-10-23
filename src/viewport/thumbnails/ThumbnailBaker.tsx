@@ -7,11 +7,11 @@ import {
 import type { Object3D } from "three";
 import { AMR_CONFIG } from "@/constants/amr";
 import { STREAM_CONFIG } from "@/constants/simulation";
-import { SIMULATOR_CONFIG as C } from "@/constants/simulatorLayout";
 import { createUnitPallet } from "@/lib/three/modelNormalization";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
 import { createScannerModel } from "@/objects/scanner/scannerModel";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
+import { poseRobotHome } from "@/domain/robot/ik/joints";
 import { log } from "@/stores/useLogStore";
 import { useModelStore } from "@/stores/useModelStore";
 import { useModelsSettled } from "@/stores/useModelStore";
@@ -56,11 +56,7 @@ export default function ThumbnailBaker() {
     };
     const robot = scenes[MODEL.robot], amr = scenes[MODEL.amr], pallet = scenes[MODEL.pallet],
       scanner = scenes[MODEL.scanner], rack = scenes[MODEL.rack];
-    build("robot", robot, () => {
-      const model = robot!.clone(true);
-      model.scale.multiplyScalar(C.robotScale);
-      return model;
-    });
+    build("robot", robot, () => poseRobotHome(robot!.clone(true)));
     build("amr", amr, () => {
       const model = amr!.clone(true),
         size = new Box3().setFromObject(model).getSize(new Vector3());

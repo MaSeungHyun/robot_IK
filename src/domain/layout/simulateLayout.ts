@@ -5,19 +5,17 @@
  * Runs in Node (vite ssrLoadModule) and in a Web Worker (no DOM, no React). Each JS context has its own store.
  */
 import { Group, Scene } from "three";
-import type { Mesh, Object3D } from "three";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { FactorySimulator } from "@/domain/simulation/FactorySimulator";
 import { SuctionRobotController } from "@/domain/robot/SuctionRobotController";
 import { SimulationClock } from "@/domain/simulation/simulationClock";
 import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
-import { geometryAtScale } from "@/lib/three/geometryAtScale";
 import type { SceneTemplate } from "@/types/sceneTemplate";
 import type { SimMetrics } from "@/domain/layout/autoLayout";
 
 export type SimModels = { robot: Group; box: Group; pallet: Group };
 export type SimOptions = { seconds: number; warmup: number; seed?: number };
-export type SimResult = (SimMetrics & { shipped: number; cpuMs: number; /** Pallets the rack AMR took out of racks through the door. */ rackUnloaded: number }) | { error: string };
+export type SimResult = (SimMetrics & { shipped: number; cpuMs: number; /** Pallets the forklift took out of racks through the door. */ rackUnloaded: number }) | { error: string };
 
 export function simulateTemplate(template: SceneTemplate, models: SimModels, { seconds, warmup, seed = 12345 }: SimOptions): SimResult {
   const store = useSceneStore.getState();
@@ -34,16 +32,11 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
   const clock = new SimulationClock();
   const controllers: SuctionRobotController[] = [];
   for (const robot of world.robots) {
-    const scale = SIMULATOR_CONFIG.robotScale, model = models.robot.clone(true);
-    if (scale !== 1) model.traverse((node: Object3D) => {
-      node.position.multiplyScalar(scale);
-      const mesh = node as Mesh;
-      if (mesh.geometry) mesh.geometry = geometryAtScale(mesh.geometry, scale);
-    });
+    const model = models.robot.clone(true);
     const holder = new Group();
     holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw;
     holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
-    const controller = new SuctionRobotController({ id: robot.object.id, model, geometryScale: scale, pickupRadius: SIMULATOR_CONFIG.reach,
+    const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach,
       getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status) });
     controller.start();
     controllers.push(controller);

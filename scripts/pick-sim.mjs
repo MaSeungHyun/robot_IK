@@ -35,14 +35,13 @@ try {
     const buffer = stripTextures(readFileSync(file));
     new GLTFLoader().parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), "", resolve, reject);
   });
-  const [robotGltf, boxGltf, palletGltf, scannerGltf] = await Promise.all(["robot", "box", "pallet", "scanner"].map(n => parse(`src/assets/models/${n}.glb`)));
+  const [robotGltf, boxGltf, palletGltf, scannerGltf] = await Promise.all(["RobotArm", "box", "pallet", "scanner"].map(n => parse(`src/assets/models/${n}.glb`)));
   const { SCENE_TEMPLATES } = await load("/src/constants/sceneTemplates.ts");
   const { useSceneStore } = await load("/src/stores/useSceneStore.ts");
   const { FactorySimulator } = await load("/src/domain/simulation/FactorySimulator.ts");
   const { SuctionRobotController } = await load("/src/domain/robot/SuctionRobotController.ts");
   const { SimulationClock } = await load("/src/domain/simulation/simulationClock.ts");
   const { SIMULATOR_CONFIG } = await load("/src/constants/simulatorLayout.ts");
-  const { geometryAtScale } = await load("/src/lib/three/geometryAtScale.ts");
   const { createScannerModel } = await load("/src/objects/scanner/scannerModel.ts");
   const scannerModel = createScannerModel(scannerGltf.scene);
   const template = SCENE_TEMPLATES[templateIndex];
@@ -56,12 +55,12 @@ try {
     // --defect=R forces every scanner's defect rate (e.g. 0 removes ScannerInspection randomness).
     if (defectArg) { const rate = +defectArg.slice(9); const st = useSceneStore.getState();
       useSceneStore.setState({ settings: Object.fromEntries(Object.entries(st.settings).map(([id, v]) => [id, { ...v, defectRate: rate }])) }); }
-    // --rack-amr adds an east-wall door and a rack-unloading AMR (amrRole "rack") to check rack pallet outfeed.
-    if (args.includes('--rack-amr')) { const st = useSceneStore.getState();
+    // --forklift (old name --rack-amr) adds an east-wall door and a forklift (amrRole "forklift") to check rack pallet outfeed.
+    if (args.includes('--forklift') || args.includes('--rack-amr')) { const st = useSceneStore.getState();
       st.add('door', { x: 10.5, z: 10, yaw: -Math.PI / 2 }); st.add('amr', { x: 8, z: 8, yaw: 0 });
       const after = useSceneStore.getState(), door = after.objects.filter(o => o.kind === 'door').at(-1), amr = after.objects.filter(o => o.kind === 'amr').at(-1);
       useSceneStore.setState({ objects: after.objects.map(o => o.id === door.id ? { ...o, x: 10.5, z: 10, yaw: -Math.PI / 2 } : o.id === amr.id ? { ...o, x: 8, z: 8, yaw: 0 } : o),
-        settings: { ...after.settings, [amr.id]: { ...after.settings[amr.id], amrRole: 'rack' } } }); }
+        settings: { ...after.settings, [amr.id]: { ...after.settings[amr.id], amrRole: 'forklift' } } }); }
     const { objects, links } = useSceneStore.getState();
     const getSettings = () => useSceneStore.getState().settings;
     let seed = 12345; const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -74,12 +73,11 @@ try {
     }
     const clock = new SimulationClock();
     const robots = world.robots.map((robot) => {
-      const scale = SIMULATOR_CONFIG.robotScale, model = robotGltf.scene.clone(true);
-      if (scale !== 1) model.traverse((node) => { node.position.multiplyScalar(scale); if (node.geometry) node.geometry = geometryAtScale(node.geometry, scale); });
-      const holder = new THREE.Group(); holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw;
+      const model = robotGltf.scene.clone(true);
+        const holder = new THREE.Group(); holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw;
       holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
       const log = [];
-      const controller = new SuctionRobotController({ id: robot.object.id, model, geometryScale: scale, pickupRadius: SIMULATOR_CONFIG.reach,
+      const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach,
         getJobs: () => robot.jobs, onProgress: (count, status) => { world.robotProgress(robot, count, status); log.push(status); } });
       controller.start();
       const ik = controller.ik, original = ik.solveTrack;
@@ -119,14 +117,19 @@ try {
     // Frames of 1/60 s real time at this speed, unlimited wall budget: run exactly `seconds` of sim time.
     const began = performance.now();
     let frames = 0;
-    while (clock.stats.simTime < seconds - 1e-9) { clock.frame(1 / 60, speed, world, Infinity); frames++; }
+    let nextReport = 10;
+    while (clock.stats.simTime < seconds - 1e-9) {
+      clock.frame(1 / 60, speed, world, Infinity); frames++;
+      // Progress (stderr) so a hang shows where it is.
+      if (clock.stats.simTime >= nextReport) { nextReport += 10; console.error(`  [${speed}x] t=${clock.stats.simTime.toFixed(0)}s wall=${((performance.now() - began) / 1000).toFixed(1)}s placed=${world.placed} forklift=${world.forkliftAgents.map((a) => a.controller.stage ?? "idle").join(",")}`); }
+    }
     const realMs = performance.now() - began, steps = Math.round(clock.stats.simTime * 60), perStep = realMs / steps;
     // Browser estimate: 10 ms stepping per 60 Hz frame, one step = 1/60 s sim => capacity speed = 10 / ms-per-step.
     console.log(`\n=== speed ${speed}x · ${clock.stats.simTime.toFixed(0)}s sim · ${frames} frames · ${realMs.toFixed(0)}ms CPU · ${perStep.toFixed(3)}ms/step · est. browser max ~${(10 / perStep).toFixed(0)}x`);
     const sensors = [...world.inspection.sensors.values()].map(x => x.snapshot), scanned = sensors.reduce((a, x) => a + x.scanned, 0), faults = sensors.reduce((a, x) => a + x.faults, 0);
     console.log(`spawned ${world.stats.spawned} scanned ${scanned} ok ${scanned - faults} rejected ${faults} placed ${world.placed} passed ${world.passed}`);
     if (world.rackStored?.size) console.log('   racks:', [...world.rackStored].map(([id, s]) => id + ' ' + s.filter(Boolean).length + '/' + s.length).join(' | '), '· agents:', world.agents.map((a) => a.object.id + ':' + a.dispatch.phase + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '));
-    if (world.rackAgents?.length) console.log('   rackAMR:', world.rackAgents.map((a) => a.object.id + ':' + (a.controller.stage ?? 'idle') + ' done=' + a.controller.completed + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '), '· unloaded:', world.unloaded);
+    if (world.forkliftAgents?.length) console.log('   forklift:', world.forkliftAgents.map((a) => a.object.id + ':' + (a.controller.stage ?? 'idle') + ' stored=' + a.controller.stored + ' out=' + a.controller.completed + ' recover=' + a.controller.recoveries + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '), '· handedOff:', world.handedOff, '· forkliftStored:', world.forkliftStored, '· unloaded:', world.unloaded);
     for (const p of world.pallets) { const per = Array.from({ length: p.layers }, (_, l) => p.states.filter((st, i) => st === "placed" && p.layerOf(i) === l).length);
       console.log(`   pallet ${p.object.id}: ${p.count}/${p.slots.length} (${p.layers} layers x ${p.perLayer}) per layer [${per.join(", ")}] shipped ${world.stats.completedPallets}`); }
     for (const r of robots) {

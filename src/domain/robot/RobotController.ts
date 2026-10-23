@@ -30,7 +30,6 @@ export interface RobotController {
 export interface RobotControllerOptions {
   id: string;
   model: Group;
-  geometryScale?: number;
   /** Horizontal pickup radius in world metres. */
   pickupRadius?: number;
   transferMode?: RobotTransferMode;
