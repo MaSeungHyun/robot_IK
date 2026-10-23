@@ -34,6 +34,7 @@ import { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import { log } from "@/stores/useLogStore";
 import { RackAMRController } from "@/domain/amr/RackAMRController";
 import { DOOR_CONFIG } from "@/constants/door";
+import { wallSegments } from "@/domain/room/roomWalls";
 
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
 function mulberry32(seed: number) {
@@ -102,6 +103,8 @@ const RACK_UNLOAD_RETRY_S = 1;
 /** Distance of the inside / outside door waypoints from the door plane (m). */
 const DOOR_INSIDE = 1.6;
 const DOOR_OUTSIDE = 2;
+/** Half the room wall thickness used as its navigation clearance (RoomWall frame is <= 0.12 m). */
+const WALL_HALF_THICKNESS = 0.12;
 type Shipment = {
   pallet: PalletController;
   group: Group;
@@ -253,6 +256,13 @@ export class FactorySimulator {
     for (const agent of this.agents) agent.dispatch.carrier.userData.sceneId = agent.object.id;
     for (const agent of this.rackAgents) agent.controller.carrier.userData.sceneId = agent.object.id;
     this.doors = objects.filter((o) => o.kind === "door");
+    // Room walls (split at door openings) block AMR and rack AMR routes; the planner's body radius covers a carried pallet.
+    this.wallObstacles = wallSegments(objects, this.settings()).map(({ a, b }) => ({
+      kind: "floor" as const,
+      pose: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, yaw: 0 },
+      radius: WALL_HALF_THICKNESS,
+      path: [new Vector3(a.x, 0, a.z), new Vector3(b.x, 0, b.z)],
+    }));
     for (const door of this.doors) this.doorFraction.set(door.id, 0);
     this.trafficVehicles = this.agents.map((agent) => ({
       id: agent.object.id,
@@ -278,6 +288,7 @@ export class FactorySimulator {
       dock: FAR_POSE,
     };
     this.rackObstacles = [
+      ...this.wallObstacles,
       ...this.robots.map((r) => ({ kind: r.object.kind, pose: r.object })),
       ...this.belts.map((b) => ({ kind: b.object.kind, pose: b.object })),
       ...this.pallets.map((p) => ({ kind: p.object.kind, pose: p.object })),
@@ -346,6 +357,7 @@ export class FactorySimulator {
   private rackUnloadRetry = 0;
   private rackLayout!: FactoryLayout;
   private rackObstacles: NavigationObstacle[] = [];
+  private wallObstacles: NavigationObstacle[] = [];
   /** Pallets taken out of racks and shipped through a door. */
   unloaded = 0;
   /** First PalletPoint that is neither filled nor booked by a delivery in progress. */
@@ -912,6 +924,7 @@ export class FactorySimulator {
       dock: docks[0],
     };
     const obstacles: NavigationObstacle[] = [
+      ...this.wallObstacles,
       ...this.robots
         .filter((r) => r !== robot)
         .map((r) => ({ kind: r.object.kind, pose: r.object })),

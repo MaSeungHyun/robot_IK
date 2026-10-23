@@ -74,3 +74,31 @@ export function wallOpenings(floor: EquipmentPose & { width: number; depth: numb
     return openings;
   });
 }
+
+/**
+ * Solid wall pieces of every walled floor room in world (x, z), split around door openings (doors stay
+ * passable). Used as AMR navigation obstacles; ordered by object, then wall, then along the wall (deterministic).
+ */
+export function wallSegments(objects: SceneEquipment[], settings: Record<string, EquipmentSettings>) {
+  const doors = objects.filter((o) => o.kind === "door").map((o) => doorShape(o, settings[o.id]));
+  const segments: { a: { x: number; z: number }; b: { x: number; z: number } }[] = [];
+  for (const floor of objects) {
+    if (floor.kind !== "floor" || !floor.floor || floor.floor.wallHeight <= 0) continue;
+    const room = { x: floor.x, z: floor.z, yaw: floor.yaw, ...floor.floor };
+    const openings = wallOpenings(room, doors);
+    wallFrames(room.width, room.depth).forEach((frame, index) => {
+      const world = (along: number) => {
+        const [fx, fz] = rotate(along, 0, frame.rotation);
+        const [wx, wz] = rotate(frame.cx + fx, frame.cz + fz, floor.yaw);
+        return { x: floor.x + wx, z: floor.z + wz };
+      };
+      const cuts = [...openings[index]].sort((p, q) => p.x0 - q.x0);
+      let from = -frame.length / 2;
+      for (const cut of [...cuts, { x0: frame.length / 2, x1: frame.length / 2 }]) {
+        if (cut.x0 - from > 1e-3) segments.push({ a: world(from), b: world(cut.x0) });
+        from = Math.max(from, cut.x1);
+      }
+    });
+  }
+  return segments;
+}

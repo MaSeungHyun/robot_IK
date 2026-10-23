@@ -55,10 +55,22 @@ function loadedOverlaps(x:number,z:number,yaw:number,kind:EquipmentKind,pose:Equ
   }
   return true;
 }
+/** Room wall piece (kind "floor", 2-point path, radius = half thickness): blocks the AMR body circle, and when loaded
+ * also the carried pallet as its real square at the planner's pallet yaw (separating axes), not the 0.82 m envelope,
+ * so docks set against a wall stay reachable while the pallet still never clips the wall. */
+function wallBlocker(o:NavigationObstacle,loaded:boolean,palletYaw:number):(x:number,z:number)=>boolean{
+  const a=o.path![0],b=o.path![o.path!.length-1],r=o.radius??0,dx=b.x-a.x,dz=b.z-a.z,length=Math.hypot(dx,dz)||1e-9;
+  const ux=dx/length,uz=dz/length,cx=(a.x+b.x)/2,cz=(a.z+b.z)/2,limit=AMR_TRAFFIC.emptyRadius-1e-8;
+  const body=(x:number,z:number)=>{const t=Math.max(0,Math.min(length,(x-a.x)*ux+(z-a.z)*uz));return Math.hypot(x-a.x-t*ux,z-a.z-t*uz)-r<limit;};
+  if(!loaded)return body;
+  const [pw,pd]=footprint("pallet"),pc=Math.cos(palletYaw),ps=Math.sin(palletYaw);
+  const axes=[[pc,-ps],[ps,pc],[ux,uz],[-uz,ux]].map(([nx,nz])=>[nx,nz,pw/2*Math.abs(nx*pc-nz*ps)+pd/2*Math.abs(nx*ps+nz*pc)+length/2*Math.abs(nx*ux+nz*uz)+r*Math.abs(-nx*uz+nz*ux)+.01-1e-8]);
+  return (x,z)=>{if(body(x,z))return true;for(const [nx,nz,gap] of axes)if(Math.abs((x-cx)*nx+(z-cz)*nz)>=gap)return false;return true;};
+}
 function navigationClear(layout:FactoryLayout,x:number,z:number,loaded:boolean,extra:NavigationObstacle[]){
   const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius;
   const clears=(kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn})=>loaded&&!(kind==="conveyor"&&pose.conveyorTurn&&pose.conveyorTurn!=="straight")?!loadedOverlaps(x,z,layout.pallet.yaw,kind,pose):clearancePose(x,z,kind,pose)>=radius-1e-8;
-  return clears("robot",layout.robot)&&clears("conveyor",layout.conveyor)&&!extra.some(o=>o.radius!==undefined||o.path?.length?obstacleClearance(x,z,o)<radius-1e-8:!clears(o.kind,o.pose));
+  return clears("robot",layout.robot)&&clears("conveyor",layout.conveyor)&&!extra.some(o=>o.kind==="floor"&&o.path?.length?wallBlocker(o,loaded,layout.pallet.yaw)(x,z):o.radius!==undefined||o.path?.length?obstacleClearance(x,z,o)<radius-1e-8:!clears(o.kind,o.pose));
 }
 /** Same result as navigationClear, but each point only tests obstacles whose conservative bound can reach it
  * (bucketed on a 1 m grid, then a tight bounding-box check). Pose tests reuse precomputed trig/extents, and
@@ -104,7 +116,10 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
   };
   addPose("robot",layout.robot);addPose("conveyor",layout.conveyor);
   for(const o of extra){
-    if(o.path?.length){
+    if(o.kind==="floor"&&o.path?.length){
+      const a=o.path[0],b=o.path[o.path.length-1],reach=(o.radius??0)+(loaded?palletHalf+.01:radius);
+      add(Math.min(a.x,b.x),Math.max(a.x,b.x),Math.min(a.z,b.z),Math.max(a.z,b.z),Math.max(reach,(o.radius??0)+AMR_TRAFFIC.emptyRadius),wallBlocker(o,loaded,layout.pallet.yaw));
+    }else if(o.path?.length){
       // obstacleClearance takes the minimum over segments, so the path blocks exactly when one segment does.
       const path=o.path,r=o.radius??0;
       for(let i=0;i<path.length;i++){
@@ -138,10 +153,10 @@ export function obstacleClearance(x:number,z:number,obstacle:NavigationObstacle)
   return obstacle.radius!==undefined?Math.max(0,Math.hypot(x-obstacle.pose.x,z-obstacle.pose.z)-obstacle.radius):clearancePose(x,z,obstacle.kind,obstacle.pose);
 }
 export function routeFailureReason(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[],stage:string){
-  const blocked=(point:{x:number;z:number})=>!navigationClear(layout,point.x,point.z,loaded,extra.filter(o=>!o.path?.length));
+  const blocked=(point:{x:number;z:number})=>!navigationClear(layout,point.x,point.z,loaded,extra.filter(o=>!o.path?.length||o.kind==="floor"));
   if(blocked(start))return `${stage}: 출발 공간이 부족합니다. 주변 장비 간격을 확인해 주세요.`;
   if(blocked(goal))return `${stage}: 도착 공간이 부족합니다. 주변 장비 간격을 확인해 주세요.`;
-  if(extra.some(o=>o.path?.length))return `${stage}: 다른 AMR의 운반·복귀 경로 예약이 해제되기를 기다립니다.`;
+  if(extra.some(o=>o.path?.length&&o.kind!=="floor"))return `${stage}: 다른 AMR의 운반·복귀 경로 예약이 해제되기를 기다립니다.`;
   return `${stage}: 연결 가능한 통로가 없습니다. 장비 배치를 확인해 주세요.`;
 }
 export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[]):Vector3[]|null{
@@ -161,7 +176,8 @@ export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{
   while(expanded){
     expanded=false;
     for(const obstacle of obstacles){
-      if(included.has(obstacle))continue;
+      // Room walls never grow the region (a wall spans the room); they still block every sample through preparedClear.
+      if(included.has(obstacle)||obstacle.kind==="floor")continue;
       const [width,depth]=footprint(obstacle.kind),extent=(obstacle.radius??Math.hypot(width,depth)/2)+radius;
       const {x,z}=obstacle.pose;
       if(x+extent<minX||x-extent>maxX||z+extent<minZ||z-extent>maxZ)continue;
