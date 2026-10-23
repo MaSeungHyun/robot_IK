@@ -1,4 +1,5 @@
 import ScannerSettings from "@/ui/Hud/equipment/scanner/ScannerSettings";
+import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
 import { useShallow } from "zustand/react/shallow";
 import {
   EQUIPMENT_NAMES,
@@ -366,6 +367,19 @@ export default function ObjectPropertiesPanel({
                   write={(value) => ({ reach: value })}
                 />
               )}
+              {object.kind === "robot" && (
+                <EquipmentChoiceSetting
+                  id={object.id}
+                  field="pickFilter"
+                  label="집기 대상"
+                  fallback="all"
+                  options={[
+                    { value: "all", label: "전체" },
+                    { value: "normal", label: "정상품만" },
+                    { value: "defect", label: "불량품만" },
+                  ]}
+                />
+              )}
               {object.kind === "pallet" && (
                 <BulkNumber
                   ids={targets}
@@ -377,6 +391,18 @@ export default function ObjectPropertiesPanel({
                   inputClassName={input}
                   read={(c) => c.capacity}
                   write={(value) => ({ capacity: value })}
+                />
+              )}
+              {object.kind === "pallet" && (
+                <EquipmentChoiceSetting
+                  id={object.id}
+                  field="grade"
+                  label="적재 용도"
+                  fallback="normal"
+                  options={[
+                    { value: "normal", label: "정상품 적재" },
+                    { value: "defect", label: "불량품 적재" },
+                  ]}
                 />
               )}
               {object.kind === "conveyor" &&
