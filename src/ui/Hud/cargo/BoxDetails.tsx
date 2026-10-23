@@ -3,7 +3,7 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
 import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
-import type { BoxEventType, BoxState } from "@/domain/cargo/CargoRegistry";
+import type { BoxEventType, BoxState, PalletRecord } from "@/domain/cargo/CargoRegistry";
 
 const BOX_STATE_LABEL: Record<BoxState, string> = {
   conveyor: "컨베이어 이동",
@@ -29,16 +29,55 @@ const EVENT_LABEL: Record<BoxEventType, string> = {
   ship: "출하",
 };
 
+const PALLET_STATE_LABEL: Record<PalletRecord["state"], string> = {
+  loading: "적재 중",
+  amr: "AMR 운반",
+  rack: "랙 보관",
+  dock: "출고 구역",
+  shipped: "출하 완료",
+};
+
 export default function BoxDetails({ id }: { id: string }) {
   // Re-renders only at the throttled registry refresh rate.
   useCargoStore((state) => state.version);
-  const box = useCargoStore((state) => state.registry)?.box(id);
+  const registry = useCargoStore((state) => state.registry);
+  const box = registry?.box(id);
+  const pallet = box ? undefined : registry?.pallet(id);
   const objects = useSceneStore((state) => state.objects);
   const tracking = useCameraTrackingStore((state) => state.trackedId === id);
   const toggleTracking = useCameraTrackingStore((state) => state.toggle);
   const name = (equipmentId: string | null | undefined) =>
     equipmentId ? (objects.find((object) => object.id === equipmentId)?.name ?? equipmentId) : "-";
 
+  if (!box && pallet)
+    return (
+      <>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xs font-semibold text-text-primary">{pallet.id} <span className="text-text-secondary">· 팔레트</span></h2>
+          {pallet.state !== "shipped" && (
+            <button
+              type="button"
+              className="h-6 rounded-[3px] border border-white/10 px-2 text-[11px] text-text-secondary hover:bg-white/5"
+              onClick={() => toggleTracking(pallet.id)}
+            >
+              {tracking ? "추적 해제" : "카메라 추적"}
+            </button>
+          )}
+        </div>
+        <DetailSection title="정보">
+          <DetailRows
+            rows={[
+              { label: "상태", value: PALLET_STATE_LABEL[pallet.state] },
+              { label: "적재 용도", value: pallet.grade === "defect" ? "불량품" : "정상품" },
+              { label: "적재 스테이션", value: name(pallet.stationId) },
+              { label: "박스 수", value: `${pallet.boxIds.length}개` },
+              { label: "생성 시각", value: `${pallet.createdAt.toFixed(1)}s` },
+              ...(pallet.destination ? [{ label: "목적지", value: pallet.destination }] : []),
+            ]}
+          />
+        </DetailSection>
+      </>
+    );
   if (!box)
     return (
       <>

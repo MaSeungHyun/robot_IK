@@ -34,5 +34,5 @@ if (typeof window !== "undefined")
 // Entering edit mode, deleting the tracked object (or clearing / replacing the layout) releases tracking.
 useSceneStore.subscribe((scene) => {
   const { trackedId, track } = useCameraTrackingStore.getState();
-  if (trackedId && (scene.editing || (!scene.objects.some((object) => object.id === trackedId) && !useCargoStore.getState().registry?.box(trackedId)))) track(null);
+  if (trackedId && (scene.editing || (!scene.objects.some((object) => object.id === trackedId) && !useCargoStore.getState().registry?.box(trackedId) && !useCargoStore.getState().registry?.pallet(trackedId)))) track(null);
 });
