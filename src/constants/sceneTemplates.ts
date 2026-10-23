@@ -16,6 +16,27 @@ export const SCENE_TEMPLATES = [
         settings: { spawnInterval: 5 },
       },
     ],
+    // Explicit relations equal to the simulator's distance-based fallback (shown as link lines).
+    links: [
+      // 공급: 각 로봇 <- 자기 라인에서 가장 가까운 컨베이어 하나
+      { type: "feed", from: 12, to: 18 },
+      { type: "feed", from: 14, to: 19 },
+      { type: "feed", from: 15, to: 20 },
+      { type: "feed", from: 17, to: 21 },
+      { type: "feed", from: 0, to: 22 },
+      { type: "feed", from: 2, to: 23 },
+      { type: "feed", from: 3, to: 24 },
+      { type: "feed", from: 5, to: 25 },
+      { type: "feed", from: 6, to: 26 },
+      { type: "feed", from: 8, to: 27 },
+      { type: "feed", from: 9, to: 28 },
+      { type: "feed", from: 11, to: 29 },
+      { type: "feed", from: 88, to: 90 },
+      { type: "feed", from: 89, to: 91 },
+      { type: "feed", from: 87, to: 92 },
+      // 적재: 팔레트마다 가장 가까운 로봇
+      { type: "load", from: 0, to: 1 },
+    ],
   },
   {
     id: "robot-amr",
@@ -73,6 +94,21 @@ export const SCENE_TEMPLATES = [
         settings: { spawnInterval: 5 },
       },
     ],
+    // Explicit relations equal to the simulator's distance-based fallback (shown as link lines).
+    links: [
+      // 공급: 각 로봇 <- 벨트 체인마다 가장 가까운 벨트 (체인 전체가 공급원, 기존 '모든 벨트'와 동일)
+      { type: "feed", from: 4, to: 0 },
+      { type: "feed", from: 7, to: 1 },
+      // 적재: 팔레트마다 가장 가까운 로봇
+      { type: "load", from: 0, to: 2 },
+      { type: "load", from: 1, to: 3 },
+      // 픽업: 모든 팔레트 AMR -> 모든 팔레트
+      { type: "pickup", from: 5, to: 2 },
+      { type: "pickup", from: 5, to: 3 },
+      // 출고: 모든 팔레트 -> 모든 출고 구역/랙
+      { type: "deliver", from: 2, to: 6 },
+      { type: "deliver", from: 3, to: 6 },
+    ],
   },
   {
     id: "inspection-line",
@@ -86,18 +122,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
-        },
-      },
-      {
-        kind: "floor",
-        x: 0.5,
-        z: 1.5,
-        yaw: 0,
-        floor: {
-          width: 20,
-          depth: 30,
-          wallHeight: 6.5,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -107,7 +132,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -117,7 +142,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -127,7 +152,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -137,7 +162,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -147,7 +172,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -157,7 +182,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -167,7 +192,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -177,7 +202,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -187,7 +212,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -197,7 +222,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -207,7 +232,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -217,7 +242,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -227,7 +252,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -237,7 +262,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -247,7 +272,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -257,7 +282,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -267,7 +292,7 @@ export const SCENE_TEMPLATES = [
         yaw: 0,
         settings: {
           spawnInterval: 5,
-          beltSpeed: 0.1875,
+          beltSpeed: 0.25,
         },
       },
       {
@@ -407,25 +432,25 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "pallet",
-        x: -4.7,
+        x: -4.5,
         z: 10.9,
         yaw: 0,
       },
       {
         kind: "pallet",
-        x: -4.6,
+        x: -4.5,
         z: 6.7,
         yaw: 0,
       },
       {
         kind: "pallet",
-        x: -4.6,
+        x: -4.4,
         z: 2.5,
         yaw: 0,
       },
       {
         kind: "pallet",
-        x: -4.6,
+        x: -4.4,
         z: -1.6,
         yaw: 0,
         settings: {
@@ -485,6 +510,7 @@ export const SCENE_TEMPLATES = [
         x: 5.9,
         z: -6,
         yaw: 0,
+        settings: { amrRole: "rack" },
       },
       {
         kind: "scanner",
@@ -515,29 +541,807 @@ export const SCENE_TEMPLATES = [
       },
       {
         kind: "rack",
-        x: -3.9,
-        z: 13.4,
+        x: 9.1,
+        z: -7.2,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "door",
+        x: 4.8,
+        z: 21,
+        yaw: 3.141593,
+      },
+      {
+        kind: "door",
+        x: -3.2,
+        z: 21,
+        yaw: 3.141593,
+      },
+      {
+        kind: "floor",
+        x: 4,
+        z: 6,
         yaw: 0,
+        floor: {
+          width: 26,
+          depth: 30,
+          wallHeight: 6.5,
+        },
+      },
+      {
+        kind: "rack",
+        x: 9.1,
+        z: -4.3,
+        yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
         },
       },
       {
         kind: "rack",
-        x: 0.8,
-        z: 13.4,
-        yaw: 0,
+        x: 9.1,
+        z: -1.4,
+        yaw: 1.570796,
         settings: {
           acceptGrade: "normal",
         },
       },
       {
         kind: "rack",
+        x: 9.1,
+        z: 1.5,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 9.1,
+        z: 4.3,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 9.1,
+        z: 7.1,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 9.1,
+        z: 12.9,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 9.1,
+        z: 15.8,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 9.1,
+        z: 18.7,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: -7.2,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.9,
+        z: -7.2,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: -4.3,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: -4.3,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 9.1,
+        z: -1.4,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: -1.4,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: -1.4,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: 1.5,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: 1.5,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: 4.3,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: 4.3,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: 7.1,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: 7.1,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: 12.9,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: 12.9,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: 15.8,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: 15.8,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 12.5,
+        z: 18.7,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "rack",
+        x: 15.8,
+        z: 18.7,
+        yaw: 1.570796,
+        settings: {
+          acceptGrade: "normal",
+        },
+      },
+      {
+        kind: "conveyor",
+        x: -3,
+        z: 12.5,
+        yaw: 0,
+        settings: {
+          spawnInterval: 5,
+          beltSpeed: 0.25,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: 1.5,
+        z: 12.3,
+        yaw: 0,
+        settings: {
+          spawnInterval: 5,
+          beltSpeed: 0.25,
+        },
+      },
+      {
+        kind: "conveyor",
         x: 5.6,
-        z: 13.4,
+        z: 12.3,
         yaw: 0,
         settings: {
-          acceptGrade: "normal",
+          spawnInterval: 5,
+          beltSpeed: 0.25,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: 5.6,
+        z: 14.8,
+        yaw: 0,
+        settings: {
+          spawnInterval: 5,
+          beltSpeed: 0.25,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: -3,
+        z: 15,
+        yaw: 0,
+        settings: {
+          spawnInterval: 5,
+          beltSpeed: 0.25,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: 1.5,
+        z: 14.8,
+        yaw: 0,
+        settings: {
+          spawnInterval: 5,
+          beltSpeed: 0.25,
+        },
+      },
+
+      {
+        kind: "robot",
+        x: -4.5,
+        z: 13.8,
+        yaw: 0,
+      },
+      {
+        kind: "robot",
+        x: 0,
+        z: 13.8,
+        yaw: 0,
+      },
+      {
+        kind: "robot",
+        x: 4.2,
+        z: 13.8,
+        yaw: 0,
+      },
+      {
+        kind: "pallet",
+        x: -4.5,
+        z: 14.8,
+        yaw: 0,
+      },
+      {
+        kind: "pallet",
+        x: 0,
+        z: 14.9,
+        yaw: 0,
+      },
+      {
+        kind: "pallet",
+        x: 4.1,
+        z: 14.9,
+        yaw: 0,
+      },
+    ],
+    // Explicit relations equal to the simulator's distance-based fallback (shown as link lines).
+    links: [
+      // 공급: 각 로봇 <- 벨트 체인마다 가장 가까운 벨트 (체인 전체가 공급원, 기존 '모든 벨트'와 동일)
+      { type: "feed", from: 0, to: 18 },
+      { type: "feed", from: 6, to: 18 },
+      { type: "feed", from: 12, to: 18 },
+      { type: "feed", from: 2, to: 19 },
+      { type: "feed", from: 8, to: 19 },
+      { type: "feed", from: 14, to: 19 },
+      { type: "feed", from: 3, to: 20 },
+      { type: "feed", from: 9, to: 20 },
+      { type: "feed", from: 15, to: 20 },
+      { type: "feed", from: 5, to: 21 },
+      { type: "feed", from: 11, to: 21 },
+      { type: "feed", from: 17, to: 21 },
+      { type: "feed", from: 0, to: 22 },
+      { type: "feed", from: 6, to: 22 },
+      { type: "feed", from: 12, to: 22 },
+      { type: "feed", from: 2, to: 23 },
+      { type: "feed", from: 8, to: 23 },
+      { type: "feed", from: 14, to: 23 },
+      { type: "feed", from: 3, to: 24 },
+      { type: "feed", from: 9, to: 24 },
+      { type: "feed", from: 15, to: 24 },
+      { type: "feed", from: 5, to: 25 },
+      { type: "feed", from: 11, to: 25 },
+      { type: "feed", from: 17, to: 25 },
+      { type: "feed", from: 0, to: 26 },
+      { type: "feed", from: 6, to: 26 },
+      { type: "feed", from: 12, to: 26 },
+      { type: "feed", from: 2, to: 27 },
+      { type: "feed", from: 8, to: 27 },
+      { type: "feed", from: 14, to: 27 },
+      { type: "feed", from: 3, to: 28 },
+      { type: "feed", from: 9, to: 28 },
+      { type: "feed", from: 15, to: 28 },
+      { type: "feed", from: 5, to: 29 },
+      { type: "feed", from: 11, to: 29 },
+      { type: "feed", from: 17, to: 29 },
+      // 적재: 팔레트마다 가장 가까운 로봇
+      { type: "load", from: 26, to: 30 },
+      { type: "load", from: 22, to: 31 },
+      { type: "load", from: 27, to: 32 },
+      { type: "load", from: 28, to: 33 },
+      { type: "load", from: 29, to: 34 },
+      { type: "load", from: 23, to: 35 },
+      { type: "load", from: 24, to: 36 },
+      { type: "load", from: 25, to: 37 },
+      { type: "load", from: 21, to: 38 },
+      { type: "load", from: 20, to: 39 },
+      { type: "load", from: 19, to: 40 },
+      { type: "load", from: 18, to: 41 },
+      { type: "load", from: 90, to: 93 },
+      { type: "load", from: 91, to: 94 },
+      { type: "load", from: 92, to: 95 },
+      // 픽업: 모든 팔레트 AMR -> 모든 팔레트
+      { type: "pickup", from: 46, to: 30 },
+      { type: "pickup", from: 46, to: 31 },
+      { type: "pickup", from: 46, to: 32 },
+      { type: "pickup", from: 46, to: 33 },
+      { type: "pickup", from: 46, to: 34 },
+      { type: "pickup", from: 46, to: 35 },
+      { type: "pickup", from: 46, to: 36 },
+      { type: "pickup", from: 46, to: 37 },
+      { type: "pickup", from: 46, to: 38 },
+      { type: "pickup", from: 46, to: 39 },
+      { type: "pickup", from: 46, to: 40 },
+      { type: "pickup", from: 46, to: 41 },
+      { type: "pickup", from: 47, to: 30 },
+      { type: "pickup", from: 47, to: 31 },
+      { type: "pickup", from: 47, to: 32 },
+      { type: "pickup", from: 47, to: 33 },
+      { type: "pickup", from: 47, to: 34 },
+      { type: "pickup", from: 47, to: 35 },
+      { type: "pickup", from: 47, to: 36 },
+      { type: "pickup", from: 47, to: 37 },
+      { type: "pickup", from: 47, to: 38 },
+      { type: "pickup", from: 47, to: 39 },
+      { type: "pickup", from: 47, to: 40 },
+      { type: "pickup", from: 47, to: 41 },
+      { type: "pickup", from: 48, to: 30 },
+      { type: "pickup", from: 48, to: 31 },
+      { type: "pickup", from: 48, to: 32 },
+      { type: "pickup", from: 48, to: 33 },
+      { type: "pickup", from: 48, to: 34 },
+      { type: "pickup", from: 48, to: 35 },
+      { type: "pickup", from: 48, to: 36 },
+      { type: "pickup", from: 48, to: 37 },
+      { type: "pickup", from: 48, to: 38 },
+      { type: "pickup", from: 48, to: 39 },
+      { type: "pickup", from: 48, to: 40 },
+      { type: "pickup", from: 48, to: 41 },
+      { type: "pickup", from: 49, to: 30 },
+      { type: "pickup", from: 49, to: 31 },
+      { type: "pickup", from: 49, to: 32 },
+      { type: "pickup", from: 49, to: 33 },
+      { type: "pickup", from: 49, to: 34 },
+      { type: "pickup", from: 49, to: 35 },
+      { type: "pickup", from: 49, to: 36 },
+      { type: "pickup", from: 49, to: 37 },
+      { type: "pickup", from: 49, to: 38 },
+      { type: "pickup", from: 49, to: 39 },
+      { type: "pickup", from: 49, to: 40 },
+      { type: "pickup", from: 49, to: 41 },
+      // 출고: 모든 팔레트 -> 모든 출고 구역/랙
+    ],
+  },
+  {
+    id: "suitable-design-01",
+    name: "적합 설계 01",
+    description: "추천 설게를 통한 레이아웃입니다.",
+    equipment: [
+      {
+        kind: "conveyor",
+        x: 8.43,
+        z: -0.575,
+        yaw: 4.712,
+        settings: {
+          spawnInterval: 7.438,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: 5.93,
+        z: -0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 3.43,
+        z: -0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 0.93,
+        z: -0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: 0.93,
+        z: -1.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: 0.93,
+        z: -2.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: -1.57,
+        z: -0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: -1.57,
+        z: -1.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: -1.57,
+        z: -2.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 8.43,
+        z: -8.455,
+        yaw: 4.712,
+        settings: {
+          spawnInterval: 7.438,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: 5.93,
+        z: -8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 3.43,
+        z: -8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 0.93,
+        z: -8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: 0.93,
+        z: -7.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: 0.93,
+        z: -6.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: -1.57,
+        z: -8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: -1.57,
+        z: -7.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: -1.57,
+        z: -6.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "rack",
+        x: -9.01,
+        z: -6.165,
+        yaw: 1.571,
+      },
+      {
+        kind: "rack",
+        x: -9.01,
+        z: -2.865,
+        yaw: 1.571,
+      },
+      {
+        kind: "rack",
+        x: -13.65,
+        z: -4.515,
+        yaw: 1.571,
+      },
+      {
+        kind: "conveyor",
+        x: 8.43,
+        z: 8.455,
+        yaw: 4.712,
+        settings: {
+          spawnInterval: 7.438,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: 5.93,
+        z: 8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 3.43,
+        z: 8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 0.93,
+        z: 8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: 0.93,
+        z: 7.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: 0.93,
+        z: 6.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: -1.57,
+        z: 8.455,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: -1.57,
+        z: 7.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: -1.57,
+        z: 6.385,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 8.43,
+        z: 0.575,
+        yaw: 4.712,
+        settings: {
+          spawnInterval: 7.438,
+        },
+      },
+      {
+        kind: "conveyor",
+        x: 5.93,
+        z: 0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 3.43,
+        z: 0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: 0.93,
+        z: 0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: 0.93,
+        z: 1.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: 0.93,
+        z: 2.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "conveyor",
+        x: -1.57,
+        z: 0.575,
+        yaw: 4.712,
+      },
+      {
+        kind: "robot",
+        x: -1.57,
+        z: 1.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "pallet",
+        x: -1.57,
+        z: 2.645,
+        yaw: 4.712,
+      },
+      {
+        kind: "rack",
+        x: -9.01,
+        z: 2.865,
+        yaw: 1.571,
+      },
+      {
+        kind: "rack",
+        x: -9.01,
+        z: 6.165,
+        yaw: 1.571,
+      },
+      {
+        kind: "rack",
+        x: -13.65,
+        z: 4.515,
+        yaw: 1.571,
+      },
+      {
+        kind: "dock",
+        x: 13.77,
+        z: -4.515,
+        yaw: 4.712,
+      },
+      {
+        kind: "amr",
+        x: 11,
+        z: 4.2,
+        yaw: 4.712,
+      },
+      {
+        kind: "amr",
+        x: 10.87,
+        z: -4.515,
+        yaw: 4.712,
+      },
+      {
+        kind: "amr",
+        x: 9.57,
+        z: -4.515,
+        yaw: 4.712,
+      },
+      {
+        kind: "floor",
+        x: 0,
+        z: 0,
+        yaw: 0,
+        floor: {
+          width: 30,
+          depth: 20,
+          wallHeight: 6,
+        },
+      },
+      {
+        kind: "door",
+        x: -15,
+        z: 4,
+        yaw: 1.570796,
+      },
+      {
+        kind: "door",
+        x: -15,
+        z: -4,
+        yaw: 1.570796,
+      },
+      {
+        kind: "amr",
+        x: -5.2,
+        z: 6.7,
+        yaw: 0,
+        settings: {
+          amrRole: "rack",
         },
       },
     ],
