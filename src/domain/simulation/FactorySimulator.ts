@@ -35,6 +35,26 @@ import { log } from "@/stores/useLogStore";
 import { RackAMRController } from "@/domain/amr/RackAMRController";
 import { DOOR_CONFIG } from "@/constants/door";
 
+/** Small seeded PRNG (mulberry32), uniform in [0, 1). */
+function mulberry32(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+/** FNV-1a hash of the scene layout (ids, kinds, poses): the rack AMR PRNG seed. */
+function sceneSeed(objects: readonly SceneEquipment[]) {
+  let hash = 0x811c9dc5;
+  for (const o of objects)
+    for (const ch of `${o.id}|${o.kind}|${o.x.toFixed(3)}|${o.z.toFixed(3)}|${o.yaw.toFixed(3)};`)
+      hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+  return hash >>> 0;
+}
+
 type Cargo = {
   /** Registry id (B-0001...). */
   id: string;
@@ -45,6 +65,8 @@ type Cargo = {
   job?: Transfer;
   pallet?: string;
   attempted: Set<string>;
+  /** Actual belt travel speed this step (m/s); 0 while queued at an end stopper. */
+  speed?: number;
 };
 export type FactoryRobot = {
   object: SceneEquipment;
@@ -123,6 +145,8 @@ export class FactorySimulator {
   readonly robots: FactoryRobot[] = [];
   readonly agents: FactoryAgent[] = [];
   readonly rackAgents: FactoryRackAgent[] = [];
+  /** Rack AMR pallet choice; seeded from the scene layout so every run (and playback speed) picks the same pallets. */
+  private rackRandom: () => number;
   readonly pallets: PalletController[] = [];
   readonly belts: { object: SceneEquipment; elapsed: number }[] = [];
   boxes: Cargo[] = [];
@@ -139,6 +163,10 @@ export class FactorySimulator {
   /** (pallet, AMR) pairs already tried in the current dispatch round when it was split over ticks. */
   private dispatchSkip = 0;
   private connections = new Map<string, SceneEquipment>();
+  /** Belts ordered downstream-first (chain ends first) for the accumulation queue. */
+  private beltOrder: string[] | null = null;
+  private queueScratch = new Map<string, Cargo[]>();
+  private tailScratch = new Map<string, number>();
   private incoming = new Set<string>();
   private instances?: SimulationRenderer;
   private rendered = new Set<Group>();
@@ -175,6 +203,7 @@ export class FactorySimulator {
     links: readonly SceneLink[] = [],
   ) {
     this.links = new LinkIndex(links);
+    this.rackRandom = mulberry32(sceneSeed(objects));
     this.inspection = new ScannerInspection(getSettings, random);
     this.instances = instances;
     this.settings = getSettings;
@@ -370,6 +399,27 @@ export class FactorySimulator {
     this.spawned++;
     this.move(item);
   }
+  private beltById(id: string) {
+    return this.belts.find((belt) => belt.object.id === id)?.object;
+  }
+  /** Belt ids sorted so every belt comes after the belt it feeds into (chain ends first). */
+  private downstreamOrder() {
+    const depth = new Map<string, number>();
+    const depthOf = (id: string, seen: Set<string>): number => {
+      const known = depth.get(id);
+      if (known !== undefined) return known;
+      const next = this.connections.get(id);
+      if (!next || seen.has(next.id) || !this.beltById(next.id)) return 0;
+      seen.add(id);
+      const value = depthOf(next.id, seen) + 1;
+      depth.set(id, value);
+      return value;
+    };
+    for (const belt of this.belts) depth.set(belt.object.id, depthOf(belt.object.id, new Set()));
+    return this.belts
+      .map((belt) => belt.object.id)
+      .sort((a, b) => depth.get(a)! - depth.get(b)! || (a < b ? -1 : 1));
+  }
   private move(box: Cargo) {
     const point = beltPoint(
         box.belt,
@@ -383,9 +433,7 @@ export class FactorySimulator {
       box.job.pickup.copy(box.node.position);
       box.job
         .velocity!.set(s, 0, c)
-        .multiplyScalar(
-          beltSpeedOf(this.settings()[box.belt.id]),
-        );
+        .multiplyScalar(box.speed ?? beltSpeedOf(this.settings()[box.belt.id]));
     }
   }
   private scanBeltTravel(box: Cargo, start: number, end: number) {
@@ -430,35 +478,72 @@ export class FactorySimulator {
       }
     }
     let removed = false;
+    // End stopper + accumulation: boxes stop at the chain end and queue behind the box ahead.
+    const queues = this.queueScratch, tails = this.tailScratch;
+    for (const list of queues.values()) list.length = 0;
+    tails.clear();
     for (const box of this.boxes) {
       if (box.state !== "moving" && box.state !== "reserved") continue;
-      const config = settings[box.belt.id];
-      let scanStart = box.distance;
-      if (config.enabled)
-        box.distance += dt * beltSpeedOf(config);
-      // Reserved boxes stay on their segment until picked or released by the robot.
-      for (
-        let hops = 0;
-        box.state === "moving" &&
-        box.distance > beltLength(box.belt) &&
-        hops < this.belts.length;
-        hops++
-      ) {
-        const next = this.connections.get(box.belt.id);
-        if (!next) break;
-        if (!settings[next.id].enabled) {
-          box.distance = beltLength(box.belt);
-          break;
+      let list = queues.get(box.belt.id);
+      if (!list) queues.set(box.belt.id, (list = []));
+      list.push(box);
+    }
+    const order = this.beltOrder ?? (this.beltOrder = this.downstreamOrder());
+    const gap = BOX_SIZES[0].z + 0.05;
+    // Distance along a belt (from its start) where the next box's centre may be at most, i.e. the
+    // position of the rearmost box on it, or the stopper/downstream tail when it is empty.
+    const tailOf = (id: string): number => {
+      const known = tails.get(id);
+      if (known !== undefined) return known;
+      const belt = this.beltById(id);
+      return belt ? beltLength(belt) - BOX_SIZES[0].z / 2 + gap : Infinity;
+    };
+    for (const id of order) {
+      const list = queues.get(id);
+      const belt = this.beltById(id)!;
+      const length = beltLength(belt);
+      const next = this.connections.get(id);
+      const nextOpen = next && settings[next.id].enabled;
+      let limit = nextOpen ? length + tailOf(next.id) - gap : length - BOX_SIZES[0].z / 2;
+      if (list && list.length) {
+        if (list.length > 1) list.sort((a, b) => b.distance - a.distance || (a.id < b.id ? -1 : 1));
+        for (const box of list) {
+          const config = settings[box.belt.id];
+          let scanStart = box.distance;
+          const before = box.distance;
+          if (config.enabled)
+            box.distance = Math.max(before, Math.min(before + dt * beltSpeedOf(config), limit));
+          box.speed = dt > 0 ? (box.distance - before) / dt : 0;
+          // Boxes cross segment joints into the next open segment.
+          for (
+            let hops = 0;
+            box.distance > beltLength(box.belt) && hops < this.belts.length;
+            hops++
+          ) {
+            const following = this.connections.get(box.belt.id);
+            if (!following || !settings[following.id].enabled) {
+              box.distance = beltLength(box.belt);
+              break;
+            }
+            this.scanBeltTravel(box, scanStart, beltLength(box.belt));
+            scanStart = 0;
+            box.distance -= beltLength(box.belt);
+            box.belt = following;
+            this.cargo.moveBox(box.id, following.id);
+          }
+          this.scanBeltTravel(box, scanStart, Math.min(box.distance, beltLength(box.belt)));
+          this.move(box);
+          // Position of this box expressed on the current belt, for the box behind it.
+          const own = box.belt.id === id ? box.distance : length + box.distance;
+          limit = Math.min(limit, own - gap);
+          if (box.belt.id !== id) tails.set(box.belt.id, Math.min(tails.get(box.belt.id) ?? Infinity, box.distance));
         }
-        this.scanBeltTravel(box, scanStart, beltLength(box.belt));
-        scanStart = 0;
-        box.distance -= beltLength(box.belt);
-        box.belt = next;
-        this.cargo.moveBox(box.id, next.id);
       }
-      this.scanBeltTravel(box, scanStart, Math.min(box.distance, beltLength(box.belt)));
-      this.move(box);
-      if (box.distance > beltLength(box.belt) && box.state === "moving") {
+      tails.set(id, Math.min(tails.get(id) ?? Infinity, limit + gap));
+    }
+    for (const box of this.boxes) {
+      // Legacy safety net (should not trigger with the end stopper).
+      if (box.distance > beltLength(box.belt) + 1 && box.state === "moving") {
         box.state = "passed";
         this.cargo.passBox({ t: this.elapsed, boxId: box.id, beltId: box.belt.id });
         box.node.removeFromParent();
@@ -509,16 +594,22 @@ export class FactorySimulator {
             continue;
           if (
             box.attempted.has(robot.object.id) ||
-            box.distance > beltLength(box.belt) - 0.5 ||
             distance(robot.object, box.node.position) > config.reach - 0.05
           )
             continue;
-          const speed = beltSpeedOf(settings[box.belt.id]);
+          const speed = box.speed ?? beltSpeedOf(settings[box.belt.id]);
           // Where the box will be at contact (approach + descent). A box that will have left the reach or the
           // belt (reserved boxes stop at its end and are then given up) by then is left for downstream.
-          const contactDistance = box.distance + speed * ROBOT_PICKING.pickLeadSeconds;
-          if (contactDistance > beltLength(box.belt) - ROBOT_PICKING.pickReachMargin) continue;
-          const predicted = beltPoint(box.belt, contactDistance);
+          const nextBelt = this.connections.get(box.belt.id);
+          // At the chain end the box stops at the stopper, so it never leaves the belt.
+          const contactDistance = Math.min(
+            box.distance + speed * ROBOT_PICKING.pickLeadSeconds,
+            nextBelt ? Infinity : Math.max(box.distance, beltLength(box.belt) - BOX_SIZES[0].z / 2),
+          );
+          // Past a joint the box continues on the next segment (reserved boxes cross joints too).
+          const predicted = nextBelt && contactDistance > beltLength(box.belt)
+            ? beltPoint(nextBelt, Math.min(contactDistance - beltLength(box.belt), beltLength(nextBelt)))
+            : beltPoint(box.belt, contactDistance);
           this.point.set(predicted.x, box.node.position.y, predicted.z);
           if (distance(robot.object, this.point) > config.reach - ROBOT_PICKING.pickReachMargin) continue;
           this.assign(robot, pallet, slot, box);
@@ -532,6 +623,9 @@ export class FactorySimulator {
       vehicle.speed = amrSpeedFactor(settings[vehicle.id]);
       vehicle.enabled = settings[vehicle.id].enabled;
     }
+    const rackBodies = this.rackAgents
+      .filter((agent) => settings[agent.object.id].enabled)
+      .map((agent) => ({ position: agent.controller.carrier.position, radius: agent.controller.radius }));
     this.traffic.advance(this.trafficVehicles, dt, (vehicle, target) => {
       const navigation = this.navigation.get(vehicle.id);
       if (!navigation) return null;
@@ -565,6 +659,13 @@ export class FactorySimulator {
           radius,
         });
       }
+      // Rack AMRs are moving obstacles too (shrunk like the AMRs above when already touching).
+      for (const body of rackBodies) {
+        const at = body.position,
+          radius = Math.max(0, Math.min(body.radius + AMR_TRAFFIC.safetyMargin, Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3));
+        if (!target && Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)) continue;
+        obstacles.push({ kind: "amr", pose: { x: at.x, z: at.z, yaw: 0 }, radius });
+      }
       if (dispatch.phase === "returning")
         obstacles.push({ kind: "pallet", pose: navigation.layout.pallet });
       return layoutPath(
@@ -574,7 +675,7 @@ export class FactorySimulator {
         dispatch.radius === AMR_TRAFFIC.loadedRadius,
         obstacles,
       );
-    });
+    }, rackBodies);
     this.advanceBatteries(dt, settings);
     this.advanceRackAgents(dt, settings);
     for (const shipment of this.shipments) {
@@ -629,7 +730,7 @@ export class FactorySimulator {
     const resuming = this.dispatchSkip > 0;
     if (!resuming)
       for (const agent of this.agents)
-        if (agent.dispatch.phase === "idle") {
+        if (agent.dispatch.available) {
         agent.waiting = false;
         agent.waitingReason = null;
       }
@@ -657,7 +758,13 @@ export class FactorySimulator {
       // Fleet assignment: AMRs linked to this station (all when none are linked), idle, enabled and
       // not charging (fixed chargeBelow threshold); nearest first, fewer deliveries on a tie.
       const agents = this.linkedOrAll(this.agents, this.links.incoming(pallet.object.id, "pickup"), (a) => a.object.id).filter(
-        (a) => settings[a.object.id].enabled && a.dispatch.phase === "idle" && !a.charging,
+        // An empty AMR on its way home counts as free: it drives from where it is straight to the next pallet
+        // (unless its battery needs charging first).
+        (a) =>
+          settings[a.object.id].enabled &&
+          a.dispatch.available &&
+          !a.charging &&
+          !(a.dispatch.phase === "returning" && a.battery < AMR_BATTERY.chargeBelow),
       );
       if (!agents.length) continue;
       const away = (a: FactoryAgent) => distance(a.dispatch.carrier.position, pallet.object);
@@ -891,6 +998,11 @@ export class FactorySimulator {
     if (!routes || !target) return false;
     const group = pallet.beginShipment();
     if (!group) return false;
+    // The outgoing pallet is cargo from now on: it is selected and tracked by its own pallet id,
+    // not the station's (the station gets a new pallet group with the station id).
+    delete group.userData.sceneId;
+    group.userData.cargo = true;
+    group.userData.boxId = this.cargo.currentPallet(pallet.object.id)?.id;
     const shipment: Shipment = {
       pallet,
       agent,
@@ -990,8 +1102,61 @@ export class FactorySimulator {
     this.startPalletRecord(pallet);
   }
   /** Rack AMR floor route around fixed equipment (other AMRs are not considered). */
-  private rackRoute(from: Vector3, to: Vector3, loaded: boolean) {
-    return layoutPath(this.rackLayout, from, to, loaded, this.rackObstacles);
+  private rackRoute(from: Vector3, to: Vector3, loaded: boolean, extra: NavigationObstacle[] = []) {
+    return layoutPath(this.rackLayout, from, to, loaded, extra.length ? [...this.rackObstacles, ...extra] : this.rackObstacles);
+  }
+  /** Rack AMR traffic: wait seconds per rack AMR while held, and the next detour attempt. */
+  private rackTraffic = new Map<string, { wait: number; retry: number }>();
+  private rackAhead = new Vector3();
+  private rackNext = new Vector3();
+  /**
+   * Holds a driving rack AMR short of any other AMR body (regular or rack) it would close in on; after
+   * waiting a while it plans a detour around them. Regular AMRs treat rack AMRs as bodies to keep clear of.
+   */
+  private holdRackAgent(agent: FactoryRackAgent, step: number, dt: number, settings: Record<string, EquipmentSettings>) {
+    const controller = agent.controller,
+      position = controller.carrier.position;
+    const state = this.rackTraffic.get(agent.object.id) ?? { wait: 0, retry: 0 };
+    this.rackTraffic.set(agent.object.id, state);
+    controller.held = false;
+    if (!controller.moving) {
+      state.wait = 0;
+      return;
+    }
+    controller.predict(step, this.rackNext);
+    controller.predict(0.8 * (step / dt), this.rackAhead);
+    const others: { at: Vector3; radius: number }[] = [];
+    for (const other of this.agents)
+      if (settings[other.object.id].enabled) others.push({ at: other.dispatch.carrier.position, radius: other.dispatch.radius });
+    for (const other of this.rackAgents)
+      if (other !== agent && settings[other.object.id].enabled) others.push({ at: other.controller.carrier.position, radius: other.controller.radius });
+    const closing = (to: Vector3, at: Vector3, limit: number) => {
+      const now = Math.hypot(position.x - at.x, position.z - at.z),
+        then = Math.hypot(to.x - at.x, to.z - at.z);
+      return then < limit && then <= now + 1e-6;
+    };
+    const blocked = others.some(({ at, radius }) => {
+      const limit = controller.radius + radius + AMR_TRAFFIC.safetyMargin;
+      return closing(this.rackNext, at, limit) || closing(this.rackAhead, at, limit);
+    });
+    if (!blocked) {
+      state.wait = 0;
+      return;
+    }
+    controller.held = true;
+    state.wait += dt;
+    state.retry -= dt;
+    if (state.wait < 0.8 || state.retry > 0) return;
+    state.retry = 1;
+    const goal = controller.goal;
+    if (!goal) return;
+    const extra: NavigationObstacle[] = others.map(({ at, radius }) => ({
+      kind: "amr",
+      pose: { x: at.x, z: at.z, yaw: 0 },
+      radius: Math.max(0, Math.min(radius + AMR_TRAFFIC.safetyMargin, Math.hypot(at.x - position.x, at.z - position.z) - controller.radius - 1e-3)),
+    }));
+    const path = this.rackRoute(position, goal, controller.loaded, extra);
+    if (path) controller.reroute(path);
   }
   /** Door opening for display (0 closed … 1 open). */
   doorOpening(id: string) {
@@ -1005,7 +1170,7 @@ export class FactorySimulator {
       outside: new Vector3(door.x - sx * DOOR_OUTSIDE, 0, door.z - cz * DOOR_OUTSIDE),
     };
   }
-  /** Rack AMRs: move every step; a full rack with stored pallets gets its oldest pallet taken out through a door. */
+  /** Rack AMRs: move every step; about once a second an idle one takes a random stored pallet (any rack) out through a door. */
   private advanceRackAgents(dt: number, settings: Record<string, EquipmentSettings>) {
     if (!this.rackAgents.length) return;
     for (const agent of this.rackAgents) {
@@ -1014,7 +1179,9 @@ export class FactorySimulator {
       const controller = agent.controller;
       const doorId = controller.job?.doorId;
       controller.doorOpen = doorId !== undefined && (this.doorFraction.get(doorId) ?? 0) >= 1;
-      controller.advance(dt * amrSpeedFactor(config));
+      const step = dt * amrSpeedFactor(config);
+      this.holdRackAgent(agent, step, dt, settings);
+      controller.advance(step);
     }
     for (const door of this.doors) {
       const open = this.rackAgents.some((agent) => agent.controller.job?.doorId === door.id && agent.controller.needsDoor);
@@ -1027,21 +1194,25 @@ export class FactorySimulator {
     this.rackUnloadRetry = RACK_UNLOAD_RETRY_S;
     for (const agent of this.rackAgents)
       if (agent.controller.idle) agent.waitingReason = null;
+    const idle = this.rackAgents.filter((agent) => agent.controller.idle && settings[agent.object.id].enabled);
+    if (!idle.length) return;
+    // Every stored pallet in an enabled rack that no rack AMR has claimed yet (racks need not be full).
+    const candidates: { rack: SceneEquipment; slot: number }[] = [];
     for (const rack of this.racks) {
-      if (!settings[rack.id]?.enabled || this.freeSlot(rack) >= 0) continue;
+      if (!settings[rack.id]?.enabled) continue;
       const stored = this.rackPallets.get(rack.id) ?? [],
         groups = this.rackGroups.get(rack.id) ?? [];
-      // Oldest stored pallet first (FIFO by storedAt), skipping pallets already claimed.
-      let slot = -1;
-      for (let i = 0; i < stored.length; i++)
-        if (stored[i] && groups[i] && !this.unloadClaims.has(`${rack.id}:${i}`) && (slot < 0 || stored[i]!.storedAt < stored[slot]!.storedAt)) slot = i;
-      if (slot < 0) continue;
-      const idle = this.rackAgents.filter((agent) => agent.controller.idle && settings[agent.object.id].enabled);
-      if (!idle.length) return;
-      if (!this.doors.length) {
-        for (const agent of idle) agent.waitingReason = "반출할 문이 없습니다. 문을 배치해 주세요.";
-        return;
-      }
+      for (let slot = 0; slot < stored.length; slot++)
+        if (stored[slot] && groups[slot] && !this.unloadClaims.has(`${rack.id}:${slot}`)) candidates.push({ rack, slot });
+    }
+    if (!candidates.length) return;
+    if (!this.doors.length) {
+      for (const agent of idle) agent.waitingReason = "반출할 문이 없습니다. 문을 배치해 주세요.";
+      return;
+    }
+    // Random stored pallet across all racks (seeded, advanced only here on sim steps: same picks at any speed).
+    while (idle.length && candidates.length) {
+      const { rack, slot } = candidates.splice(Math.floor(this.rackRandom() * candidates.length), 1)[0];
       const away = (agent: FactoryRackAgent) => distance(agent.controller.carrier.position, rack);
       idle.sort((a, b) => away(a) - away(b));
       const door = [...this.doors].sort((a, b) => distance(a, rack) - distance(b, rack))[0];
@@ -1064,6 +1235,7 @@ export class FactorySimulator {
         if (started) {
           this.unloadClaims.add(key);
           agent.waitingReason = null;
+          idle.splice(idle.indexOf(agent), 1);
           break;
         }
         agent.waitingReason = `${rack.name} 반출 위치로 가는 경로가 없습니다.`;
