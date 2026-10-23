@@ -250,12 +250,20 @@ function Trend({
 
 /** Last spike frames (newest first): time, frame interval, JS time and the top 3 sections. */
 function SpikeList({ spikes, count }: { spikes: FrameSpike[]; count: number }) {
+  // Collapsed by default: the list takes a lot of height.
+  const [open, setOpen] = useState(false);
   return (
     <div className="flex flex-col gap-1 px-2 pb-2">
       <div className="flex items-baseline justify-between text-text-secondary">
-        <span>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="-mx-1 flex items-center gap-1 rounded-sm px-1 outline-none hover:bg-white/10 hover:text-text-primary focus-visible:ring-1 focus-visible:ring-brand-primary"
+        >
+          <span aria-hidden className={open ? "inline-block rotate-90" : "inline-block"}>▸</span>
           스파이크 (&gt;{SPIKE_MS}ms) · 총 {count}회
-        </span>
+        </button>
         {count > 0 && (
           <button
             type="button"
@@ -266,7 +274,7 @@ function SpikeList({ spikes, count }: { spikes: FrameSpike[]; count: number }) {
           </button>
         )}
       </div>
-      {spikes.length ? (
+      {!open ? null : spikes.length ? (
         <ul className="max-h-40 overflow-y-auto text-[10px] tabular-nums bg-black px-2 py-1 rounded-md scrollbar-thin simulation-panel">
           {[...spikes].reverse().map((spike) => (
             <li key={spike.at} className="flex gap-2 text-text-secondary">
@@ -381,11 +389,20 @@ export default function PerfReadout() {
           </div>
           <SpikeList spikes={spikes} count={count} />
           <div className="flex items-center gap-3 px-2 py-0.5 text-text-secondary">
-            {readout}
-            <span className={count ? "text-red-300" : undefined}>
-              Spikes{" "}
-              <span className="text-text-primary tabular-nums">{count}</span>
-            </span>
+            {/* The whole readout row collapses the panel too, not just the × button. */}
+            <button
+              type="button"
+              aria-label="성능 추이 접기"
+              aria-expanded
+              onClick={() => setExpanded(false)}
+              className="-mx-1 flex items-center gap-3 rounded-sm px-1 outline-none transition-colors hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-brand-primary"
+            >
+              {readout}
+              <span className={count ? "text-red-300" : undefined}>
+                Spikes{" "}
+                <span className="text-text-primary tabular-nums">{count}</span>
+              </span>
+            </button>
             <button
               type="button"
               aria-label="성능 추이 접기"
