@@ -25,7 +25,7 @@ export const STREAM_CONFIG = {
   center: new Vector3(-0.95, 0, 0),
   // The robot approaches the pallet from +X; fill the -X edge first.
   palletApproachDirection: new Vector3(1, 0, 0),
-  speed: 0.0625,
+  speed: 0.25,
   spacing: 0.5,
   pickupStartZ: -0.625,
   pickupEndZ: 0.375,
