@@ -12,6 +12,8 @@ import {
   NotEqualStencilFunc,
   ReplaceStencilOp,
   ShaderMaterial,
+  Color,
+  type ColorRepresentation,
   InstancedMesh,
   Vector2,
 } from "three";
@@ -35,6 +37,8 @@ const MASK_ORDER = 9998,
  * expanded back-face hull is drawn without depth test only where the stencil is not set, so the
  * outline ring stays visible through objects that overlap or occlude the selection.
  * Requires a stencil buffer on the canvas and the post-processing composer.
+ * Several instances (e.g. selection + linked equipment) share the stencil value, so one outline never
+ * paints over another outlined silhouette (all masks render before all hulls).
  */
 export class SelectionOutline {
   readonly root = new Group();
@@ -56,7 +60,6 @@ export class SelectionOutline {
     stencilZPass: ReplaceStencilOp,
   });
   private lines = new LineBasicMaterial({
-    color: 0x38bdf8,
     depthWrite: false,
     toneMapped: false,
   });
@@ -71,6 +74,7 @@ export class SelectionOutline {
     uniforms: {
       resolution: { value: new Vector2(1, 1) },
       width: { value: OUTLINE_WIDTH_PX },
+      color: { value: new Color() },
     },
     vertexShader: `
       uniform vec2 resolution;
@@ -85,8 +89,13 @@ export class SelectionOutline {
         if(lengthSquared>0.000001)clip.xy+=direction*inversesqrt(lengthSquared)*width/resolution*clip.w;
         gl_Position=clip;
       }`,
-    fragmentShader: `void main(){gl_FragColor=vec4(0.2196,0.7412,0.9725,1.0);}`,
+    fragmentShader: `uniform vec3 color;void main(){gl_FragColor=vec4(color,1.0);}`,
   });
+  /** `color`: outline colour (default: selection sky). Kept in sRGB like the former hardcoded value. */
+  constructor(color: ColorRepresentation = 0x38bdf8) {
+    this.lines.color.set(color);
+    (this.material.uniforms.color.value as Color).set(color).convertLinearToSRGB();
+  }
   private add = (source: Mesh) => {
     let shell = this.shells.get(source);
     if (!shell) {

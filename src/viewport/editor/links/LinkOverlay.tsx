@@ -2,14 +2,14 @@ import { useEffect, useMemo } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { QuadraticBezierCurve3, Vector3 } from "three";
 import { useShallow } from "zustand/react/shallow";
-import { useSceneStore } from "@/stores/useSceneStore";
+import { selectedIds, useSceneStore } from "@/stores/useSceneStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { LINKABLE_KINDS, resolveLink, type SceneLink } from "@/types/links";
 import type { SceneEquipment } from "@/types/layout";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
-import { LINK_COLOR, linkPoint } from "@/viewport/editor/links/linkPoints";
+import { LINK_ACTIVE_COLOR, LINK_COLOR, linkPoint } from "@/viewport/editor/links/linkPoints";
 import LinkMarkers from "@/viewport/editor/links/LinkMarkers";
-import { LINK_FLOW_TIME, createLinkFlowMaterial, createRibbon, setLinkFlowState } from "@/viewport/editor/links/linkFlow";
+import { LINK_FLOW_TIME, createLinkFlowMaterial, createRibbon, setLinkFlowColor, setLinkFlowState } from "@/viewport/editor/links/linkFlow";
 
 const PATH_Y = 0.05;
 
@@ -22,7 +22,9 @@ export default function LinkOverlay() {
   const { active, source, selectedLink } = useLinkModeStore(
     useShallow((s) => ({ active: s.active, source: s.source, selectedLink: s.selectedLink })),
   );
-  const selected = useSceneStore((s) => s.selected);
+  // Every selected object (multi-select included); joined so the selector result is a stable string.
+  const selectedKey = useSceneStore((s) => selectedIds(s).join("|"));
+  const selected = useMemo(() => new Set(selectedKey ? selectedKey.split("|") : []), [selectedKey]);
   const byId = useMemo(() => new Map(objects.map((o) => [o.id, o])), [objects]);
   const sourceObject = source ? byId.get(source) : undefined;
   // One uniform write per frame drives every link's flowing light.
@@ -33,8 +35,8 @@ export default function LinkOverlay() {
       {links.map((link) => {
         const from = byId.get(link.from), to = byId.get(link.to);
         if (!from || !to) return null;
-        const related = !selected || link.from === selected || link.to === selected;
-        return <LinkPath key={link.id} link={link} from={from} to={to} selected={selectedLink === link.id} dim={!related} />;
+        const touches = selected.has(link.from) || selected.has(link.to);
+        return <LinkPath key={link.id} link={link} from={from} to={to} selected={selectedLink === link.id} dim={selected.size > 0 && !touches} active={touches} />;
       })}
       {active && (
         <LinkMarkers
@@ -52,7 +54,8 @@ export default function LinkOverlay() {
   );
 }
 
-function LinkPath({ link, from, to, selected, dim }: { link: SceneLink; from: SceneEquipment; to: SceneEquipment; selected: boolean; dim: boolean }) {
+/** `active`: the link touches a selected object; drawn in LINK_ACTIVE_COLOR (orange). */
+function LinkPath({ link, from, to, selected, dim, active }: { link: SceneLink; from: SceneEquipment; to: SceneEquipment; selected: boolean; dim: boolean; active: boolean }) {
   const points = useMemo(() => {
     const a = linkPoint(from), b = linkPoint(to);
     const start = new Vector3(a.x, PATH_Y, a.z), end = new Vector3(b.x, PATH_Y, b.z);
@@ -71,7 +74,9 @@ function LinkPath({ link, from, to, selected, dim }: { link: SceneLink; from: Sc
     useLinkModeStore.getState().selectLink(link.id);
   };
   const ribbon = useMemo(() => createRibbon(points, 0.22), [points]);
+  const color = active ? LINK_ACTIVE_COLOR : LINK_COLOR;
   const material = useMemo(() => createLinkFlowMaterial(LINK_COLOR), []);
+  useEffect(() => setLinkFlowColor(material, color), [material, color]);
   useEffect(() => () => ribbon.geometry.dispose(), [ribbon]);
   useEffect(() => () => material.dispose(), [material]);
   const opacity = selected ? 1 : dim ? 0.25 : 0.75;
@@ -81,7 +86,7 @@ function LinkPath({ link, from, to, selected, dim }: { link: SceneLink; from: Sc
       <mesh geometry={ribbon.geometry} material={material} renderOrder={2} frustumCulled={false} onClick={select} />
       <mesh position={arrow.position} rotation={[Math.PI / 2, 0, -arrow.yaw]} onClick={select}>
         <coneGeometry args={[0.07, 0.18, 12]} />
-        <meshBasicMaterial color={LINK_COLOR} transparent opacity={opacity} depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} toneMapped={false} />
       </mesh>
     </group>
   );

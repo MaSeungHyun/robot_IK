@@ -70,6 +70,10 @@ export function createRibbon(points: Vector3[], width: number) {
   geometry.computeBoundingSphere();
   return { geometry, length: total };
 }
+/** Path colour (e.g. LINK_ACTIVE_COLOR while the link touches the selection). */
+export function setLinkFlowColor(material: ShaderMaterial, color: string) {
+  (material.uniforms.color.value as Color).set(color);
+}
 /** Per-path uniforms (opacity / dim, arc length for streak spacing, selection emphasis). */
 export function setLinkFlowState(material: ShaderMaterial, opacity: number, length: number, selected: boolean) {
   material.uniforms.opacity.value = opacity;

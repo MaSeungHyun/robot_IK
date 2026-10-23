@@ -20,6 +20,8 @@
   --color-operating: #19de86;
   --color-fault: #f94258;
   --color-warning: #f9c335;
+  /* Links touching the selection and outlines of equipment linked to it (mirrored in linkPoints.ts LINK_ACTIVE_COLOR). */
+  --color-link-active: #ff9a3c;
   --color-idle: #8ea9cf;
   --color-offline: #536a84;
   --color-info: #1886f2;

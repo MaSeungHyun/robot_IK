@@ -1,3 +1,5 @@
+import { useLinkModeStore } from "@/stores/useLinkModeStore";
+import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useHudStore } from "@/stores/useHudStore";
@@ -33,6 +35,8 @@ export function clickEquipment(event: ThreeEvent<MouseEvent>, id: string) {
   if (scene.editing) {
     if (scene.pending) return;
     event.stopPropagation();
+    // Link mode: the click picks a link end and leaves the selection alone.
+    if (useLinkModeStore.getState().active) { pickLinkEnd(id); return; }
     // Shift/Ctrl(Cmd)+click toggles the object in the multi-selection.
     const e = event.nativeEvent;
     if (e.shiftKey || e.ctrlKey || e.metaKey) scene.toggleSelect(id);
