@@ -60,6 +60,71 @@ function navigationClear(layout:FactoryLayout,x:number,z:number,loaded:boolean,e
   const clears=(kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn})=>loaded&&!(kind==="conveyor"&&pose.conveyorTurn&&pose.conveyorTurn!=="straight")?!loadedOverlaps(x,z,layout.pallet.yaw,kind,pose):clearancePose(x,z,kind,pose)>=radius-1e-8;
   return clears("robot",layout.robot)&&clears("conveyor",layout.conveyor)&&!extra.some(o=>o.radius!==undefined||o.path?.length?obstacleClearance(x,z,o)<radius-1e-8:!clears(o.kind,o.pose));
 }
+/** Same result as navigationClear, but each point only tests obstacles whose conservative bound can reach it
+ * (bucketed on a 1 m grid, then a tight bounding-box check). Pose tests reuse precomputed trig/extents, and
+ * reserved paths are split per segment so a sample only measures the segments near it. Grid builds and segment
+ * checks used to test every obstacle (and every point of every reserved path) per sample. */
+function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObstacle[]):(x:number,z:number)=>boolean{
+  const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius,size=1,limit=radius-1e-8,margin=.02;
+  const [pw,pd]=footprint("pallet"),palletHalf=Math.hypot(pw,pd)/2;
+  type Entry={minX:number;maxX:number;minZ:number;maxZ:number;blocks:(x:number,z:number)=>boolean};
+  const buckets=new Map<number,Entry[]>();
+  const key=(cx:number,cz:number)=>cx*65536+cz;
+  // reach: the farthest a blocked point can be from the box [minX,maxX]x[minZ,maxZ] (exact bound, plus a small margin).
+  const add=(minX:number,maxX:number,minZ:number,maxZ:number,reach:number,blocks:(x:number,z:number)=>boolean)=>{
+    const entry:Entry={minX:minX-reach-margin,maxX:maxX+reach+margin,minZ:minZ-reach-margin,maxZ:maxZ+reach+margin,blocks};
+    for(let cx=Math.floor(entry.minX/size);cx<=Math.floor(entry.maxX/size);cx++)for(let cz=Math.floor(entry.minZ/size);cz<=Math.floor(entry.maxZ/size);cz++){
+      const k=key(cx,cz);let list=buckets.get(k);if(!list){list=[];buckets.set(k,list);}list.push(entry);
+    }
+  };
+  const addPose=(kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn})=>{
+    const turned=kind==="conveyor"&&!!pose.conveyorTurn&&pose.conveyorTurn!=="straight";
+    const [width,depth]=footprint(kind),half=turned?2*BELT.radius+BELT.width:Math.hypot(width,depth)/2;
+    const px=pose.x,pz=pose.z;
+    let blocks:(x:number,z:number)=>boolean;
+    if(turned)blocks=(x,z)=>clearancePose(x,z,kind,pose)<limit;
+    else if(loaded){
+      // loadedOverlaps with the separating-axis extents precomputed (same expressions, same results).
+      const yaw=layout.pallet.yaw,ac=Math.cos(yaw),as=Math.sin(yaw),bc=Math.cos(pose.yaw),bs=Math.sin(pose.yaw);
+      const axes=[[ac,-as],[as,ac],[bc,-bs],[bs,bc]].map(([nx,nz])=>{
+        const a=pw/2*Math.abs(nx*ac-nz*as)+pd/2*Math.abs(nx*as+nz*ac);
+        const b=width/2*Math.abs(nx*bc-nz*bs)+depth/2*Math.abs(nx*bs+nz*bc);
+        return [nx,nz,a+b+.01-1e-8];
+      });
+      blocks=(x,z)=>{for(const [nx,nz,gap] of axes)if(Math.abs((x-px)*nx+(z-pz)*nz)>=gap)return false;return true;};
+    }else{
+      // clearancePose for a straight footprint with its trig precomputed.
+      const c=Math.cos(pose.yaw),s=Math.sin(pose.yaw);
+      blocks=(x,z)=>{
+        const dx=x-px,dz=z-pz;
+        return Math.hypot(Math.max(0,Math.abs(dx*c-dz*s)-width/2),Math.max(0,Math.abs(dx*s+dz*c)-depth/2))<limit;
+      };
+    }
+    add(px,px,pz,pz,(loaded&&!turned?palletHalf+.01:radius)+half,blocks);
+  };
+  addPose("robot",layout.robot);addPose("conveyor",layout.conveyor);
+  for(const o of extra){
+    if(o.path?.length){
+      // obstacleClearance takes the minimum over segments, so the path blocks exactly when one segment does.
+      const path=o.path,r=o.radius??0;
+      for(let i=0;i<path.length;i++){
+        const a=path[i],b=path[Math.min(i+1,path.length-1)],ax=a.x,az=a.z,dx=b.x-a.x,dz=b.z-a.z,length=dx*dx+dz*dz;
+        add(Math.min(a.x,b.x),Math.max(a.x,b.x),Math.min(a.z,b.z),Math.max(a.z,b.z),r+radius,(x,z)=>{
+          const t=length?Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/length)):0;
+          return Math.max(0,Math.hypot(x-ax-t*dx,z-az-t*dz)-r)<limit;
+        });
+      }
+    }else if(o.radius!==undefined){
+      const ox=o.pose.x,oz=o.pose.z,r=o.radius;
+      add(ox,ox,oz,oz,r+radius,(x,z)=>Math.max(0,Math.hypot(x-ox,z-oz)-r)<limit);
+    }else addPose(o.kind,o.pose);
+  }
+  return (x,z)=>{
+    const list=buckets.get(key(Math.floor(x/size),Math.floor(z/size)));
+    if(list)for(const e of list)if(x>=e.minX&&x<=e.maxX&&z>=e.minZ&&z<=e.maxZ&&e.blocks(x,z))return false;
+    return true;
+  };
+}
 export function obstacleClearance(x:number,z:number,obstacle:NavigationObstacle){
   if(obstacle.path?.length){
     let distance=Infinity;
@@ -81,7 +146,7 @@ export function routeFailureReason(layout:FactoryLayout,start:{x:number;z:number
 }
 export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[]):Vector3[]|null{
   const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius,padding=C.navigationPadding;
-  const clear=(x:number,z:number)=>navigationClear(layout,x,z,loaded,extra);
+  const clear=preparedClear(layout,loaded,extra);
   if(!clear(start.x,start.z)||!clear(goal.x,goal.z))return null;
   const segmentClear=(a:{x:number;z:number},b:{x:number;z:number})=>{
     const steps=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/.025));
@@ -108,11 +173,14 @@ export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{
   }
   minX=Math.floor(minX/C.grid)*C.grid;minZ=Math.floor(minZ/C.grid)*C.grid;
   const columns=Math.ceil((maxX-minX)/C.grid)+1,rows=Math.ceil((maxZ-minZ)/C.grid)+1;
-  const blocked=new Set<number>();
-  for(let z=0;z<rows;z++)for(let x=0;x<columns;x++){
-    const wx=x*C.grid+minX,wz=z*C.grid+minZ;
-    if(!clear(wx,wz))blocked.add(z*columns+x);
-  }
+  // Cells are classified lazily (0 unknown, 1 blocked, 2 clear): A* on a factory-wide region only touches a
+  // fraction of the grid, and testing every cell up front cost tens of ms per route. Same test, same results.
+  const state=new Uint8Array(columns*rows);
+  const blocked={has:(id:number)=>{
+    let s=state[id];
+    if(!s){const x=id%columns,z=(id-x)/columns;s=state[id]=clear(x*C.grid+minX,z*C.grid+minZ)?2:1;}
+    return s===1;
+  }};
   const world=([x,z]:Cell)=>({x:x*C.grid+minX,z:z*C.grid+minZ});
   const connectors=(point:{x:number;z:number}):Cell[]=>{
     const cx=Math.round((point.x-minX)/C.grid),cz=Math.round((point.z-minZ)/C.grid),candidates:Cell[]=[];
@@ -123,10 +191,13 @@ export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{
     }
     return candidates.sort((a,b)=>Math.hypot(world(a).x-point.x,world(a).z-point.z)-Math.hypot(world(b).x-point.x,world(b).z-point.z)).slice(0,8);
   };
-  const edges=new Map<string,boolean>();
+  // Edge memo per cell and neighbour direction (0 unknown, 1 blocked, 2 clear), stored for both ends.
+  const edges=new Uint8Array(columns*rows*9);
   const canTraverse=(a:Cell,b:Cell)=>{
-    const ai=a[1]*columns+a[0],bi=b[1]*columns+b[0],key=ai<bi?`${ai}:${bi}`:`${bi}:${ai}`;
-    let result=edges.get(key);if(result===undefined){result=segmentClear(world(a),world(b));edges.set(key,result);}return result;
+    const d=(b[0]-a[0]+1)*3+(b[1]-a[1]+1),ai=(a[1]*columns+a[0])*9+d;
+    let s=edges[ai];
+    if(!s){s=segmentClear(world(a),world(b))?2:1;edges[ai]=s;edges[(b[1]*columns+b[0])*9+8-d]=s;}
+    return s===2;
   };
   const result=findPathBetween({columns,rows,blocked,canTraverse},connectors(start),connectors(goal));
   if(!result)return null;
