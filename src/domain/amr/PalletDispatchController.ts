@@ -158,6 +158,21 @@ export class PalletDispatchController {
     if (routes) this.follow(routes.pickup, "pickup");
     else this.route(this.layout.pallet, false, "pickup");
   }
+  private get blocked() {
+    return this.phase === "blocked";
+  }
+  /** True when parked at the home spot (within 0.3 m). */
+  get atHome() {
+    return Math.hypot(this.carrier.position.x - this.home.x, this.carrier.position.z - this.home.z) <= 0.3;
+  }
+  /** Idle away from home: drive back empty (e.g. to charge). False when no path home exists (stays idle). */
+  goHome() {
+    if (this.phase !== "idle" || this.atHome) return true;
+    this.route(this.home, false, "returning");
+    if (!this.blocked) return true;
+    this.phase = "idle";
+    return false;
+  }
   configure(layout: FactoryLayout, obstacles: NavigationObstacle[] = []) {
     this.layout = layout;
     this.obstacles = obstacles;
@@ -176,7 +191,7 @@ export class PalletDispatchController {
   private route(
     goal: { x: number; z: number },
     loaded: boolean,
-    phase: "pickup" | "dispatch",
+    phase: "pickup" | "dispatch" | "returning",
   ) {
     this.turnTarget = null;
     const points = layoutPath(

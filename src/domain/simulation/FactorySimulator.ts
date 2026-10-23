@@ -764,7 +764,7 @@ export class FactorySimulator {
           settings[a.object.id].enabled &&
           a.dispatch.available &&
           !a.charging &&
-          !(a.dispatch.phase === "returning" && a.battery < AMR_BATTERY.chargeBelow),
+          a.battery >= AMR_BATTERY.chargeBelow,
       );
       if (!agents.length) continue;
       const away = (a: FactoryAgent) => distance(a.dispatch.carrier.position, pallet.object);
@@ -784,7 +784,7 @@ export class FactorySimulator {
       this.dispatchRetry = SHIP_RESUME_S;
     } else this.dispatchSkip = 0;
   }
-  /** Drain while moving, trickle while idle; an idle AMR below the threshold charges in place. */
+  /** Drain while moving, trickle while idle; an idle AMR below the threshold returns home and charges there. */
   private advanceBatteries(dt: number, settings: Record<string, EquipmentSettings>) {
     for (const agent of this.agents) {
       const config = settings[agent.object.id];
@@ -797,8 +797,11 @@ export class FactorySimulator {
         continue;
       }
       agent.battery = Math.max(0, agent.battery - (idle ? AMR_BATTERY.idleDrain : AMR_BATTERY.movingDrain) * scaled);
-      // A transfer in progress always finishes; charging starts once the AMR is idle again.
-      if (idle && agent.battery < AMR_BATTERY.chargeBelow) agent.charging = true;
+      // A transfer in progress always finishes; once idle a low AMR goes to its own home spot and charges there.
+      if (idle && agent.battery < AMR_BATTERY.chargeBelow) {
+        // No path home (walled in): charge where it stands rather than stall.
+        if (agent.dispatch.atHome || !agent.dispatch.goHome()) agent.charging = true;
+      }
     }
   }
   /** Scanner result recorded on the box; boxes that passed no scanner count as normal. */
@@ -1331,7 +1334,7 @@ export class FactorySimulator {
               ? "waiting"
               : agent.dispatch.phase,
         status: agent.charging
-          ? `제자리 충전 중 · ${AMR_BATTERY.chargedAt}%까지 출고 배정 제외`
+          ? `대기 위치 충전 중 · ${AMR_BATTERY.chargedAt}%까지 출고 배정 제외`
           : agent.waiting && agent.dispatch.phase === "idle"
             ? (agent.waitingReason ?? "운반 가능한 안전 경로를 기다립니다.")
             : agent.dispatch.status,
