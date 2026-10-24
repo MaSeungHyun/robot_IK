@@ -21,7 +21,6 @@ try {
   const { SuctionRobotController } = await load("/src/domain/robot/SuctionRobotController.ts");
   const { SimulationClock } = await load("/src/domain/simulation/simulationClock.ts");
   const { SIMULATOR_CONFIG } = await load("/src/constants/simulatorLayout.ts");
-  const { geometryAtScale } = await load("/src/lib/three/geometryAtScale.ts");
   const { SceneInstances } = await load("/src/viewport/instancing/SceneInstances.ts");
   const file = arg("file");
   const template = file ? JSON.parse(readFileSync(file, "utf8")) : SCENE_TEMPLATES[+arg("template", 0)];
@@ -35,10 +34,9 @@ try {
   world.connectInstances();
   const clock = new SimulationClock();
   for (const robot of world.robots) {
-    const scale = SIMULATOR_CONFIG.robotScale, model = robotModel.clone(true);
-    model.traverse((node) => { node.position.multiplyScalar(scale); if (node.geometry) node.geometry = geometryAtScale(node.geometry, scale); });
+    const model = robotModel.clone(true);
     const holder = new THREE.Group(); holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw; holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
-    const controller = new SuctionRobotController({ id: robot.object.id, model, geometryScale: scale, pickupRadius: SIMULATOR_CONFIG.reach, getJobs: () => robot.jobs, onProgress: (c, s) => world.robotProgress(robot, c, s) });
+    const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach, getJobs: () => robot.jobs, onProgress: (c, s) => world.robotProgress(robot, c, s) });
     controller.start();
     clock.register({ beginFrame() {}, step(dt) { let r = dt; while (r > 1e-9) { const s = Math.min(r, 0.05); controller.update(s); r -= s; } }, endFrame() {} });
   }

@@ -1,46 +1,35 @@
-import { Box3, Group, Mesh, MeshStandardMaterial, Vector3 } from "three";
+import { Group, Mesh, MeshStandardMaterial, Vector3 } from "three";
 import { SCANNER_CONFIG } from "@/constants/scanner";
+import { SCAN_TUNNEL } from "@/domain/conveyor/scanTunnel";
 import type { ScanResult } from "@/types/scanner";
 
+/** ScanTunnel.glb as authored: mesh pivot moved to the scanner origin, exit belt on the rail belt (see scanTunnel.ts). */
 export function createScannerModel(source: Group) {
   const model = new Group();
   const asset = source.clone(true);
-  asset.scale.setScalar(SCANNER_CONFIG.scale);
+  for (const child of asset.children) child.position.set(0, 0, 0);
+  asset.position.y = SCAN_TUNNEL.lift;
   model.add(asset);
-
-  const bounds = new Box3().setFromObject(model);
-  asset.position.y -= bounds.min.y;
   model.updateMatrixWorld(true);
 
   const scanPoint = model.getObjectByName(SCANNER_CONFIG.scanPointName);
-  if (!scanPoint) throw new Error("scanner.glb: ScanPoint가 없습니다.");
+  if (!scanPoint) throw new Error(`ScanTunnel.glb: ${SCANNER_CONFIG.scanPointName}가 없습니다.`);
 
   const localPoint = model.worldToLocal(scanPoint.getWorldPosition(new Vector3()));
   const signals: { material: MeshStandardMaterial; color: MeshStandardMaterial["color"]; emissive: MeshStandardMaterial["emissive"] }[] = [];
-  let halfWidth = 0;
 
   model.traverse((node) => {
     if (!(node instanceof Mesh)) return;
-
     const cloneSignal = (material: MeshStandardMaterial) => {
-      if (material.name !== SCANNER_CONFIG.materialName) return material;
-      if (!(material instanceof MeshStandardMaterial)) throw new Error("scanner.glb: gradient 재질 형식을 확인해 주세요.");
-
+      if (material.name !== SCANNER_CONFIG.materialName || !(material instanceof MeshStandardMaterial)) return material;
       const copy = material.clone();
       signals.push({ material: copy, color: copy.color.clone(), emissive: copy.emissive.clone() });
-      node.geometry.computeBoundingBox();
-      const size = node.geometry.boundingBox?.getSize(new Vector3());
-      halfWidth = Math.max(halfWidth, (size?.x ?? 0) * SCANNER_CONFIG.scale / 2);
       return copy;
     };
-
-    node.material = Array.isArray(node.material)
-      ? node.material.map(cloneSignal)
-      : cloneSignal(node.material);
+    node.material = Array.isArray(node.material) ? node.material.map(cloneSignal) : cloneSignal(node.material);
   });
 
-  if (!signals.length) throw new Error("scanner.glb: gradient 재질이 없습니다.");
-
+  // The tunnel has no signal ("gradient") material yet: inspection still runs, only the colour flash is skipped.
   function setSignal(result: ScanResult | null, colors: Record<ScanResult, string>) {
     for (const signal of signals) {
       if (result) {
@@ -56,7 +45,7 @@ export function createScannerModel(source: Group) {
   return {
     model,
     localPoint,
-    halfWidth,
+    halfWidth: SCAN_TUNNEL.halfBeltWidth,
     setSignal,
     dispose: () => signals.forEach(({ material }) => material.dispose()),
   };

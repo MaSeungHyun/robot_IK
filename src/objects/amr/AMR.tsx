@@ -12,7 +12,6 @@ import {
 } from "three";
 import { Line2, LineGeometry, LineMaterial } from "three-stdlib";
 import amrUrl from "@/assets/models/AMR.glb?url";
-import { AMR_CONFIG } from "@/constants/amr";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { selectionContext } from "@react-three/postprocessing";
 
@@ -149,12 +148,8 @@ export default function AMR({ route }: { route?: AMRRoute }) {
 
   const model = useMemo(() => {
     const model = scene.clone(true),
-      bounds = new Box3().setFromObject(model),
-      size = bounds.getSize(new Vector3());
+      bounds = new Box3().setFromObject(model);
 
-    model.scale.multiplyScalar(AMR_CONFIG.bodyWidth / Math.max(size.x, size.z));
-
-    bounds.setFromObject(model);
 
     const center = bounds.getCenter(new Vector3());
     model.position.sub(new Vector3(center.x, bounds.min.y, center.z));

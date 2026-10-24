@@ -71,6 +71,11 @@ const sourcePaths = {
   scannerModel: "src/objects/scanner/scannerModel.ts",
   ScannerInspection: "src/domain/scanner/ScannerInspection.ts",
   simulatorLayout:'src/constants/simulatorLayout.ts',
+  'modelPoints.generated':'src/constants/modelPoints.generated.ts',
+  footprints:'src/constants/footprints.ts',
+  scanTunnel:'src/domain/conveyor/scanTunnel.ts',
+  lowPolyPallet:'src/lib/three/lowPolyPallet.ts',
+  frameProfiler:'src/lib/profiler/frameProfiler.ts',
   pathfinding:'src/domain/amr/navigation/pathfinding.ts',
   layoutNavigation:'src/domain/amr/navigation/layoutNavigation.ts',
   PalletDispatchController:'src/domain/amr/PalletDispatchController.ts',
@@ -84,6 +89,17 @@ const sourcePaths = {
   ...Object.fromEntries(['placePoseCache','analyticIK','joints','collisions','robotKinematics','closedChainKinematics','robotIK','heldBoxCollision','picking','motionTiming'].map(name => [name, `src/domain/robot/ik/${name}.ts`])),
   ...Object.fromEntries(['packingDiagnostics','perfectTiling','tiling','onlinePacking','fixedLayerPacking'].map(name => [name, `src/domain/pallet/packing/${name}.ts`])),
 };
+// Pull in every transitively imported src module (flat ./<basename>.mjs, as the rewrite below expects).
+for (const queue = Object.values(sourcePaths); queue.length;) {
+  const file = queue.pop();
+  for (const [, spec] of fs.readFileSync(file, 'utf8').matchAll(/from "((?:@\/|\.\.?\/)[^"\n]+)"/g)) {
+    const base = path.basename(spec), name = base === 'simulation' ? 'constants' : base;
+    if (sourcePaths[name]) continue;
+    const stem = spec.startsWith('@/') ? path.join('src', spec.slice(2)) : path.join(path.dirname(file), spec);
+    const resolved = ['.ts', '.tsx', '/index.ts'].map(ext => stem + ext).find(p => fs.existsSync(p));
+    if (resolved && !resolved.endsWith('.tsx')) { sourcePaths[name] = resolved; queue.push(resolved); }
+  }
+}
 for (const name of Object.keys(sourcePaths)) {
   const source = fs.readFileSync(sourcePaths[name], "utf8").replace(/from "(?:@\/|(?:\.\.?\/)+)[^"\n]+"/g, spec => spec.replace(/"[^"\n]+"/, value => {const base=path.basename(value.slice(1,-1));return `"./${base==="simulation"?"constants":base}.mjs"`;}));
   fs.writeFileSync(path.join(output,`${name}.mjs`),ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}));
@@ -99,11 +115,11 @@ if(process.argv.includes('--templates')) {
   scene.getState().clear();
   scene.getState().add('robot',{x:9,z:9,yaw:0});
   const previous=scene.getState().objects;
-  if(!apply(templates[0])||scene.getState().objects.length!==3)throw Error('Template did not replace scene');
+  if(!apply(templates[0])||scene.getState().objects.length!==templates[0].equipment.length)throw Error('Template did not replace scene');
   scene.getState().undo();
   if(scene.getState().objects!==previous)throw Error('Template replacement was not atomic undo');
   scene.getState().redo();
-  if(scene.getState().objects.length!==3)throw Error('Template redo failed');
+  if(scene.getState().objects.length!==templates[0].equipment.length)throw Error('Template redo failed');
   const unchanged=scene.getState().objects;
   if(apply({...templates[0],equipment:[{kind:'robot',x:NaN,z:0,yaw:0}]})||scene.getState().objects!==unchanged)throw Error('Invalid template replaced scene');
   for(const template of templates){
@@ -111,9 +127,9 @@ if(process.argv.includes('--templates')) {
     const state=scene.getState();
     if(new Set(state.objects.map(o=>o.id)).size!==state.objects.length)throw Error('Duplicate equipment IDs');
     const world=new FactorySimulator(state.objects,load('box'),load('pallet'),()=>scene.getState().settings);
-    for(let i=0;i<1800;i++)world.advance(1/30);
+    for(let i=0;i<5400;i++)world.advance(1/30);
     if(!world.robots.some(robot=>robot.jobs.length))throw Error(`No reachable robot job in ${template.id}`);
-    if(template.id==='inspection-line'&&beltConnections(state.objects).next.size!==2)throw Error('Template conveyors are disconnected');
+    if(template.id==='inspection-line'&&beltConnections(state.objects).next.size!==0)throw Error('Inspection lines should be independent single rails');
     world.dispose();
   }
   if(!apply(templates[0],true)||scene.getState().editing||!simulation.getState().running)throw Error('Run template did not start Play');
@@ -345,7 +361,7 @@ if(process.argv.includes('--amr-traffic')){
       const radius=Math.max(0,Math.min(other.dispatch.radius+AMR_TRAFFIC.safetyMargin,p.distanceTo(at)-d.radius-1e-3));
       if(!target&&p.distanceTo(goal)<radius+d.radiusAt(goal))continue;
       extra.push({kind:'amr',pose:{x:p.x,z:p.z,yaw:0},radius});}
-    return layoutPath(open,at,goal,d.radius===AMR_TRAFFIC.loadedRadius,extra);
+    return layoutPath(open,at,goal,d.loaded,extra);
   };
   const runPair=(label,specs,walls,seconds=120)=>{
     let completed=0,held=false;
@@ -368,28 +384,32 @@ if(process.argv.includes('--amr-traffic')){
   };
   // 1) Single-lane corridor with one side pocket. A loaded AMR leaves the pickup heading east while an
   //    empty AMR enters from the east towards that same pickup: nose to nose, no room to pass.
+  const k=AMR_TRAFFIC.emptyRadius/.45,S=(x,z)=>V(x*k,z*k);
   const walls=[];
   for(let x=-8.4;x<=8.4+1e-9;x+=.3){walls.push({kind:'amr',pose:{x,z:-1.3,yaw:0},radius:.3});if(Math.abs(x)>1.05)walls.push({kind:'amr',pose:{x,z:1.3,yaw:0},radius:.3});}
   for(let z=-1;z<=1+1e-9;z+=.3)for(const x of [-8.4,8.4])walls.push({kind:'amr',pose:{x,z,yaw:0},radius:.3});
   for(let x=-1.2;x<=1.2+1e-9;x+=.3)walls.push({kind:'amr',pose:{x,z:3.2,yaw:0},radius:.3});
   for(let z=1.6;z<=2.9+1e-9;z+=.3)for(const x of [-1.35,1.35])walls.push({kind:'amr',pose:{x,z,yaw:0},radius:.3});
-  if(layoutPath(open,V(-5,0),V(0,2.2),false,walls)===null)throw Error('Test corridor pocket is unreachable');
+  // Fixture drawn for a 0.45 m AMR disc; scale it to the AMR.glb footprint so the corridor stays single-lane.
+  for(const w of walls){w.pose.x*=k;w.pose.z*=k;w.radius*=k;}
+  if(layoutPath(open,S(-5,0),S(0,2.2),false,walls)===null)throw Error('Test corridor pocket is unreachable');
   const corridor=runPair('Head-on corridor',[
-    {id:'loaded',pickup:[V(-6,0),V(-5,0)],dispatch:[V(-5,0),V(7,0)],returning:[V(7,0),V(7.3,0)]},
-    {id:'empty',pickup:[V(5.5,0),V(-5,0)],dispatch:[V(-5,0),V(-7,0)],returning:[V(-7,0),V(-7.3,0)]},
+    {id:'loaded',pickup:[S(-6,0),S(-5,0)],dispatch:[S(-5,0),S(7,0)],returning:[S(7,0),S(7.3,0)]},
+    {id:'empty',pickup:[S(7.5,0),S(-5,0)],dispatch:[S(-5,0),S(-7,0)],returning:[S(-7,0),S(-7.3,0)]},
   ],walls);
   if(!corridor.held)throw Error('Head-on corridor resolved without a side-step yield');
   // 2) Two loaded AMRs converge on one dock; the one arriving second must not freeze the first.
   runPair('Shared dock',[
-    {id:'a',pickup:[V(-3,-1),V(-3,0)],dispatch:[V(-3,0),V(0,3)],returning:[V(0,3),V(-3,5)]},
-    {id:'b',pickup:[V(3,-1),V(3,0)],dispatch:[V(3,0),V(0,3)],returning:[V(0,3),V(3,5)]},
+    {id:'a',pickup:[S(-3,-1),S(-3,0)],dispatch:[S(-3,0),S(0,3)],returning:[S(0,3),S(-3,5)]},
+    {id:'b',pickup:[S(3,-1),S(3,0)],dispatch:[S(3,0),S(0,3)],returning:[S(0,3),S(3,5)]},
   ],[]);
   // 3) Whole-simulator fleets: seeds/layouts that froze before (shared dock + crossing routes).
   const fill=p=>{p.count=p.slots.length;p.states.fill('placed');};
-  const cell=(ox,oz,i,flip=1)=>[{id:`r${i}`,name:`Robot ${i}`,kind:'robot',x:ox,z:oz,yaw:0},{id:`p${i}`,name:`Pallet ${i}`,kind:'pallet',x:ox-1.15*flip,z:oz,yaw:0},{id:`b${i}`,name:`Belt ${i}`,kind:'conveyor',x:ox+1.06875*flip,z:oz,yaw:0}];
+  // Cell offsets from DEFAULT_LAYOUT (model sizes); the fleet layout itself is scaled by k like the corridor fixture.
+  const cell=(ox,oz,i,flip=1)=>[{id:`r${i}`,name:`Robot ${i}`,kind:'robot',x:ox*k,z:oz*k,yaw:0},{id:`p${i}`,name:`Pallet ${i}`,kind:'pallet',x:ox*k+DEFAULT_LAYOUT.pallet.x*flip,z:oz*k,yaw:0},{id:`b${i}`,name:`Belt ${i}`,kind:'conveyor',x:ox*k+DEFAULT_LAYOUT.conveyor.x*flip,z:oz*k,yaw:0}];
   const layouts={
-    corridor:[...cell(0,0,0),...cell(0,4,1),{id:'d0',name:'D0',kind:'dock',x:-6,z:2,yaw:0},{id:'d1',name:'D1',kind:'dock',x:4,z:2,yaw:0},{id:'a0',name:'A0',kind:'amr',x:-6,z:-2,yaw:0},{id:'a1',name:'A1',kind:'amr',x:4,z:6,yaw:0}],
-    four:[...cell(0,0,0),...cell(0,3.5,1),...cell(-5,0,2,-1),...cell(-5,3.5,3,-1),{id:'d0',name:'D0',kind:'dock',x:-2.5,z:7,yaw:0},{id:'d1',name:'D1',kind:'dock',x:-2.5,z:-3.5,yaw:0},...[0,1,2,3].map(k=>({id:`a${k}`,name:`A${k}`,kind:'amr',x:-4+k*1.6,z:9,yaw:0}))],
+    corridor:[...cell(0,0,0),...cell(0,4,1),{id:'d0',name:'D0',kind:'dock',x:(-6)*k,z:(2)*k,yaw:0},{id:'d1',name:'D1',kind:'dock',x:(4)*k,z:(2)*k,yaw:0},{id:'a0',name:'A0',kind:'amr',x:(-6)*k,z:(-2)*k,yaw:0},{id:'a1',name:'A1',kind:'amr',x:(4)*k,z:(6)*k,yaw:0}],
+    four:[...cell(0,0,0),...cell(0,3.5,1),...cell(-5,0,2,-1),...cell(-5,3.5,3,-1),{id:'d0',name:'D0',kind:'dock',x:(-2.5)*k,z:(7)*k,yaw:0},{id:'d1',name:'D1',kind:'dock',x:(-2.5)*k,z:(-3.5)*k,yaw:0},...[0,1,2,3].map(j=>({id:`a${j}`,name:`A${j}`,kind:'amr',x:(-4+j*1.6)*k,z:(9)*k,yaw:0}))],
   };
   const assets={box:load('box'),pallet:load('pallet')};let delivered=0;
   for(const [name,seed] of [['corridor',87109],['four',15838],['four',23757],['four',95028]]){
@@ -508,7 +528,7 @@ if(process.argv.includes('--fleet')){
   const traffic=new AMRTrafficController();
   for(let frame=0;frame<30*180;frame++){
     if(frame===40){headOn[0].speed=3;headOn[1].speed=.5;}
-    traffic.advance(headOn,frame%7===0?.2:1/30,(vehicle,target)=>layoutPath(openLayout,vehicle.dispatch.carrier.position,target??vehicle.dispatch.goal,vehicle.dispatch.radius===AMR_TRAFFIC.loadedRadius,headOn.filter(other=>other!==vehicle).map(other=>({kind:'amr',pose:{x:other.dispatch.carrier.position.x,z:other.dispatch.carrier.position.z,yaw:0},radius:other.dispatch.radius+AMR_TRAFFIC.safetyMargin}))));
+    traffic.advance(headOn,frame%7===0?.2:1/30,(vehicle,target)=>layoutPath(openLayout,vehicle.dispatch.carrier.position,target??vehicle.dispatch.goal,vehicle.dispatch.loaded,headOn.filter(other=>other!==vehicle).map(other=>({kind:'amr',pose:{x:other.dispatch.carrier.position.x,z:other.dispatch.carrier.position.z,yaw:0},radius:other.dispatch.radius+AMR_TRAFFIC.safetyMargin}))));
     headOnStops+=headOn.filter(vehicle=>vehicle.dispatch.yielding).length;
     if(headOn[0].dispatch.carrier.position.distanceTo(headOn[1].dispatch.carrier.position)<headOn[0].dispatch.radius+headOn[1].dispatch.radius-1e-6)throw Error('Head-on traffic collided');
     if(headOnCompleted===2&&headOn.every(vehicle=>vehicle.dispatch.phase==='idle'))break;
@@ -651,7 +671,7 @@ if(process.argv.includes('--unbounded-layout')){
   const belt=scene.getState().objects.find(o=>o.kind==='conveyor');
   scene.getState().extendConveyor(belt.id,'straight');
   for(let i=0;i<10;i++)scene.getState().extendConveyor(scene.getState().selected,'straight');
-  if(scene.getState().objects.length!==18||scene.getState().errors.length)throw Error('Distant extension blocked');
+  if(scene.getState().objects.length!==19||scene.getState().errors.length)throw Error('Distant extension blocked');
   for(const offset of [{x:0,z:0},{x:120,z:-85},{x:-200,z:300}]){
     const layout=Object.fromEntries(Object.entries(DEFAULT_LAYOUT).map(([kind,pose])=>[kind,{...pose,x:pose.x+offset.x,z:pose.z+offset.z}]));
     for(const [start,goal,loaded] of [[layout.amr,layout.pallet,false],[layout.pallet,layout.dock,true]]){
@@ -665,6 +685,7 @@ if(process.argv.includes('--unbounded-layout')){
 }
 if(process.argv.includes('--conveyor-layout')){
   const {beltPoint,beltLength,extendBelt,beltConnections,snapBelt}=await import('../.tmp/ik-tests/conveyorLayout.mjs');
+  const {CONVEYOR_LAYOUT}=await import('../.tmp/ik-tests/conveyorLayoutConfig.mjs');
   const {useSceneStore:scene}=await import('../.tmp/ik-tests/useSceneStore.mjs');
   const {clearancePose}=await import('../.tmp/ik-tests/layoutNavigation.mjs');
   const near=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z)<1e-8&&Math.cos(a.yaw-b.yaw)>1-1e-8;
@@ -677,7 +698,7 @@ if(process.argv.includes('--conveyor-layout')){
     if(graph.next.get('a')!==b||graph.next.get('b')!==c||graph.incoming.has('a'))throw Error('Incorrect graph');
     const snapped=snapBelt({...b,x:b.x+.1,z:b.z+.1},[a]);
     if(!near(beltPoint(snapped,0),beltPoint(a,beltLength(a))))throw Error('Snap failed');
-    if(Math.abs(beltLength(b)-(turn==='straight'?2.5:Math.PI*1.25/2))>1e-8)throw Error('Incorrect path length');
+    if(Math.abs(beltLength(b)-(turn==='straight'?CONVEYOR_LAYOUT.length:Math.PI*CONVEYOR_LAYOUT.radius/2))>1e-8)throw Error('Incorrect path length');
     if(turn!=='straight'){
       for(let i=0;i<=20;i++){const p=beltPoint(b,beltLength(b)*i/20);if(clearancePose(p.x,p.z,'conveyor',b)>1e-8)throw Error('AMR obstacle misses curved belt');}
     }
@@ -763,7 +784,7 @@ if(process.argv.includes('--scene-state')){
   console.log('Scene state: editing never resets runtime; stable object identities; no-op updates; live speed; runtime-only initialization and reset; floor/wall grid snap, size edits and undo/redo passed');
   process.exit(0);
 }
-const { createRobotIK } = await import(new URL('../.tmp/ik-tests/robotIK.mjs',import.meta.url));
+const { createRobotIK, ikSolveStats } = await import(new URL('../.tmp/ik-tests/robotIK.mjs',import.meta.url));
 const { createUnitBox, createUnitPallet }=await import('../.tmp/ik-tests/modelNormalization.mjs');
 const { BOX_SIZES: PRODUCTION_BOX_SIZES, STREAM_CONFIG }=await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
 const strip = source => source.replace(/^import[\s\S]*?;\r?\n/gm,'').replaceAll('export ','');
@@ -772,12 +793,12 @@ const stacking = compile(strip(fs.readFileSync('src/domain/pallet/packing/stacki
 const { MOTION, IK_CONFIG, COLLISION, PACKING, ROBOT_PICKING } = await import(new URL('../.tmp/ik-tests/constants.mjs',import.meta.url));
 const { isPickupInRange, isWristAboveBox, setCargoWorldPose } = await import(new URL('../.tmp/ik-tests/picking.mjs',import.meta.url));
 const { minimumJerk } = await import(new URL('../.tmp/ik-tests/motionTiming.mjs',import.meta.url));
-const { setJointAngle, createJointControl, blenderWorldX } = await import(new URL('../.tmp/ik-tests/joints.mjs',import.meta.url));
+const { setJointAngle, poseRobotHome, createJointControl, blenderWorldX } = await import(new URL('../.tmp/ik-tests/joints.mjs',import.meta.url));
 const placeCache = await import(new URL('../.tmp/ik-tests/placePoseCache.mjs',import.meta.url));
 const controllerSource = compile(strip(fs.readFileSync('src/domain/robot/SuctionRobotController.ts', 'utf8')));
 function controllerClass(createIK = createRobotIK) {
-  return new Function('createRobotIK','MOTION','IK_CONFIG','ROBOT_PICKING','Group','Quaternion','Vector3','Euler','setJointAngle','isPickupInRange','isWristAboveBox','setCargoWorldPose','minimumJerk','invalidatePlacePose','lookupPlacePose','placePoseKey','storePlacePose',
-    controllerSource+';return SuctionRobotController;')(createIK,MOTION,IK_CONFIG,ROBOT_PICKING,T.Group,T.Quaternion,T.Vector3,T.Euler,setJointAngle,isPickupInRange,isWristAboveBox,setCargoWorldPose,minimumJerk,placeCache.invalidatePlacePose,placeCache.lookupPlacePose,placeCache.placePoseKey,placeCache.storePlacePose);
+  return new Function('createRobotIK','MOTION','IK_CONFIG','ROBOT_PICKING','Group','Quaternion','Vector3','Euler','setJointAngle','poseRobotHome','ikSolveStats','profileStart','profileEnd','isPickupInRange','isWristAboveBox','setCargoWorldPose','minimumJerk','invalidatePlacePose','lookupPlacePose','placePoseKey','storePlacePose',
+    controllerSource+';return SuctionRobotController;')(createIK,MOTION,IK_CONFIG,ROBOT_PICKING,T.Group,T.Quaternion,T.Vector3,T.Euler,setJointAngle,poseRobotHome,ikSolveStats,()=>0,()=>{},isPickupInRange,isWristAboveBox,setCargoWorldPose,minimumJerk,placeCache.invalidatePlacePose,placeCache.lookupPlacePose,placeCache.placePoseKey,placeCache.storePlacePose);
 }
 const controllers = new WeakMap();
 const makeRobot = (useGLTF, useMemo, useRef, useFrame, Group, Quaternion, Vector3, robot, createIK, jobs, report, options = {}) => {
@@ -972,7 +993,7 @@ if(process.env.IK_FACTORY==='1'||process.argv.includes('--scene')){
   const instances=new SceneInstances(),world=new FactorySimulator(objects,load('box'),load('pallet'),()=>settings,instances),root=new T.Group();root.add(world.root,instances.root,...world.agents.map(a=>a.dispatch.carrier));world.connectInstances();
   const frames=[],models=[];
   for(const robot of world.robots){
-    const model=makeRobot(()=>({scene:load('robot',true)}),f=>f(),v=>({current:v}),frame=>frames.push(frame),T.Group,T.Quaternion,T.Vector3,'',m=>createRobotIK(m,C.robotScale,'none'),{current:robot.jobs},(count,status)=>world.robotProgress(robot,count,status),{geometryScale:C.robotScale,transferMode:'base',position:new T.Vector3(robot.object.x,0,robot.object.z),yaw:robot.object.yaw,pickupRadius:C.reach});
+    const model=makeRobot(()=>({scene:load('robot',true)}),f=>f(),v=>({current:v}),frame=>frames.push(frame),T.Group,T.Quaternion,T.Vector3,'',m=>createRobotIK(m,'none'),{current:robot.jobs},(count,status)=>world.robotProgress(robot,count,status),{transferMode:'base',position:new T.Vector3(robot.object.x,0,robot.object.z),yaw:robot.object.yaw,pickupRadius:C.reach});
     models.push(model);root.add(model);instances.register(model);
   }
   let simultaneous=0,playback=1,heldFrames=0;const renderedPose=new T.Matrix4();
@@ -1232,7 +1253,8 @@ const FULL_PALLET_RECIPE=[];
 // Historical mixed-size fixtures exercise the generic packer independently
 // of the production conveyor, which now generates only 3x2x2m boxes.
 const BOX_SIZES=[new T.Vector3(2,1,2),new T.Vector3(2,2,2),new T.Vector3(2,1,3),new T.Vector3(2,2,3)];
-if(PRODUCTION_BOX_SIZES.length!==1||PRODUCTION_BOX_SIZES[0].distanceTo(new T.Vector3(0.22,0.2,0.275))>1e-8)throw Error('Production box size is not uniformly 0.22x0.2x0.275m');
+{const {BOX_MODEL}=await import(new URL('../.tmp/ik-tests/modelPoints.generated.mjs',import.meta.url));const modelSize=new T.Vector3().fromArray(BOX_MODEL.max).sub(new T.Vector3().fromArray(BOX_MODEL.min));
+if(PRODUCTION_BOX_SIZES.length!==1||PRODUCTION_BOX_SIZES[0].distanceTo(modelSize)>1e-8)throw Error(`Production box size is not the box.glb size ${modelSize.toArray().join('x')}m`);}
 const {FixedLayerPacker}=await import(new URL('../.tmp/ik-tests/fixedLayerPacking.mjs',import.meta.url));
 const ordered=new FixedLayerPacker(new T.Vector3(1.1,5,1.1),PRODUCTION_BOX_SIZES[0],STREAM_CONFIG.center);
 const skipped=ordered.candidates(PRODUCTION_BOX_SIZES[0])[1];let skipRejected=false;

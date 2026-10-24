@@ -24,19 +24,22 @@ export type TrafficPlanner = (
   target?: Vector3,
 ) => Vector3[] | null;
 
+/** AMR body diameter (AMR.glb); traffic distances below scale with it. */
+const AMR_DIAMETER = 2 * AMR_TRAFFIC.emptyRadius;
+
 export const TRAFFIC_RESOLUTION = {
   /** Waiting this long (s) without a usable detour counts as a deadlock. */
   deadlock: 1.6,
   /** Winner path length (m) a yielding vehicle must clear. */
-  corridor: 5,
-  /** Distances (m) and directions tried for the side cell. */
-  rings: [0.6, 1, 1.5, 2, 2.6, 3.3],
+  corridor: 5.6 * AMR_DIAMETER,
+  /** Distances (AMR diameters -> m) and directions tried for the side cell. */
+  rings: [0.7, 1.1, 1.7, 2.2, 2.9, 3.7].map((d) => d * AMR_DIAMETER),
   angles: 16,
   attempts: 14,
   /** Holding longer than this (s) resumes even if the winner is still near. */
   maxHold: 10,
   /** Straight back-off distances (m) tried when no side cell is reachable. */
-  reverse: [1.2, 0.8, 0.5],
+  reverse: [1.3, 0.9, 0.55].map((d) => d * AMR_DIAMETER),
   /** Speed factor while reversing. */
   reverseSpeed: 0.5,
   /** Seconds a vehicle that backed off for a forklift waits before replanning. */

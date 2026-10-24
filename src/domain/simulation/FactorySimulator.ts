@@ -1,4 +1,5 @@
 import { ScannerInspection } from "@/domain/scanner/ScannerInspection";
+import { CONVEYOR_LAYOUT } from "@/constants/conveyorLayoutConfig";
 import { SCANNER_CONFIG } from "@/constants/scanner";
 import { Euler, Group, Vector3 } from "three";
 import type {
@@ -14,7 +15,7 @@ import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING } from "@/cons
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
 import { amrSpeedFactor, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
-import { RACK_CONFIG, rackApproachPoint, rackFacePoint, rackHeading, rackSlotPoint } from "@/constants/rack";
+import { RACK_CONFIG, rackApproachPoint, rackFacePoint, rackHeading, rackSlotPoint, rackStandoff } from "@/constants/rack";
 import { LinkIndex, type SceneLink } from "@/types/links";
 import { TransportQueue } from "@/domain/amr/TransportQueue";
 import { PalletController } from "@/domain/pallet/PalletController";
@@ -422,7 +423,6 @@ export class FactorySimulator {
   private spawn(belt: SceneEquipment, offset = 0) {
     const node = new Group(),
       model = this.boxAsset.clone(true);
-    model.scale.copy(BOX_SIZES[0]);
     node.add(model);
     node.rotation.y = belt.yaw;
     // Boxes are cargo, not part of the belt: no sceneId (see viewport/scene/sceneOwner).
@@ -471,7 +471,7 @@ export class FactorySimulator {
       ),
       s = Math.sin(point.yaw),
       c = Math.cos(point.yaw);
-    box.node.position.set(point.x, 0.25 + BOX_SIZES[0].y, point.z);
+    box.node.position.set(point.x, CONVEYOR_LAYOUT.height + BOX_SIZES[0].y, point.z);
     box.node.rotation.y = point.yaw;
     if (box.job && box.state === "reserved") {
       box.job.pickup.copy(box.node.position);
@@ -717,7 +717,7 @@ export class FactorySimulator {
         navigation.layout,
         dispatch.carrier.position,
         goal,
-        dispatch.radius === AMR_TRAFFIC.loadedRadius,
+        dispatch.loaded,
         obstacles,
       );
     }, forkliftBodies);
@@ -1340,7 +1340,7 @@ export class FactorySimulator {
   }
   private handoffPoint(rack: SceneEquipment) {
     const { x } = RACK_CONFIG.slots[HANDOFF_SLOT];
-    return rackFacePoint(rack, HANDOFF_SLOT, RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2 + RACK_CONFIG.approachGap + HANDOFF_EXTRA);
+    return rackFacePoint(rack, HANDOFF_SLOT, RACK_CONFIG.front - x + rackStandoff(HANDOFF_EXTRA));
   }
   /**
    * Both ways into a slot: the front (+X loading face) and the mirrored standoff on the back with the

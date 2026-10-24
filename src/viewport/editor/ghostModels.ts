@@ -5,8 +5,6 @@ import { createUnitPallet } from "@/lib/three/modelNormalization";
 import { translucentClone } from "@/lib/three/translucentClone";
 import { poseRobotHome } from "@/domain/robot/ik/joints";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
-import { STREAM_CONFIG } from "@/constants/simulation";
-import { AMR_CONFIG } from "@/constants/amr";
 import type { ConveyorTurn } from "@/types/layout";
 
 export type GhostModelKind = "robot" | "pallet" | "amr" | "scanner" | "rack";
@@ -23,20 +21,12 @@ export function buildModelGhost(kind: GhostModelKind, scene: Group) {
 
   if (kind === "pallet") {
     model = createUnitPallet(scene);
-    model.scale.set(
-      STREAM_CONFIG.palletWidth,
-      STREAM_CONFIG.palletHeight,
-      STREAM_CONFIG.palletDepth,
-    );
   } else {
     model = scene.clone(true);
     if (kind === "robot") return translucentClone(poseRobotHome(model));
     else if (kind === "rack") return translucentClone(model);
     else {
-      const bounds = new Box3().setFromObject(model),
-        size = bounds.getSize(new Vector3());
-      model.scale.multiplyScalar(AMR_CONFIG.bodyWidth / Math.max(size.x, size.z));
-      bounds.setFromObject(model);
+      const bounds = new Box3().setFromObject(model);
       const center = bounds.getCenter(new Vector3());
       model.position.sub(new Vector3(center.x, bounds.min.y, center.z));
     }
@@ -44,6 +34,6 @@ export function buildModelGhost(kind: GhostModelKind, scene: Group) {
   return translucentClone(model);
 }
 
-export function buildConveyorGhost(turn: ConveyorTurn = "straight") {
-  return translucentClone(conveyorTemplate(turn));
+export function buildConveyorGhost(turn: ConveyorTurn = "straight", rail?: Group) {
+  return translucentClone(conveyorTemplate(turn, rail));
 }

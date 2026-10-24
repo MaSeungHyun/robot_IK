@@ -1,25 +1,32 @@
 import { Vector3 } from "three";
+import { BOX_MODEL, PALLET_MODEL, RACK_MODEL } from "@/constants/modelPoints.generated";
+import { CONVEYOR_LAYOUT } from "@/constants/conveyorLayoutConfig";
 
 // Metres, seconds and radians unless explicitly stated otherwise.
-export const BOX_BASE_SIZE = new Vector3(1, 1, 1);
-export const PALLET_BASE_SIZE = new Vector3(1, 1, 1);
-export const BOX_SIZES = [new Vector3(0.22, 0.2, 0.275)];
+/** Box dimensions at authored GLB scale (box.glb bounds). */
+export const BOX_SIZES = [new Vector3().fromArray(BOX_MODEL.max).sub(new Vector3().fromArray(BOX_MODEL.min))];
 export const CONVEYOR_PATH = [
-  new Vector3(1.0625, 0.25, -1.25),
-  new Vector3(1.075, 0.25, -0.375),
-  new Vector3(1.0625, 0.25, 0.375),
-  new Vector3(1.0625, 0.25, 1.25),
+  new Vector3(1.0625, CONVEYOR_LAYOUT.height, -1.25),
+  new Vector3(1.075, CONVEYOR_LAYOUT.height, -0.375),
+  new Vector3(1.0625, CONVEYOR_LAYOUT.height, 0.375),
+  new Vector3(1.0625, CONVEYOR_LAYOUT.height, 1.25),
 ];
 /** Pallet stacking: full layers bottom-up; each layer fills far-to-near from its loading robot(s). */
+/** Pallet is raised this much above its rack shelf while sliding in (RACK_CONFIG.liftClearance). */
+export const RACK_LIFT_CLEARANCE = 0.04;
+const shelfYs = [...new Set(RACK_MODEL.slots.map(slot => slot.y))].sort((a, b) => a - b);
+const shelfPitch = Math.min(...shelfYs.slice(1).map((y, i) => y - shelfYs[i]));
 export const PALLET_STACKING = {
-  layers: 2,
+  /** Box layers that still fit a loaded pallet into the tightest rack shelf pitch (box.glb / pallet.glb / Rack.glb heights; beam depth not modelled). */
+  layers: Math.max(1, Math.floor((shelfPitch - (PALLET_MODEL.max[1] - PALLET_MODEL.min[1]) - RACK_LIFT_CLEARANCE) / (BOX_MODEL.max[1] - BOX_MODEL.min[1]))),
   /** Hover/retreat stays this far (m) above the tallest placed box on the pallet. */
   clearance: 0.05,
 };
 export const STREAM_CONFIG = {
-  palletHeight: 0.15,
-  palletWidth: 1.1,
-  palletDepth: 1.1,
+  // pallet.glb as authored (see modelPoints.generated.ts); no rescaling.
+  palletHeight: PALLET_MODEL.max[1] - PALLET_MODEL.min[1],
+  palletWidth: PALLET_MODEL.max[0] - PALLET_MODEL.min[0],
+  palletDepth: PALLET_MODEL.max[2] - PALLET_MODEL.min[2],
   maxStackHeight: 5,
   center: new Vector3(-0.95, 0, 0),
   // The robot approaches the pallet from +X; fill the -X edge first.
@@ -54,7 +61,8 @@ export const MOTION = {
   contactHold: 0.15,
   liftClearance: 0.08125,
   destinationHoverClearance: 0.08,
-  maxTransportHeight: 0.775,
+  /** Cap on the carry lift: belt surface + 0.525 m (was 0.25 + 0.525 with the old procedural belt). */
+  maxTransportHeight: CONVEYOR_LAYOUT.height + 0.525,
   retreatHeight: 0.0375,
   angularSpeed: 1.8,
   baseAngularSpeed: 1.2,

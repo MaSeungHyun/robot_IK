@@ -62,7 +62,7 @@ export default function ModelWarmup() {
       const model = scenes[url];
       if (model) addWithInstances(model.clone(true));
     }
-    for (const turn of TURNS) addWithInstances(conveyorTemplate(turn).clone(true));
+    for (const turn of TURNS) addWithInstances(conveyorTemplate(turn, scenes[MODEL.rail] ?? undefined).clone(true));
     for (const kind of GHOSTS) {
       const source = scenes[MODEL[kind]];
       if (!source) continue;
@@ -73,7 +73,7 @@ export default function ModelWarmup() {
       });
     }
     for (const turn of TURNS) {
-      const ghost = buildConveyorGhost(turn).model;
+      const ghost = buildConveyorGhost(turn, scenes[MODEL.rail] ?? undefined).model;
       keepAlive.push(ghost);
       root.add(ghost);
     }

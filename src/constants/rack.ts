@@ -1,7 +1,8 @@
 import { Vector3 } from "three";
 import type { EquipmentPose } from "@/types/layout";
-import { STREAM_CONFIG } from "@/constants/simulation";
+import { RACK_LIFT_CLEARANCE, STREAM_CONFIG } from "@/constants/simulation";
 import { RACK_MODEL } from "@/constants/modelPoints.generated";
+import { MODEL_FOOTPRINT } from "@/constants/footprints";
 
 /**
  * Rack.glb in metres, used as authored: origin at the floor centre, the shelves run along local Z
@@ -21,13 +22,23 @@ export const RACK_CONFIG = {
   front: maxX,
   /** Gap between the loading face and the carried pallet at the approach point. */
   approachGap: 0.35,
+  /** Loading face -> AMR stop distance: the pallet keeps approachGap and the AMR body circle (AMR.glb) clears the frame footprint. */
+  get approachStandoff() {
+    return rackStandoff(0);
+  },
   slots: RACK_MODEL.slots as RackSlot[],
   /** Pallet is raised this much above its shelf while sliding in, then set down. */
-  liftClearance: 0.04,
+  liftClearance: RACK_LIFT_CLEARANCE,
   /** m/s for raising/lowering the pallet and for driving in/out of the slot. */
   liftSpeed: 0.35,
   insertSpeed: 0.3,
 };
+
+/** Face -> stop distance with `extra` m added to the pallet gap, never closer than the AMR body circle allows. */
+export function rackStandoff(extra: number) {
+  const frameMargin = (2 * Math.max(-minX, maxX) + 0.05) / 2 - maxX;
+  return Math.max(STREAM_CONFIG.palletDepth / 2 + 0.35 + extra, MODEL_FOOTPRINT.amrRadius + frameMargin + 0.05);
+}
 
 const local = (rack: EquipmentPose, x: number, y: number, z: number) =>
   new Vector3(x, y, z).applyAxisAngle(new Vector3(0, 1, 0), rack.yaw).add(new Vector3(rack.x, 0, rack.z));
@@ -55,5 +66,5 @@ export function rackFacePoint(rack: EquipmentPose, slot: number, distance: numbe
 /** Floor point in front of a slot where the loaded pallet AMR stops before inserting. */
 export function rackApproachPoint(rack: EquipmentPose, slot: number) {
   const { x } = RACK_CONFIG.slots[slot];
-  return rackFacePoint(rack, slot, RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2 + RACK_CONFIG.approachGap);
+  return rackFacePoint(rack, slot, RACK_CONFIG.front - x + rackStandoff(0));
 }

@@ -1,6 +1,6 @@
 export const AMR_CONFIG = {
   columns: 24, rows: 18, cellSize: .5,
-  speed: 1, bodyWidth: .58, clearance: .08,
+  speed: 1, clearance: .08,
   taskInterval: 7, handlingSeconds: .8, statsInterval: .25,
   start: [2, 8] as const,
   dispatch: [2, 14] as const,

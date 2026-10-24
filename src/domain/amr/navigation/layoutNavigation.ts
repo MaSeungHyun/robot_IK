@@ -6,9 +6,11 @@ import type { Cell } from "@/domain/amr/navigation/pathfinding";
 import { STREAM_CONFIG } from "@/constants/simulation";
 import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
 import { RACK_CONFIG } from "@/constants/rack";
+import { SCAN_TUNNEL } from "@/domain/conveyor/scanTunnel";
+import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
 
 export function footprint(kind:EquipmentKind):[number,number]{
-  return kind==="conveyor"?[.35,2.625]:kind==="pallet"?[STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth]:kind==="dock"?[1.3,1.3]:kind==="rack"?RACK_CONFIG.footprint:[.65,.65];
+  return kind==="conveyor"?[BELT.width,BELT.length]:kind==="scanner"?[SCAN_TUNNEL.width,SCAN_TUNNEL.length]:kind==="pallet"?[STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth]:kind==="dock"?F.amr:kind==="rack"?RACK_CONFIG.footprint:kind==="amr"?F.amr:F.robot;
 }
 export function clearanceAt(x:number,z:number,kind:keyof FactoryLayout,layout:FactoryLayout){
   return clearancePose(x,z,kind,layout[kind]);
@@ -32,14 +34,15 @@ export function validateLayout(layout:FactoryLayout):string[]{
   const robot=layout.robot,pallet=layout.pallet,belt=layout.conveyor;
   const reach=(x:number,z:number)=>Math.hypot(x-robot.x,z-robot.z)<=C.reach;
   if(!reach(belt.x,belt.z))errors.push("컨베이어 집기 지점이 로봇 도달 범위 밖입니다.");
-  for(const x of [-.44,.44])for(const z of [-.4125,.4125]){
+  const hw=STREAM_CONFIG.palletWidth/2,hd=STREAM_CONFIG.palletDepth/2;
+  for(const x of [-hw,hw])for(const z of [-hd,hd]){
     const px=pallet.x+x*Math.cos(pallet.yaw)+z*Math.sin(pallet.yaw),pz=pallet.z-x*Math.sin(pallet.yaw)+z*Math.cos(pallet.yaw);
     if(!reach(px,pz)&&!errors.some(e=>e.includes("팔레트 적재")))errors.push("팔레트 적재 지점이 로봇 도달 범위 밖입니다.");
   }
-  if(clearanceAt(robot.x,robot.z,"conveyor",layout)<.38)errors.push("로봇 베이스와 컨베이어가 겹칩니다.");
-  if(clearanceAt(robot.x,robot.z,"pallet",layout)<.32)errors.push("로봇 베이스와 팔레트가 겹칩니다.");
-  if(clearanceAt(pallet.x,pallet.z,"conveyor",layout)<.85)errors.push("팔레트와 컨베이어 사이를 벌려 주세요.");
-  if(clearanceAt(layout.amr.x,layout.amr.z,"robot",layout)<.4||clearanceAt(layout.amr.x,layout.amr.z,"conveyor",layout)<.4)errors.push("AMR 시작 위치가 다른 설비와 겹칩니다.");
+  if(clearanceAt(robot.x,robot.z,"conveyor",layout)<F.robotRadius)errors.push("로봇 베이스와 컨베이어가 겹칩니다.");
+  if(clearanceAt(robot.x,robot.z,"pallet",layout)<F.robotRadius)errors.push("로봇 베이스와 팔레트가 겹칩니다.");
+  if(clearanceAt(pallet.x,pallet.z,"conveyor",layout)<AMR_TRAFFIC.loadedRadius)errors.push("팔레트와 컨베이어 사이를 벌려 주세요.");
+  if(clearanceAt(layout.amr.x,layout.amr.z,"robot",layout)<AMR_TRAFFIC.emptyRadius||clearanceAt(layout.amr.x,layout.amr.z,"conveyor",layout)<AMR_TRAFFIC.emptyRadius)errors.push("AMR 시작 위치가 다른 설비와 겹칩니다.");
   if(!errors.length&&(!layoutPath(layout,layout.amr,layout.pallet,false)||!layoutPath(layout,layout.pallet,layout.dock,true)))errors.push("AMR이 팔레트와 출고 구역을 연결할 수 없습니다.");
   return errors;
 }
@@ -56,7 +59,7 @@ function loadedOverlaps(x:number,z:number,yaw:number,kind:EquipmentKind,pose:Equ
   return true;
 }
 /** Room wall piece (kind "floor", 2-point path, radius = half thickness): blocks the AMR body circle, and when loaded
- * also the carried pallet as its real square at the planner's pallet yaw (separating axes), not the 0.82 m envelope,
+ * also the carried pallet as its real square at the planner's pallet yaw (separating axes), not the loaded envelope,
  * so docks set against a wall stay reachable while the pallet still never clips the wall. */
 function wallBlocker(o:NavigationObstacle,loaded:boolean,palletYaw:number):(x:number,z:number)=>boolean{
   const a=o.path![0],b=o.path![o.path!.length-1],r=o.radius??0,dx=b.x-a.x,dz=b.z-a.z,length=Math.hypot(dx,dz)||1e-9;
@@ -69,7 +72,7 @@ function wallBlocker(o:NavigationObstacle,loaded:boolean,palletYaw:number):(x:nu
 }
 function navigationClear(layout:FactoryLayout,x:number,z:number,loaded:boolean,extra:NavigationObstacle[]){
   const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius;
-  const clears=(kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn})=>loaded&&!(kind==="conveyor"&&pose.conveyorTurn&&pose.conveyorTurn!=="straight")?!loadedOverlaps(x,z,layout.pallet.yaw,kind,pose):clearancePose(x,z,kind,pose)>=radius-1e-8;
+  const clears=(kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn})=>loaded&&!(kind==="conveyor"&&pose.conveyorTurn&&pose.conveyorTurn!=="straight")?!loadedOverlaps(x,z,layout.pallet.yaw,kind,pose)&&clearancePose(x,z,kind,pose)>=AMR_TRAFFIC.emptyRadius-1e-8:clearancePose(x,z,kind,pose)>=radius-1e-8;
   return clears("robot",layout.robot)&&clears("conveyor",layout.conveyor)&&!extra.some(o=>o.kind==="floor"&&o.path?.length?wallBlocker(o,loaded,layout.pallet.yaw)(x,z):o.radius!==undefined||o.path?.length?obstacleClearance(x,z,o)<radius-1e-8:!clears(o.kind,o.pose));
 }
 /** Same result as navigationClear, but each point only tests obstacles whose conservative bound can reach it
@@ -103,7 +106,13 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
         const b=width/2*Math.abs(nx*bc-nz*bs)+depth/2*Math.abs(nx*bs+nz*bc);
         return [nx,nz,a+b+.01-1e-8];
       });
-      blocks=(x,z)=>{for(const [nx,nz,gap] of axes)if(Math.abs((x-px)*nx+(z-pz)*nz)>=gap)return false;return true;};
+      // The AMR body (emptyRadius circle) is larger than the pallet it carries, so it must clear too.
+      const c=Math.cos(pose.yaw),s=Math.sin(pose.yaw),body=AMR_TRAFFIC.emptyRadius-1e-8;
+      blocks=(x,z)=>{
+        const dx=x-px,dz=z-pz;
+        if(Math.hypot(Math.max(0,Math.abs(dx*c-dz*s)-width/2),Math.max(0,Math.abs(dx*s+dz*c)-depth/2))<body)return true;
+        for(const [nx,nz,gap] of axes)if(Math.abs(dx*nx+dz*nz)>=gap)return false;return true;
+      };
     }else{
       // clearancePose for a straight footprint with its trig precomputed.
       const c=Math.cos(pose.yaw),s=Math.sin(pose.yaw);
@@ -112,7 +121,7 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
         return Math.hypot(Math.max(0,Math.abs(dx*c-dz*s)-width/2),Math.max(0,Math.abs(dx*s+dz*c)-depth/2))<limit;
       };
     }
-    add(px,px,pz,pz,(loaded&&!turned?palletHalf+.01:radius)+half,blocks);
+    add(px,px,pz,pz,(loaded&&!turned?Math.max(palletHalf+.01,AMR_TRAFFIC.emptyRadius):radius)+half,blocks);
   };
   addPose("robot",layout.robot);addPose("conveyor",layout.conveyor);
   for(const o of extra){

@@ -39,8 +39,12 @@ export class PalletDispatchController {
       this.phase === "returning"
     );
   }
+  /** Carrying a pallet (decides the loaded navigation check; radii may coincide, so never compare radii). */
+  get loaded() {
+    return ["loading", "dispatch", "unloading", "storing"].includes(this.phase);
+  }
   get radius() {
-    return ["loading", "dispatch", "unloading", "storing"].includes(this.phase)
+    return this.loaded
       ? AMR_TRAFFIC.loadedRadius
       : AMR_TRAFFIC.emptyRadius;
   }

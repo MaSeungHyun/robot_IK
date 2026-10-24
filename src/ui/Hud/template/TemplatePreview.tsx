@@ -16,7 +16,7 @@ export default function TemplatePreview({ template }: { template: SceneTemplate 
           {object.kind === "robot" ? (
             <><circle r={0.65} fill="none" stroke="currentColor" strokeWidth={0.025} opacity={0.4} /><circle r={0.16} fill="currentColor" /></>
           ) : object.kind === "conveyor" ? (
-            <rect x={-0.175} y={-CONVEYOR_LAYOUT.length / 2} width={0.35} height={CONVEYOR_LAYOUT.length} fill="currentColor" opacity={0.35} />
+            <rect x={-CONVEYOR_LAYOUT.width / 2} y={-CONVEYOR_LAYOUT.length / 2} width={CONVEYOR_LAYOUT.width} height={CONVEYOR_LAYOUT.length} fill="currentColor" opacity={0.35} />
           ) : (
             <rect x={-0.24} y={-0.24} width={0.48} height={0.48} rx={0.06} fill={object.kind === "scanner" ? "#f9c335" : object.kind === "pallet" ? "#c8a879" : "#19de86"} />
           )}

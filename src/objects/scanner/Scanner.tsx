@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { Vector3 } from "three";
-import scannerUrl from "@/assets/models/scanner.glb?url";
+import scannerUrl from "@/assets/models/ScanTunnel.glb?url";
 import { SCANNER_CONFIG } from "@/constants/scanner";
 import type { ScannerInspection } from "@/domain/scanner/ScannerInspection";
 import type { SceneEquipment } from "@/types/layout";

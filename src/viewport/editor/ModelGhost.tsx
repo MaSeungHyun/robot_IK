@@ -1,4 +1,4 @@
-import scannerUrl from "@/assets/models/scanner.glb?url";
+import scannerUrl from "@/assets/models/ScanTunnel.glb?url";
 import { useGLTF } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
 import robotUrl from "@/assets/models/RobotArm.glb?url";

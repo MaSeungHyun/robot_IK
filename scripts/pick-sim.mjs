@@ -1,4 +1,4 @@
-// Headless pick reproduction: node scripts/pick-sim.mjs [seconds] [speeds...] [--template=N]
+// Headless pick reproduction: node scripts/pick-sim.mjs [seconds] [speeds...] [--template=N | --file=template.json]
 import { createServer } from "vite";
 import { readFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -35,7 +35,7 @@ try {
     const buffer = stripTextures(readFileSync(file));
     new GLTFLoader().parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), "", resolve, reject);
   });
-  const [robotGltf, boxGltf, palletGltf, scannerGltf] = await Promise.all(["RobotArm", "box", "pallet", "scanner"].map(n => parse(`src/assets/models/${n}.glb`)));
+  const [robotGltf, boxGltf, palletGltf, scannerGltf] = await Promise.all(["RobotArm", "box", "pallet", "ScanTunnel"].map(n => parse(`src/assets/models/${n}.glb`)));
   const { SCENE_TEMPLATES } = await load("/src/constants/sceneTemplates.ts");
   const { useSceneStore } = await load("/src/stores/useSceneStore.ts");
   const { FactorySimulator } = await load("/src/domain/simulation/FactorySimulator.ts");
@@ -44,7 +44,8 @@ try {
   const { SIMULATOR_CONFIG } = await load("/src/constants/simulatorLayout.ts");
   const { createScannerModel } = await load("/src/objects/scanner/scannerModel.ts");
   const scannerModel = createScannerModel(scannerGltf.scene);
-  const template = SCENE_TEMPLATES[templateIndex];
+  const fileArg = args.find(a => a.startsWith("--file="));
+const template = fileArg ? JSON.parse((await import("node:fs")).readFileSync(fileArg.slice(7), "utf8")) : SCENE_TEMPLATES[templateIndex];
   const defectArg = process.argv.find(a => a.startsWith("--defect="));
   const runs = +(process.argv.find(a => a.startsWith("--runs="))?.slice(7) ?? 1);
   // --rack-slots=N keeps only the first N rack slots (fills racks quickly for rack-assignment checks).
@@ -62,6 +63,7 @@ try {
       useSceneStore.setState({ objects: after.objects.map(o => o.id === door.id ? { ...o, x: 10.5, z: 10, yaw: -Math.PI / 2 } : o.id === amr.id ? { ...o, x: 8, z: 8, yaw: 0 } : o),
         settings: { ...after.settings, [amr.id]: { ...after.settings[amr.id], amrRole: 'forklift' } } }); }
     const { objects, links } = useSceneStore.getState();
+    { const { validateScene } = await load("/src/domain/amr/navigation/sceneValidation.ts"); const errors = validateScene(objects, useSceneStore.getState().settings); console.log(`validation: ${errors.length ? errors.join(" | ") : "ok"}`); }
     const getSettings = () => useSceneStore.getState().settings;
     let seed = 12345; const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
     const world = new FactorySimulator(objects, boxGltf.scene, palletGltf.scene, getSettings, undefined, random, links);
@@ -128,7 +130,7 @@ try {
     console.log(`\n=== speed ${speed}x · ${clock.stats.simTime.toFixed(0)}s sim · ${frames} frames · ${realMs.toFixed(0)}ms CPU · ${perStep.toFixed(3)}ms/step · est. browser max ~${(10 / perStep).toFixed(0)}x`);
     const sensors = [...world.inspection.sensors.values()].map(x => x.snapshot), scanned = sensors.reduce((a, x) => a + x.scanned, 0), faults = sensors.reduce((a, x) => a + x.faults, 0);
     console.log(`spawned ${world.stats.spawned} scanned ${scanned} ok ${scanned - faults} rejected ${faults} placed ${world.placed} passed ${world.passed}`);
-    if (world.rackStored?.size) console.log('   racks:', [...world.rackStored].map(([id, s]) => id + ' ' + s.filter(Boolean).length + '/' + s.length).join(' | '), '· agents:', world.agents.map((a) => a.object.id + ':' + a.dispatch.phase + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '));
+    if (world.rackStored?.size) console.log('   racks:', [...world.rackStored].map(([id, s]) => id + ' ' + s.filter(Boolean).length + '/' + s.length).join(' | '), '· agents:', world.agents.map((a) => a.object.id + ':' + a.dispatch.phase + (args.includes('--where') ? '@' + a.dispatch.carrier.position.toArray().map((n) => n.toFixed(1)) + '->' + (a.dispatch.goal?.toArray().map((n) => n.toFixed(1)) ?? '-') + ' ' + (a.object.status ?? a.status ?? '') : '') + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '));
     if (world.forkliftAgents?.length) console.log('   forklift:', world.forkliftAgents.map((a) => a.object.id + ':' + (a.controller.stage ?? 'idle') + ' stored=' + a.controller.stored + ' out=' + a.controller.completed + ' recover=' + a.controller.recoveries + (a.waitingReason ? '(' + a.waitingReason + ')' : '')).join(' '), '· handedOff:', world.handedOff, '· forkliftStored:', world.forkliftStored, '· unloaded:', world.unloaded);
     for (const p of world.pallets) { const per = Array.from({ length: p.layers }, (_, l) => p.states.filter((st, i) => st === "placed" && p.layerOf(i) === l).length);
       console.log(`   pallet ${p.object.id}: ${p.count}/${p.slots.length} (${p.layers} layers x ${p.perLayer}) per layer [${per.join(", ")}] shipped ${world.stats.completedPallets}`); }

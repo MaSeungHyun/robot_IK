@@ -6,13 +6,19 @@
  * Frame: the floor is centred on (0, 0); width runs along x, depth along z. A conveyor at yaw 0
  * flows toward +z (see conveyorLayout.beltLocalPoint).
  */
+import { Vector3 } from "three";
 import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
-import { RACK_CONFIG, RACK_FACE_YAW } from "@/constants/rack";
+import { RACK_CONFIG, RACK_FACE_YAW, rackStandoff } from "@/constants/rack";
 import { beltLength, beltPoint, extendBelt } from "@/domain/conveyor/conveyorLayout";
 import type { ConveyorTurn, EquipmentKind, EquipmentSettings } from "@/types/layout";
 import type { TemplateLink } from "@/types/links";
 import type { SceneTemplate, TemplateEquipment } from "@/types/sceneTemplate";
 import { aisleWidth, closenessCost, inletSegments, segmentsCross } from "@/domain/layout/designRules";
+import { BOX_SIZES, PALLET_STACKING, STREAM_CONFIG } from "@/constants/simulation";
+import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
+import { planStack } from "@/domain/pallet/packing/stacking";
+import { AMR_TRAFFIC, SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
+import { SCAN_TUNNEL, scanTunnelPose } from "@/domain/conveyor/scanTunnel";
 
 /** Drop-in animation when an auto-layout is applied: linear fall time (ms) and start height (m). */
 export const AUTO_LAYOUT_DROP_IN_DURATION_MS = 300;
@@ -54,7 +60,7 @@ export type LayoutConstraints = {
 export const RACK_SLOTS = RACK_CONFIG.slots.length;
 /** R-STORAGE: pallets to store and racks needed for them (racks capped by maxRacks). */
 export function storageRequirement(constraints: LayoutConstraints) {
-  const perPallet = constraints.boxesPerPallet ?? 40;
+  const perPallet = constraints.boxesPerPallet ?? PALLET_CAPACITY;
   const pallets = Math.max(1, Math.ceil(constraints.storagePallets ?? (constraints.targetPerHour * (constraints.storageHours ?? 2)) / perPallet));
   const needed = Math.ceil(pallets / RACK_SLOTS);
   return { pallets, needed, racks: Math.min(needed, constraints.maxRacks ?? Infinity) };
@@ -118,10 +124,25 @@ export type LayoutCandidate = {
 };
 
 /** Spacing rules (m), from the existing templates and navigation footprints. */
+/** Boxes per pallet: best grid of box.glb on pallet.glb x the layers the rack shelf pitch allows. */
+const PALLET_CAPACITY = planStack(1, new Vector3(STREAM_CONFIG.palletWidth, 0, STREAM_CONFIG.palletDepth), BOX_SIZES[0], 0).capacity * PALLET_STACKING.layers;
+const ROBOT_FOOTPRINT = F.robot[0];
+/** Belt gap per box (m) the spacing needs: box length + 0.325 m spawn gap. */
+const BOX_PITCH = Math.max(BOX_SIZES[0].x, BOX_SIZES[0].z) + 0.325;
+/** AMR start pitch along an aisle (bodies never touch). */
+const AMR_PITCH = 2 * (AMR_TRAFFIC.emptyRadius + AMR_TRAFFIC.safetyMargin);
+/** Dock row half depth + margin to the aisle edge. */
+const DOCK_EDGE = F.amr[1] / 2 + 0.2;
 export const LAYOUT_RULES = {
-  beltToRobot: 1.07,
-  robotToPallet: 1.0,
-  robotPitch: BELT.length,
+  /** Belt centre -> robot base: rail half width + robot half footprint + 5 cm. */
+  beltToRobot: BELT.width / 2 + ROBOT_FOOTPRINT / 2 + 0.05,
+  /** Robot base -> pallet centre: robot half footprint + pallet half width + 12.5 cm (old 1.0 with a 1.1 m pallet). */
+  robotToPallet: ROBOT_FOOTPRINT / 2 + AMR_TRAFFIC.loadedRadius + 0.05,
+  /**
+   * Robot spacing along a line (the old 2.5 m segment pitch). Rails (rail.glb) are much longer than this, so
+   * robots are placed by distance along the chain, not one per segment.
+   */
+  robotPitch: 2 * (AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.safetyMargin),
   /** R-AISLE: loaded AMR envelope + ISO 3691-4 0.5 m each side. */
   aisle: aisleWidth(),
   /** R-WALL. */
@@ -130,10 +151,10 @@ export const LAYOUT_RULES = {
   gap: 0.15,
   doorKeepOut: 3,
   footprint: {
-    conveyor: [BELT.width, BELT.length], pallet: [1.1, 1.1], dock: [1.3, 1.3],
+    conveyor: [BELT.width, BELT.length], pallet: [STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletDepth], dock: F.amr,
     // Rack as laid out here: [width along its face, depth], face toward layout +z (model yaw adds RACK_FACE_YAW).
     rack: [RACK_CONFIG.footprint[1], RACK_CONFIG.footprint[0]],
-    robot: [0.65, 0.65], amr: [0.9, 0.9], scanner: [0.65, 0.65], floor: [0, 0], door: [0, 0],
+    robot: [ROBOT_FOOTPRINT, ROBOT_FOOTPRINT], amr: F.amr, scanner: [SCAN_TUNNEL.width, SCAN_TUNNEL.length], floor: [0, 0], door: [0, 0],
   } as Record<EquipmentKind, [number, number]>,
   /** Belt speed so boxes (0.275 m) keep >= 0.5 m spacing at the inlet. */
   minBeltSpeed: 0.25,
@@ -176,29 +197,35 @@ export function rectsOverlap(a: Rect, b: Rect, margin = 0) {
   return true;
 }
 
-type Segment = { turn: ConveyorTurn; robot: boolean };
-/** Conveyor chain for a pattern; robots sit beside straight segments, on the outside of turns. */
-function chainFor(pattern: LayoutPattern, robots: number, inlet = 1): Segment[] {
-  const straight = (n: number, withRobots: number) =>
-    Array.from({ length: n }, (_, i) => ({ turn: "straight" as const, robot: i >= inlet && i < inlet + withRobots }));
-  if (pattern === "straight") return [...straight(robots + inlet, robots), { turn: "straight", robot: false }];
-  const first = Math.ceil(robots / (pattern === "L" ? 2 : 3)), last = pattern === "L" ? robots - first : Math.ceil((robots - first) / 2);
-  const legs = pattern === "L" ? [first, last] : [first, robots - first - last, last];
-  const chain: Segment[] = [];
+/** Robot slot: segment index in the chain and distance along that (straight) segment. */
+type Slot = { segment: number; distance: number };
+/**
+ * Conveyor chain for a pattern, in rail.glb segments, and robot slots by distance along it. Robots sit beside
+ * straight rails, on the outside of turns. The first leg starts with the scan tunnel (boxes leave it at
+ * SCAN_TUNNEL.exitDistance) plus `inlet` m of empty accumulation belt (R-BUFFER); later legs leave half a pitch
+ * after the turn. Every leg ends half a pitch past its last robot, then runs to the end of its last rail.
+ */
+function chainFor(pattern: LayoutPattern, robots: number, inlet: number, pitch: number) {
+  const first = pattern === "straight" ? robots : Math.ceil(robots / (pattern === "L" ? 2 : 3));
+  const last = pattern === "L" ? robots - first : Math.ceil((robots - first) / 2);
+  const legs = pattern === "straight" ? [robots] : pattern === "L" ? [first, last] : [first, robots - first - last, last];
+  const turns: ConveyorTurn[] = [], slots: Slot[] = [];
   legs.forEach((count, leg) => {
-    if (leg) chain.push({ turn: "right", robot: false });
-    // First leg keeps one empty inlet segment; later legs one segment after the turn to clear the arc.
-    // R-BUFFER: the first leg starts with `inlet` empty accumulation segments.
-    const lead = leg ? 1 : inlet;
-    chain.push(...Array.from({ length: count + lead }, (_, i) => ({ turn: "straight" as const, robot: i >= lead })));
+    if (leg) turns.push("right");
+    const lead = leg ? pitch / 2 : SCAN_TUNNEL.exitDistance + inlet;
+    const start = turns.length, rails = Math.max(1, Math.ceil((lead + count * pitch) / BELT.length));
+    for (let k = 0; k < count; k++) {
+      const along = lead + pitch * (k + 0.5), index = Math.min(rails - 1, Math.floor(along / BELT.length));
+      slots.push({ segment: start + index, distance: along - index * BELT.length });
+    }
+    for (let k = 0; k < rails; k++) turns.push("straight");
   });
-  chain.push({ turn: "straight", robot: false });
-  return chain;
+  return { turns, slots };
 }
 
 function settingsFor(kind: EquipmentKind, interval: number): Partial<EquipmentSettings> | undefined {
   if (kind !== "conveyor") return undefined;
-  return { spawnInterval: +interval.toFixed(3), beltSpeed: +Math.max(LAYOUT_RULES.minBeltSpeed, 0.6 / interval).toFixed(4) };
+  return { spawnInterval: +interval.toFixed(3), beltSpeed: +Math.max(LAYOUT_RULES.minBeltSpeed, BOX_PITCH / interval).toFixed(4) };
 }
 
 /**
@@ -227,14 +254,14 @@ function buildOriented(constraints: LayoutConstraints, params: LayoutParams): La
   return options.sort((a, b) => a.issues.length - b.issues.length || a.usedArea - b.usedArea)[0];
 }
 function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facing: Wall): LayoutCandidate {
-  const rules = LAYOUT_RULES, aisle = constraints.aisle ?? rules.aisle, reach = constraints.reach ?? 1.8;
+  const rules = LAYOUT_RULES, aisle = constraints.aisle ?? rules.aisle, reach = constraints.reach ?? SIMULATOR_CONFIG.reach;
   const issues: string[] = [];
   const lines = Math.max(1, Math.round(params.lines));
   const interval = params.spawnInterval ?? (3600 * lines) / constraints.targetPerHour;
   const items: Item[] = [];
   const robotsOf: number[][] = [], palletsOf: number[][] = [], headOf: number[] = [];
   const aisles: Rect[] = [];
-  const palletOuter = rules.beltToRobot + rules.robotToPallet + 0.55;
+  const palletOuter = rules.beltToRobot + rules.robotToPallet + STREAM_CONFIG.palletWidth / 2;
   // Lines are built in units: a straight unit is a mirrored pair (line 2k at x = 0, line 2k+1 mirrored toward
   // its aisle); an L/U unit is one line. Each new unit is shifted to +x so it clears the previous units
   // (equipment + aisles) by `unitGap`.
@@ -248,7 +275,9 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   const lineEnd = params.rackPlacement === "lineEnd";
   const racksForUnit = (u: number) => (lineEnd ? Math.floor(params.racks / units) + (u < params.racks % units ? 1 : 0) : 0);
   const rackPitch = rules.footprint.rack[0] + 0.6;
-  const rackRowPitch = rules.footprint.rack[1] + aisle + 0.3;
+  // Rack access aisle: never narrower than the loaded AMR stopped at the rack standoff (rack.ts) plus its margin.
+  const rackAccess = Math.max(aisle, rackStandoff(0) + AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.safetyMargin);
+  const rackRowPitch = rules.footprint.rack[1] + rackAccess + 0.3;
   const extraRackItems: number[] = [];
   const crossBands: { z: number }[] = [];
   let unitStartItem = 0, unitStartAisle = 0, unitMaxX = -Infinity, baseX0: number | null = null;
@@ -265,9 +294,9 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
     const perRow = Math.max(1, Math.floor((ext.x1 - ext.x0 + 0.6) / rackPitch));
     for (let row = 0, placed = 0; placed < count; row++) {
       const n = Math.min(perRow, count - placed);
-      const front = ext.z1 + aisle + 0.2 + row * rackRowPitch;
+      const front = ext.z1 + rackAccess + 0.2 + row * rackRowPitch;
       let x = cx - (n * rackPitch - 0.6) / 2;
-      aisles.push({ cx, cz: front - (aisle + 0.2) / 2, yaw: 0, w: Math.max(aisle, n * rackPitch), d: aisle, tag: "aisle" });
+      aisles.push({ cx, cz: front - (rackAccess + 0.2) / 2, yaw: 0, w: Math.max(aisle, n * rackPitch), d: rackAccess, tag: "aisle" });
       for (let k = 0; k < n; k++) {
         extraRackItems.push(items.length);
         items.push({ kind: "rack", x: x + rules.footprint.rack[0] / 2, z: front + rules.footprint.rack[1] / 2, yaw: Math.PI + RACK_FACE_YAW });
@@ -299,28 +328,33 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
     const twin = line % perUnit === 1;
     const side = twin ? 1 : -1;
     const start = { x: twin ? -(2 * palletOuter + aisle) : 0, z: 0, yaw: 0, conveyorTurn: "straight" as ConveyorTurn };
-    const beltSpeed = Math.max(rules.minBeltSpeed, 0.6 / interval);
-    const chain = chainFor(params.pattern, robotsForLine(line), inletSegments(beltSpeed, rules.robotPitch));
+    const beltSpeed = Math.max(rules.minBeltSpeed, BOX_PITCH / interval);
+    const chain = chainFor(params.pattern, robotsForLine(line), inletSegments(beltSpeed, rules.robotPitch) * rules.robotPitch, rules.robotPitch);
     let pose = start;
     robotsOf[line] = []; palletsOf[line] = [];
-    chain.forEach((segment, i) => {
-      if (i) pose = { ...extendBelt(pose, segment.turn), conveyorTurn: segment.turn };
+    const poses: (typeof start)[] = [];
+    chain.turns.forEach((turn, i) => {
+      if (i) pose = { ...extendBelt(pose, turn), conveyorTurn: turn };
+      poses.push(pose);
       headOf[line] ??= items.length;
-      items.push({ kind: "conveyor", x: pose.x, z: pose.z, yaw: pose.yaw, ...(segment.turn !== "straight" ? { conveyorTurn: segment.turn } : {}), settings: i ? undefined : settingsFor("conveyor", interval), line });
-      if (!segment.robot) return;
-      const n = NORMAL(pose.yaw);
-      const at = (distance: number) => ({ x: pose.x + side * n.x * distance, z: pose.z + side * n.z * distance });
+      items.push({ kind: "conveyor", x: pose.x, z: pose.z, yaw: pose.yaw, ...(turn !== "straight" ? { conveyorTurn: turn } : {}), settings: i ? undefined : settingsFor("conveyor", interval), line });
+    });
+    // ScanTunnel.glb heads the line, over the start of the first rail.
+    items.push({ kind: "scanner", ...scanTunnelPose(poses[0]), line });
+    for (const slot of chain.slots) {
+      const p = beltPoint(poses[slot.segment], slot.distance), n = NORMAL(p.yaw);
+      const at = (distance: number) => ({ x: p.x + side * n.x * distance, z: p.z + side * n.z * distance });
       const robot = at(rules.beltToRobot), pallet = at(rules.beltToRobot + rules.robotToPallet);
       robotsOf[line].push(items.length);
-      items.push({ kind: "robot", ...robot, yaw: pose.yaw, line });
+      items.push({ kind: "robot", ...robot, yaw: p.yaw, line });
       palletsOf[line].push(items.length);
-      items.push({ kind: "pallet", ...pallet, yaw: pose.yaw, line });
+      items.push({ kind: "pallet", ...pallet, yaw: p.yaw, line });
       const aisleCentre = at(palletOuter + aisle / 2);
-      aisles.push({ cx: aisleCentre.x, cz: aisleCentre.z, yaw: pose.yaw, w: aisle, d: rules.robotPitch + 0.01, tag: "aisle" });
+      aisles.push({ cx: aisleCentre.x, cz: aisleCentre.z, yaw: p.yaw, w: aisle, d: rules.robotPitch + 0.01, tag: "aisle" });
       // Reach check: belt centre line and the far pallet corners.
-      const far = Math.hypot(rules.robotToPallet + 0.55, 0.55);
+      const far = Math.hypot(rules.robotToPallet + STREAM_CONFIG.palletWidth / 2, STREAM_CONFIG.palletDepth / 2);
       if (rules.beltToRobot > reach || far > reach) issues.push(`로봇 작업 반경(${reach}m) 밖에 컨베이어/팔레트가 있습니다.`);
-    });
+    }
   }
   closeUnit(units - 1);
   const lineX = { x0: Math.min(...items.map((it) => it.x)), x1: Math.max(...items.map((it) => it.x)) };
@@ -333,7 +367,7 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   // Dock / rack row at the upstream end, below every conveyor head, with a cross aisle in front (R-AISLE).
   // Docks sit at the main aisle (shortest pallet route), racks split to both sides (R-STORAGE, R-SLP).
   const firstRobotZ = Math.min(...items.filter((it) => it.kind === "robot").map((it) => it.z));
-  const headZ = Math.min(...items.filter((it) => it.kind === "conveyor").map((it) => it.z)) - rules.robotPitch / 2;
+  const headZ = Math.min(...items.filter((it) => it.kind === "conveyor").map((it) => it.z)) - BELT.length / 2;
   const aisleX = -(palletOuter + aisle / 2);
   const destinations: number[] = [...extraRackItems], rackItems: number[] = [...extraRackItems], dockItems: number[] = [];
   const rowRacks = lineEnd ? 0 : params.racks;
@@ -351,13 +385,13 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   let cursor = aisleX - widthOf(kinds.slice(0, left)) - (widthOf(kinds.slice(left, left + params.docks)) - 0.6) / 2;
   // Row next to the inlet when the row and its cross aisle clear every belt; otherwise below the belt heads.
   const rowX0 = cursor, rowX1 = cursor + widthOf(kinds) - 0.6;
-  const besideZ = firstRobotZ - rules.robotPitch / 2 - aisle - 1.0;
+  const besideZ = firstRobotZ - rules.robotPitch / 2 - aisle - DOCK_EDGE;
   // Band covers the row and the cross aisle that must reach every unit.
   const multi = lines > perUnit;
   const bandX0 = multi ? Math.min(rowX0, lineX.x0 - 1) : rowX0, bandX1 = multi ? Math.max(rowX1, lineX.x1 + 1) : rowX1;
   const band: Rect = { cx: (bandX0 + bandX1) / 2, cz: besideZ + (aisle - 0.4) / 2, yaw: 0, w: bandX1 - bandX0, d: aisle + 2.1, tag: "row" };
-  const clearOfBelts = items.every((it, i) => it.kind !== "conveyor" || !rectsOverlap(band, rectOf(it, i), rules.gap));
-  const rowZ = clearOfBelts ? besideZ : Math.min(besideZ, headZ - 0.6 - aisle - 0.85);
+  const clearOfBelts = items.every((it, i) => (it.kind !== "conveyor" && it.kind !== "scanner") || !rectsOverlap(band, rectOf(it, i), rules.gap));
+  const rowZ = clearOfBelts ? besideZ : Math.min(besideZ, headZ - 0.6 - aisle - DOCK_EDGE);
   for (const kind of kinds) {
     const [w] = rules.footprint[kind];
     destinations.push(items.length);
@@ -367,7 +401,7 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
     cursor += w + 0.6;
   }
   // Back rack rows, centred under the front row; each faces +z with an access aisle in front of it.
-  const rowPitch = rules.footprint.rack[1] + aisle + 0.3;
+  const rowPitch = rackRowPitch;
   const rowCentre = (rowX0 + cursor - 0.6) / 2;
   for (let row = 1, placed = 0; placed < backRacks; row++) {
     const n = Math.min(perRow, backRacks - placed);
@@ -378,18 +412,18 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
       items.push({ kind: "rack", x: x + rules.footprint.rack[0] / 2, z, yaw: RACK_FACE_YAW });
       x += rackPitch;
     }
-    aisles.push({ cx: rowCentre, cz: z + rules.footprint.rack[1] / 2 + 0.15 + (aisle - 0.2) / 2, yaw: 0, w: n * rackPitch, d: aisle - 0.2, tag: "aisle" });
+    aisles.push({ cx: rowCentre, cz: z + rules.footprint.rack[1] / 2 + 0.15 + rackAccess / 2, yaw: 0, w: n * rackPitch, d: rackAccess, tag: "aisle" });
     placed += n;
   }
   // Cross aisle along the row, extended so AMRs reach every unit's aisle.
   const crossX0 = Math.min(rowX0, lines > perUnit ? lineX.x0 : rowX0), crossX1 = Math.max(cursor - 0.6, lines > perUnit ? lineX.x1 : rowX0);
-  aisles.push({ cx: (crossX0 + crossX1) / 2, cz: rowZ + 0.85 + aisle / 2, yaw: 0, w: Math.max(aisle, crossX1 - crossX0), d: aisle, tag: "aisle" });
+  aisles.push({ cx: (crossX0 + crossX1) / 2, cz: rowZ + DOCK_EDGE + aisle / 2, yaw: 0, w: Math.max(aisle, crossX1 - crossX0), d: aisle, tag: "aisle" });
   // Aisle from the dock row to the first robot.
-  aisles.push({ cx: aisleX, cz: (rowZ + 0.85 + firstRobotZ) / 2, yaw: 0, w: aisle, d: firstRobotZ - rowZ - 0.85, tag: "aisle" });
+  aisles.push({ cx: aisleX, cz: (rowZ + DOCK_EDGE + firstRobotZ) / 2, yaw: 0, w: aisle, d: firstRobotZ - rowZ - DOCK_EDGE, tag: "aisle" });
   const amrs: number[] = [];
   for (let k = 0; k < params.amrs; k++) {
     amrs.push(items.length);
-    items.push({ kind: "amr", x: aisleX, z: rowZ + 1.6 + k * 1.3, yaw: 0 });
+    items.push({ kind: "amr", x: aisleX, z: rowZ + DOCK_EDGE + AMR_PITCH / 2 + k * AMR_PITCH, yaw: 0 });
   }
 
   // Place in the floor: rotate so the dock end faces the door wall, then centre (or align to the door).
@@ -425,6 +459,8 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   for (let i = 0; i < solid.length; i++) for (let j = i + 1; j < solid.length; j++) {
     const a = solid[i], b = solid[j];
     if (a.item.kind === "conveyor" && b.item.kind === "conveyor") continue;
+    // The scan tunnel stands over the head of its line's first rail by design.
+    if ((a.item.kind === "scanner" && b.item.kind === "conveyor") || (a.item.kind === "conveyor" && b.item.kind === "scanner")) continue;
     // Robot bases sit deliberately close to their belt and pallet (template spacing); others keep `gap`.
     const margin = a.item.kind === "robot" || b.item.kind === "robot" ? 0.05 : rules.gap;
     if (rectsOverlap(a.r, b.r, margin)) issues.push(`겹침: ${a.item.kind}#${a.r.index} - ${b.item.kind}#${b.r.index}`);

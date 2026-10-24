@@ -6,19 +6,20 @@
  * (candidate rejected) or a score term (candidate ranked lower).
  */
 import type { EquipmentKind } from "@/types/layout";
+import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
 
 export type RuleKind = "constraint" | "score" | "generator";
 export type DesignRule = { id: string; principle: string; kind: RuleKind; source: string; note: string };
 
-/** AMR loaded envelope (m): AMR_TRAFFIC.loadedRadius 0.82 x 2. */
-export const AMR_LOADED_DIAMETER = 1.64;
+/** AMR loaded envelope (m): 2 x AMR_TRAFFIC.loadedRadius (AMR.glb half diagonal; it covers the carried pallet). */
+export const AMR_LOADED_DIAMETER = 2 * AMR_TRAFFIC.loadedRadius;
 /** ISO 3691-4 Annex A operating zone: 0.5 m free on both sides of the vehicle path (up to 2.1 m high). */
 export const ISO3691_SIDE_CLEARANCE = 0.5;
 
 export const DESIGN_RULES = {
   aisleWidth: {
     id: "R-AISLE", kind: "constraint", principle: "AMR operating zone = loaded envelope + 0.5 m each side",
-    source: "ISO 3691-4:2020 Annex A (operating zone clearance)", note: "aisle >= 1.64 + 2 x 0.5 = 2.64 m; reserved as an explicit rectangle no equipment may enter",
+    source: "ISO 3691-4:2020 Annex A (operating zone clearance)", note: `aisle >= ${AMR_LOADED_DIAMETER.toFixed(2)} + 2 x 0.5 = ${(AMR_LOADED_DIAMETER + 1).toFixed(2)} m; reserved as an explicit rectangle no equipment may enter`,
   },
   mainAisleAllowance: {
     id: "R-MAIN-AISLE", kind: "constraint", principle: "Main aisles are planned explicitly, not left over",

@@ -5,8 +5,6 @@ import {
   PlaneGeometry, Scene, Sphere, SRGBColorSpace, Vector3, WebGLRenderTarget,
 } from "three";
 import type { Object3D } from "three";
-import { AMR_CONFIG } from "@/constants/amr";
-import { STREAM_CONFIG } from "@/constants/simulation";
 import { createUnitPallet } from "@/lib/three/modelNormalization";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
 import { createScannerModel } from "@/objects/scanner/scannerModel";
@@ -57,15 +55,9 @@ export default function ThumbnailBaker() {
     const robot = scenes[MODEL.robot], amr = scenes[MODEL.amr], pallet = scenes[MODEL.pallet],
       scanner = scenes[MODEL.scanner], rack = scenes[MODEL.rack];
     build("robot", robot, () => poseRobotHome(robot!.clone(true)));
-    build("amr", amr, () => {
-      const model = amr!.clone(true),
-        size = new Box3().setFromObject(model).getSize(new Vector3());
-      model.scale.multiplyScalar(AMR_CONFIG.bodyWidth / Math.max(size.x, size.z));
-      return model;
-    });
+    build("amr", amr, () => amr!.clone(true));
     build("pallet", pallet, () => {
       const model = createUnitPallet(pallet!);
-      model.scale.set(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
       return model;
     });
     build("scanner", scanner, () => {
@@ -73,7 +65,7 @@ export default function ThumbnailBaker() {
       disposers.push(() => scannerModel.dispose());
       return scannerModel.model;
     });
-    build("conveyor", undefined, () => conveyorTemplate().clone(true));
+    build("conveyor", undefined, () => conveyorTemplate("straight", scenes[MODEL.rail] ?? undefined).clone(true));
     build("rack", rack, () => rack!.clone(true));
     models.dock = dockPlane("#075985");
     models["dock-defect"] = dockPlane("#f94258");

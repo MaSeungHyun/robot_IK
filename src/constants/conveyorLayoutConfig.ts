@@ -1,7 +1,17 @@
+import { RAIL_MODEL as RAIL } from "@/constants/modelPoints.generated";
+
+// Straight belts are rail.glb as authored (see modelPoints.generated.ts); no rescaling.
+const width = RAIL.max[0] - RAIL.min[0];
 export const CONVEYOR_LAYOUT = {
-  length: 2.5,
-  radius: 1.25,
-  width: .35,
+  /** Straight segment length = rail.glb belt length. */
+  length: RAIL.beltZ[1] - RAIL.beltZ[0],
+  /** rail.glb has no 90° piece (rail_c.glb is an S lane shift), so turns stay procedural at the rail's width. */
+  radius: 2 * width,
+  /** Outer frame width (footprint) and moving belt width of rail.glb. */
+  width,
+  beltWidth: RAIL.beltX[1] - RAIL.beltX[0],
+  /** Belt surface above the floor with the rail standing on the floor (mesh bottom at y = 0). */
+  height: RAIL.beltTop - RAIL.min[1],
   snapDistance: .3,
   connectionTolerance: .025,
   samples: 40,

@@ -1,4 +1,6 @@
 import type { EquipmentKind, EquipmentPose } from "@/types/layout";
+import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
+import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
 
 export const SIMULATOR_CONFIG = {
   /** RobotArm.glb at 1:1: straight-down tool reaches 2.38 m (box top on belt); +~5% using tool tilt (old: 1.64 m -> 1.8). */
@@ -8,15 +10,23 @@ export const SIMULATOR_CONFIG = {
   snap: 0.1,
   amrSpeed: 1.6,
   amrTurnRate: Math.PI / 2,
-  palletCapacity: 20,
 };
+export const AMR_TRAFFIC = {
+  /** AMR.glb body at any heading (half diagonal of its footprint). */
+  emptyRadius: F.amrRadius,
+  /** Body or carried pallet, whichever reaches farther (the pallet sits inside the AMR body). */
+  loadedRadius: Math.max(F.amrRadius, F.palletRadius),
+  safetyMargin: 0.1,
+};
+/** Belt centre -> robot, robot -> pallet centre (AMR body at the pallet clears the robot base), from model footprints. */
+const beltToRobot = BELT.width / 2 + F.robotRadius + 0.05, robotToPallet = F.robotRadius + AMR_TRAFFIC.loadedRadius + 0.05;
 export const DEFAULT_LAYOUT: Record<EquipmentKind, EquipmentPose> = {
   robot: { x: 0, z: 0, yaw: 0 },
-  pallet: { x: -1.2, z: 0, yaw: 0 },
-  conveyor: { x: 1.06875, z: 0, yaw: 0 },
-  amr: { x: -2.3, z: -1.8, yaw: 0 },
-  dock: { x: -3.2, z: 1.8, yaw: 0 },
-  scanner: { x: 1.06875, z: 0, yaw: 0 },
+  pallet: { x: -robotToPallet, z: 0, yaw: 0 },
+  conveyor: { x: beltToRobot, z: 0, yaw: 0 },
+  amr: { x: -robotToPallet, z: -2 * AMR_TRAFFIC.loadedRadius - AMR_TRAFFIC.safetyMargin, yaw: 0 },
+  dock: { x: -robotToPallet, z: 2 * AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.safetyMargin, yaw: 0 },
+  scanner: { x: beltToRobot, z: 0, yaw: 0 },
   floor: { x: 0.5, z: 0.5, yaw: 0 },
   rack: { x: -3.2, z: -3.2, yaw: 0 },
   door: { x: 0, z: -5, yaw: 0 },
@@ -30,11 +40,6 @@ export const FLOOR_CONFIG = {
   maxSize: 100,
   floorColor: "#1b2a3a",
   wallColor: "#8ea9cf",
-};
-export const AMR_TRAFFIC = {
-  emptyRadius: 0.45,
-  loadedRadius: 0.82,
-  safetyMargin: 0.1,
 };
 // Simulated AMR battery, in % per simulated second (scaled by the AMR speed setting).
 export const AMR_BATTERY = {
