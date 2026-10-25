@@ -6,6 +6,7 @@ export const AGENT_LABELS = {
   unloading: "하차",
   storing: "랙 보관",
   returning: "복귀 이동",
+  receiving: "팔레트 수령",
   blocked: "경로 막힘",
   waiting: "대기",
   yielding: "양보 대기",

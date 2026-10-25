@@ -33,7 +33,6 @@ export type SearchResult = {
 export type SearchOptions = {
   evaluate: (candidate: LayoutCandidate) => Promise<SimMetrics | { error: string }> | SimMetrics | { error: string };
   patterns?: LayoutPattern[];
-  top?: number;
   onProgress?: (progress: SearchProgress) => void;
   /** Checked between candidates; return true to stop early (partial results are returned). */
   cancelled?: () => boolean;
@@ -51,7 +50,7 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
   const estimate = (seed: LayoutParams) => 2 + Math.max(0, Math.ceil((needRobots - robotsOf(seed)) / seed.lines));
   let remaining = seeds.reduce((sum, seed) => sum + estimate(seed), 0);
   const evaluated = new Map<string, EvaluatedCandidate>();
-  let growBlockedByMax = false, growBlockedByGeometry = false;
+  let growBlockedByMax = false;
 
   const evaluate = async (params: LayoutParams) => {
     const key = JSON.stringify(params);
@@ -73,8 +72,18 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
     return result;
   };
 
-  for (const seed of seeds) {
+  // Branch-and-bound: a seed's best possible score is its geometry scored with perfect metrics (target met, no
+  // waiting) minus the AMRs trimming could remove; once a met layout beats that bound the seed is skipped unsimulated.
+  // Seeds are visited cheapest-bound first (stable sort keeps it deterministic).
+  const bound = (seed: LayoutParams) => {
+    const c = buildLayout(constraints, seed);
+    return c.issues.length ? Infinity : scoreLayout(c, { placedPerHour: target, passedPerHour: 0, palletWaitShare: 0, robotUtilization: 1 }, target) - (seed.amrs - 1) * 6;
+  };
+  const ordered = seeds.map((seed) => ({ seed, lb: bound(seed) })).sort((a, b) => a.lb - b.lb);
+  let bestMet = Infinity;
+  for (const { seed, lb } of ordered) {
     if (options.cancelled?.()) break;
+    if (lb >= bestMet) { remaining = Math.max(0, remaining - estimate(seed)); continue; }
     let params = { ...seed }, current = await evaluate(params);
     for (let step = 0; step < 14 && !current.met && current.metrics; step++) {
       if (options.cancelled?.()) break;
@@ -87,7 +96,7 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
       else { growBlockedByMax = true; break; }
       remaining++;
       const result = await evaluate(next);
-      if (!result.metrics) { growBlockedByGeometry = true; break; }
+      if (!result.metrics) break;
       // Inlet-limited: one more robot on the same belts adds nothing (each line's inlet caps its rate); stop growing.
       if (next.robotsPerLine > params.robotsPerLine && result.metrics.placedPerHour <= current.metrics!.placedPerHour * 1.01) { growBlockedByMax = true; break; }
       params = next; current = result;
@@ -100,14 +109,18 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
       if (!result.met) break;
       params = next;
     }
+    const kept = evaluated.get(JSON.stringify(params));
+    if (kept?.met) bestMet = Math.min(bestMet, kept.score);
     remaining = Math.max(0, remaining - estimate(seed));
   }
 
   const all = [...evaluated.values()];
   const simulated = all.filter((r) => r.metrics);
-  const ranked = simulated.sort((a, b) => a.score - b.score).slice(0, options.top ?? 5);
+  // Only the best layout is applied: a single linear pass instead of sorting every candidate.
+  const best = simulated.reduce<EvaluatedCandidate | null>((acc, r) => (!acc || r.score < acc.score ? r : acc), null);
+  const ranked = best ? [best] : [];
   const anyMet = simulated.some((r) => r.met);
-  const closest = anyMet ? null : [...simulated].sort((a, b) => b.metrics!.placedPerHour - a.metrics!.placedPerHour)[0] ?? null;
+  const closest = anyMet ? null : simulated.reduce<EvaluatedCandidate | null>((acc, r) => (!acc || r.metrics!.placedPerHour > acc.metrics!.placedPerHour ? r : acc), null);
   let diagnosis: SearchDiagnosis = { code: "ok", message: "목표를 만족하는 배치를 찾았습니다." };
   if (!simulated.length) {
     const smallest = all.map((r) => r.candidate.usedArea).sort((a, b) => a - b)[0];
@@ -117,7 +130,6 @@ export async function searchLayouts(constraints: LayoutConstraints, options: Sea
     diagnosis = growBlockedByMax
       ? { code: "target-exceeds-max", message: `목표 ${target}박스/h는 최대 로봇 ${maxRobots}대·AMR ${maxAmrs}대로 도달할 수 없습니다 (최대 ${best}박스/h). 장비 한도를 늘리거나 목표를 낮추세요.` }
       : { code: "grow-blocked", message: `로봇을 더 늘린 배치가 공장에 들어가지 않습니다 (최대 ${best}박스/h). 공장을 넓히거나 목표를 낮추세요.` };
-    void growBlockedByGeometry;
   }
   return { constraints, ranked, evaluated: evaluated.size, diagnosis, closest, storage: storageRequirement(constraints), cancelled: !!options.cancelled?.() };
 }
@@ -188,7 +200,8 @@ async function searchFixed(constraints: LayoutConstraints, options: SearchOption
     results.push(result);
     options.onProgress?.({ evaluated: results.length, total: picked.length, current: g.candidate.template.name, last: result });
   }
-  const ranked = results.filter((r) => r.metrics).sort((a, b) => a.score - b.score).slice(0, options.top ?? 5);
+  const best = results.reduce<EvaluatedCandidate | null>((acc, r) => (r.metrics && (!acc || r.score < acc.score) ? r : acc), null);
+  const ranked = best ? [best] : [];
   let diagnosis: SearchDiagnosis = maxFit === want
     ? { code: "ok", message: `로봇 ${want}대·AMR ${amrs}대·랙 ${racks}대·도크 ${docks}대를 모두 배치했습니다.` }
     : { code: "ok", message: `공장에 로봇 ${maxFit}/${want}대까지만 들어갑니다. 나머지 장비(AMR ${amrs}·랙 ${racks}·도크 ${docks})는 모두 배치했습니다.` };

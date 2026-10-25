@@ -1,5 +1,6 @@
 import { useSceneStore } from "@/stores/useSceneStore";
-import PlayLockHint from "@/ui/Hud/equipment/details/_components/PlayLockHint";
+import InfoTip from "@/components/InfoTip";
+import { PLAY_LOCK_TEXT } from "@/ui/Hud/equipment/details/_components/playLockState";
 
 /** 팔레트 포함: a shuttle AMR's deck pallet (mounted, follows the AMR); editable only while editing (locked with a hint in Play), one undo step. */
 export default function ShuttlePalletSetting({ id }: { id: string }) {
@@ -21,9 +22,8 @@ export default function ShuttlePalletSetting({ id }: { id: string }) {
         />
         팔레트 포함
       </label>
-      {!carried && editing && <span className="text-[11px] text-text-secondary">팔레트를 AMR 위에 놓아도 연결됩니다</span>}
+      <InfoTip label="팔레트 포함 설명" text={<>AMR 위에 실린 팔레트는 AMR을 따라 움직입니다. 팔레트를 AMR 위에 놓아도 연결됩니다.{!editing && <><br />{PLAY_LOCK_TEXT}</>}</>} />
     </div>
-    {!editing && <PlayLockHint />}
     </div>
   );
 }

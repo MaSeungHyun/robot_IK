@@ -6,6 +6,7 @@ import Box from "@/components/Box";
 import ConnectionStatus from "@/ui/Header/ConnectionStatus";
 import ViewToggles from "@/ui/Header/ViewToggles";
 import AutoLayoutToggle from "@/ui/Header/AutoLayoutToggle";
+import WalkModeButton from "@/viewport/walk/WalkModeButton";
 
 export default function Header() {
   return (
@@ -21,6 +22,7 @@ export default function Header() {
         <AutoLayoutToggle />
         <InspectorTabs />
         <ViewToggles />
+        <WalkModeButton />
         <SettingsMenu />
       </div>
     </header>

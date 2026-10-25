@@ -1,5 +1,6 @@
 import { TransformControls } from "@react-three/drei";
 import { useEffect, useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
 import type { TransformControls as TransformControlsImpl } from "three-stdlib";
 import type { Group } from "three";
 import type { ReactNode } from "react";
@@ -59,6 +60,20 @@ export default function EditableEquipment({
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
   }, [gizmoShown, entity.id]);
+  // A pallet mounted on an AMR rides its deck while the AMR is moved live (gizmo, modal G/R,
+  // group transform): copy the carrier group's pose every frame unless the pallet itself is selected.
+  const mountedOn = useSceneStore((s) => (entity.kind === "pallet" ? s.settings[entity.id]?.mountedOn : undefined));
+  useFrame(() => {
+    if (!object || !mountedOn) return;
+    const carrier = editableGroups.get(mountedOn);
+    if (!carrier) return;
+    const scene = useSceneStore.getState();
+    if (selectedIds(scene).includes(entity.id)) return;
+    if (object.position.x === carrier.position.x && object.position.z === carrier.position.z && object.quaternion.equals(carrier.quaternion)) return;
+    object.position.set(carrier.position.x, object.position.y, carrier.position.z);
+    object.quaternion.copy(carrier.quaternion);
+    object.updateMatrixWorld(true);
+  }, -1);
   useEffect(() => {
     if (!object) return;
     editableGroups.set(entity.id, object);
@@ -79,6 +94,7 @@ export default function EditableEquipment({
             // Link mode: only linkable equipment takes the click (floors/walls let it through).
             if (!LINKABLE_KINDS.has(entity.kind)) return;
             event.stopPropagation();
+            // A mounted pallet passes the click to its AMR (pickLinkEnd maps it).
             pickLinkEnd(entity.id);
             return;
           }

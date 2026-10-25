@@ -14,6 +14,7 @@ import type { EquipmentKind } from "@/types/layout";
 import TemplatePreview from "@/ui/Hud/template/TemplatePreview";
 import LogPanel from "@/ui/Hud/log/LogPanel";
 import { cn } from "@/lib/style";
+import { useHudStore } from "@/stores/useHudStore";
 
 type IconName = ComponentProps<typeof Icon>["icon"];
 type Item = "templates" | "log" | EquipmentKind;
@@ -27,7 +28,8 @@ const flyout =
  * an asset card starts placement with its preset, a template card loads the layout.
  */
 export default function AssetRail() {
-  const [open, setOpen] = useState<Item | null>(null);
+  const open = useHudStore((s) => s.assetFlyout) as Item | null;
+  const setOpen = useHudStore((s) => s.setAssetFlyout);
   // The log panel is independent of the flyouts: only its own button/close button closes it.
   const [logOpen, setLogOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -39,11 +41,12 @@ export default function AssetRail() {
     (s) => s.entries.filter((entry) => entry.level === "warning").length,
   );
 
-  // Click outside the rail/flyout or Esc closes the flyout.
+  // Esc closes the flyout. A click outside closes only the template flyout: an asset category stays open while
+  // placing (clicks/drops in the viewport), so several items can be placed in a row.
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(null);
+      if (open === "templates" && !root.current?.contains(event.target as Node)) setOpen(null);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(null);
@@ -54,7 +57,7 @@ export default function AssetRail() {
       window.removeEventListener("pointerdown", outside, true);
       window.removeEventListener("keydown", escape);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   const toggle = (item: Item) => {
     if (item === "log") setLogOpen((value) => !value);
@@ -156,11 +159,7 @@ export default function AssetRail() {
         </div>
       )}
       {category && (
-        <AssetFlyout
-          kind={category.kind}
-          presets={category.presets}
-          onDone={() => setOpen(null)}
-        />
+        <AssetFlyout kind={category.kind} presets={category.presets} />
       )}
     </div>
   );
@@ -204,11 +203,9 @@ function TemplateFlyout({ onDone }: { onDone: () => void }) {
 function AssetFlyout({
   kind,
   presets,
-  onDone,
 }: {
   kind: EquipmentKind;
   presets: AssetPreset[];
-  onDone: () => void;
 }) {
   const dragImage = useRef<HTMLCanvasElement>(null);
   const objects = useSceneStore((s) => s.objects);
@@ -258,14 +255,9 @@ function AssetFlyout({
                 );
                 event.dataTransfer.effectAllowed = "copy";
               }}
-              onDragEnd={() => {
-                setPending(null);
-                onDone();
-              }}
-              onClick={() => {
-                setPending(kind, preset.settings ?? null);
-                onDone();
-              }}
+              onDragEnd={() => setPending(null)}
+              // The category stays open after placing (only the rail button or Esc closes it).
+              onClick={() => setPending(kind, preset.settings ?? null)}
               className={cn(
                 "flex cursor-grab flex-col gap-1.5 overflow-hidden rounded-md border border-white/10 bg-white/5 p-1.5 text-left transition hover:border-sky-400/60 hover:bg-sky-400/10 active:cursor-grabbing",
                 preset.tone === "defect" && "border-l-2 border-l-fault",

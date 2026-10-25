@@ -53,6 +53,15 @@
       "yaw": 0
     },
     {
+      "kind": "amr",
+      "x": -4.871,
+      "z": 7.0909,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
       "kind": "dock",
       "x": -4.871,
       "z": 24.898,
@@ -171,6 +180,15 @@
       "yaw": 0
     },
     {
+      "kind": "amr",
+      "x": 7.905,
+      "z": 7.0909,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
       "kind": "dock",
       "x": 7.905,
       "z": 19.5208,
@@ -224,6 +242,15 @@
       "x": 13.5821,
       "z": 10.0909,
       "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 16.2707,
+      "z": 7.0909,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
     },
     {
       "kind": "dock",
@@ -281,6 +308,15 @@
       "yaw": 0
     },
     {
+      "kind": "amr",
+      "x": 29.0467,
+      "z": 7.0909,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
       "kind": "dock",
       "x": 29.0467,
       "z": 19.5208,
@@ -294,7 +330,7 @@
       "floor": {
         "width": 57,
         "depth": 42,
-        "wallHeight": 9.5
+        "wallHeight": 10
       }
     },
     {
@@ -318,11 +354,6 @@
     {
       "type": "deliver",
       "from": 3,
-      "to": 7
-    },
-    {
-      "type": "deliver",
-      "from": 3,
       "to": 8
     },
     {
@@ -352,8 +383,8 @@
     },
     {
       "type": "deliver",
-      "from": 5,
-      "to": 7
+      "from": 3,
+      "to": 14
     },
     {
       "type": "deliver",
@@ -386,64 +417,69 @@
       "to": 13
     },
     {
-      "type": "pickup",
-      "from": 21,
-      "to": 18
+      "type": "deliver",
+      "from": 5,
+      "to": 14
     },
     {
       "type": "pickup",
-      "from": 21,
-      "to": 20
+      "from": 22,
+      "to": 19
+    },
+    {
+      "type": "pickup",
+      "from": 22,
+      "to": 21
     },
     {
       "type": "deliver",
-      "from": 18,
-      "to": 22
+      "from": 19,
+      "to": 24
     },
     {
       "type": "deliver",
-      "from": 20,
-      "to": 22
+      "from": 21,
+      "to": 24
     },
     {
       "type": "pickup",
-      "from": 29,
-      "to": 26
-    },
-    {
-      "type": "pickup",
-      "from": 29,
+      "from": 31,
       "to": 28
     },
     {
-      "type": "deliver",
-      "from": 26,
+      "type": "pickup",
+      "from": 31,
       "to": 30
     },
     {
       "type": "deliver",
       "from": 28,
-      "to": 30
-    },
-    {
-      "type": "pickup",
-      "from": 37,
-      "to": 34
-    },
-    {
-      "type": "pickup",
-      "from": 37,
-      "to": 36
+      "to": 33
     },
     {
       "type": "deliver",
-      "from": 34,
-      "to": 38
+      "from": 30,
+      "to": 33
+    },
+    {
+      "type": "pickup",
+      "from": 40,
+      "to": 37
+    },
+    {
+      "type": "pickup",
+      "from": 40,
+      "to": 39
     },
     {
       "type": "deliver",
-      "from": 36,
-      "to": 38
+      "from": 37,
+      "to": 42
+    },
+    {
+      "type": "deliver",
+      "from": 39,
+      "to": 42
     }
   ]
 }

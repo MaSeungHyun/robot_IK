@@ -4,13 +4,13 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useShallow } from "zustand/react/shallow";
 import { ApplyAllButton } from "@/ui/Hud/object/BulkField";
 import type { EquipmentSettings } from "@/types/layout";
-import PlayLockHint from "@/ui/Hud/equipment/details/_components/PlayLockHint";
-import { usePlayLocked } from "@/ui/Hud/equipment/details/_components/playLockState";
+import InfoTip from "@/components/InfoTip";
+import { PLAY_LOCK_TEXT, usePlayLocked } from "@/ui/Hud/equipment/details/_components/playLockState";
 
-type ChoiceField = "pickFilter" | "grade" | "acceptGrade" | "conveyorRole" | "dockRole" | "robotRole" | "inboundUnit" | "amrRole" | "forkliftTask" | "rackType";
+type ChoiceField = "pickFilter" | "grade" | "acceptGrade" | "conveyorRole" | "dockRole" | "robotRole" | "inboundUnit" | "amrRole" | "forkliftTask" | "forkliftRole" | "emptyPallet" | "rackType";
 
 /** Read when Play starts (simulator construction): changing them mid-run would desync the run. */
-const PLAY_LOCKED: ReadonlySet<ChoiceField> = new Set(["conveyorRole", "dockRole", "robotRole", "inboundUnit", "amrRole", "forkliftTask", "rackType"]);
+const PLAY_LOCKED: ReadonlySet<ChoiceField> = new Set(["conveyorRole", "dockRole", "robotRole", "inboundUnit", "amrRole", "forkliftTask", "forkliftRole", "emptyPallet", "rackType"]);
 
 type Props<F extends ChoiceField> = {
   id: string;
@@ -19,6 +19,8 @@ type Props<F extends ChoiceField> = {
   /** Used when the setting is absent (older scenes and templates). */
   fallback: NonNullable<EquipmentSettings[F]>;
   options: readonly { value: NonNullable<EquipmentSettings[F]>; label: string }[];
+  /** Explanation behind the (i) icon next to the label. */
+  info?: React.ReactNode;
 };
 
 /** Choice setting; edits the same-kind multi-selection ("혼합" when it differs) and offers "일괄 적용". */
@@ -28,6 +30,7 @@ export default function EquipmentChoiceSetting<F extends ChoiceField>({
   label,
   fallback,
   options,
+  info,
 }: Props<F>) {
   const ids = useSceneStore(useShallow((state) => bulkTargets(state, id)));
   const kind = useSceneStore((state) => (state.settings[id] ? state.objects.find((o) => o.id === id)?.kind : undefined));
@@ -41,7 +44,7 @@ export default function EquipmentChoiceSetting<F extends ChoiceField>({
 
   return (
     <fieldset disabled={locked} className="mt-2 block min-w-0 text-xs text-text-secondary">
-      <p className="mb-1">{label}{mixed && " (혼합)"}</p>
+      <p className="mb-1 flex items-center">{label}{mixed && " (혼합)"}{(info || locked) && <InfoTip text={<>{info}{info && locked && <br />}{locked && PLAY_LOCK_TEXT}</>} label={`${label} 설명`} />}</p>
       <div className={`flex items-center gap-1${locked ? " opacity-40" : ""}`}>
         <div className="min-w-0 flex-1">
           <Select
@@ -55,7 +58,6 @@ export default function EquipmentChoiceSetting<F extends ChoiceField>({
         </div>
         <ApplyAllButton kind={kind} patch={() => ({ [field]: value }) as Partial<EquipmentSettings>} />
       </div>
-      {locked && <PlayLockHint />}
     </fieldset>
   );
 }

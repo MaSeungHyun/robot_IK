@@ -84,7 +84,7 @@ export default function RoomWall({ length, height, preview, openings = NO_OPENIN
         {pbr && !preview ? (
           <meshStandardMaterial key="pbr" {...pbr} color="#ffffff" roughness={1} metalness={0} />
         ) : (
-          <meshStandardMaterial key="flat" map={texture} color={preview ? "#38bdf8" : C.wallColor} roughness={0.75} transparent={preview} opacity={0.35} depthWrite={!preview} />
+          <meshStandardMaterial key="flat" map={texture} color={preview ? "#02dfef" : C.wallColor} roughness={0.75} transparent={preview} opacity={0.35} depthWrite={!preview} />
         )}
       </mesh>
       {!preview && <>

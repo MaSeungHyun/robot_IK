@@ -9,6 +9,7 @@ import { useSimulationStore } from "@/stores/useSimulationStore";
 import SimulatorScene from "@/viewport/SimulatorScene";
 import { useSceneStore } from "@/stores/useSceneStore";
 import ModelWarmup from "@/viewport/ModelWarmup";
+import ProgramPin from "@/viewport/ProgramPin";
 import ModelLoader from "@/viewport/models/ModelLoader";
 import ThumbnailBaker from "@/viewport/thumbnails/ThumbnailBaker";
 import CameraTracker from "@/viewport/camera/CameraTracker";
@@ -24,6 +25,7 @@ import {
 import PerfReadout, { PerfCollector } from "./PerfOverlay";
 import Minimap from "@/viewport/minimap/Minimap";
 import MinimapProbe from "@/viewport/minimap/MinimapProbe";
+import WalkControls from "@/viewport/walk/WalkControls";
 
 const CAMERA = { position: [5, 4.5, 6] as [number, number, number], fov: 45 };
 
@@ -87,6 +89,7 @@ export default function Viewport() {
 
           <CameraRig />
           <CameraTracker />
+          <WalkControls />
           {import.meta.env.DEV && <PerfCollector />}
           <MinimapProbe />
           <Selection>
@@ -96,6 +99,7 @@ export default function Viewport() {
 
             <ModelLoader />
             <ModelWarmup />
+            <ProgramPin />
             <ThumbnailBaker />
             <Suspense fallback={null}>
               <SimulatorScene

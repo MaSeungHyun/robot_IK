@@ -230,7 +230,7 @@
       "floor": {
         "width": 40,
         "depth": 100,
-        "wallHeight": 9.5
+        "wallHeight": 10
       }
     }
   ],

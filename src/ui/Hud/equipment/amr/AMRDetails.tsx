@@ -34,6 +34,7 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
   const telemetry = useEquipmentTelemetry(object.id);
   const role = useSceneStore((state) => state.settings[object.id]?.amrRole);
   const forklift = isForkliftRole(role);
+  const forkliftTask = useSceneStore((state) => state.settings[object.id]?.forkliftTask);
   const history = useDerivedMetricsStore((state) => state.agents[object.id]);
   const charging = agent?.state === "charging";
   const chargeSeconds = charging && history?.chargeRate ? Math.max(0, 100 - history.battery) / history.chargeRate : undefined;
@@ -81,6 +82,32 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
             options={[
               { value: "service", label: "AMR 교체 (만재 → Rack_m, 빈 팔레트 → AMR)" },
               { value: "rack", label: "랙 (Rack_m → 랙 → 출하)" },
+              { value: "carrier", label: "팔레트 운반 (포크 위 팔레트에 적재 → 하역 로봇)" },
+            ]}
+          />
+        )}
+        {forklift && forkliftTask === "service" && (
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="forkliftRole"
+            label="지게차 분담 (같은 셀에 여러 대일 때)"
+            fallback="auto"
+            options={[
+              { value: "auto", label: "자동 (하역·공급 모두)" },
+              { value: "unload", label: "하역 전담 (만재 팔레트 → Rack_m)" },
+              { value: "supply", label: "빈 팔레트 공급 전담" },
+            ]}
+          />
+        )}
+        {role === "shuttle" && (
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="emptyPallet"
+            label="빈 팔레트 처리 (팔레트 단위 입하)"
+            fallback="return"
+            options={[
+              { value: "return", label: "반송 라인" },
+              { value: "forklift", label: "지게차 회수 → 빈 팔레트 적치장" },
             ]}
           />
         )}

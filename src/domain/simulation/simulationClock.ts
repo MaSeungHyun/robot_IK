@@ -14,6 +14,12 @@ export const SIMULATION_CLOCK = {
   maxFrameDelta: 0.1,
   /** Wall-clock ms per rendered frame spent stepping (at least one step always runs). */
   frameBudgetMs: 10,
+  /** Budget at high playback speeds (>= highSpeed) while the clock is behind its target: stepping may take most
+   *  of a 60 Hz frame there, since the user asked for sim throughput over frame rate. */
+  highSpeedBudgetMs: 14,
+  highSpeed: 10,
+  /** Stall clamp at high speeds: long frames there are mostly our own stepping, so less sim time is thrown away. */
+  highSpeedMaxFrameDelta: 0.25,
   /** Hard cap of steps per frame. */
   maxSteps: 400,
   /** Backlog kept when the budget runs out (s of sim time); beyond it time is dropped instead of spiralling. */
@@ -30,6 +36,10 @@ export type SimulationParticipant = {
   endFrame(): void;
 };
 export type SimulationWorld = { advance(dt: number): void };
+
+/** Startup probe: performance.now() when PLAY was pressed, and ms until the first fixed step ran (dev diagnostics). */
+export const simulationStartup = { requestedAt: 0, firstStepMs: -1 };
+export function markPlayRequested() { simulationStartup.requestedAt = performance.now(); simulationStartup.firstStepMs = -1; }
 
 export class SimulationClock {
   private readonly participants = new Set<SimulationParticipant>();
@@ -56,16 +66,19 @@ export class SimulationClock {
     for (const participant of this.participants) participant.step(dt);
     profileEnd("robots", robotStart);
     this.stats.simTime += dt;
+    if (simulationStartup.firstStepMs < 0 && simulationStartup.requestedAt > 0) simulationStartup.firstStepMs = performance.now() - simulationStartup.requestedAt;
   }
   /**
    * Advance by one rendered frame. `speed` <= 0 (paused/stopped) only runs the per-frame hooks.
    * `budgetMs` limits wall-clock stepping time (Infinity for headless runs).
    */
-  frame(realDelta: number, speed: number, world: SimulationWorld, budgetMs: number = SIMULATION_CLOCK.frameBudgetMs) {
+  frame(realDelta: number, speed: number, world: SimulationWorld, budgetMs?: number) {
+    const high = speed >= SIMULATION_CLOCK.highSpeed;
+    budgetMs ??= high ? SIMULATION_CLOCK.highSpeedBudgetMs : SIMULATION_CLOCK.frameBudgetMs;
     const key = ++this.frameKey, began = performance.now(), dt = SIMULATION_CLOCK.dt;
     for (const participant of this.participants) participant.beginFrame(key);
     let steps = 0, dropped = 0;
-    const real = Number.isFinite(realDelta) ? Math.min(Math.max(realDelta, 0), SIMULATION_CLOCK.maxFrameDelta) : 0;
+    const real = Number.isFinite(realDelta) ? Math.min(Math.max(realDelta, 0), high ? SIMULATION_CLOCK.highSpeedMaxFrameDelta : SIMULATION_CLOCK.maxFrameDelta) : 0;
     if (speed > 0 && Number.isFinite(speed)) {
       this.accumulator += real * speed;
       while (this.accumulator >= dt - 1e-9 && steps < SIMULATION_CLOCK.maxSteps

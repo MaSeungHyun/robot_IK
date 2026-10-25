@@ -19,6 +19,7 @@ try {
   const { AMR_TRAFFIC } = await load("/src/constants/simulatorLayout.ts");
   const { FACTORY_ROOM } = await load("/src/constants/factoryRoom.ts");
   const { RACK_CONFIG } = await load("/src/constants/rack.ts");
+  const { forkliftStop } = await load("/src/constants/forklift.ts");
 
   const round = (v) => +v.toFixed(4);
   const firstSlot = R.robotPitch / 2;
@@ -57,6 +58,8 @@ try {
     }
     const agents = [];
     for (let a = 0; a < amrs; a++) agents.push(add({ kind: "amr", x: out(lane2), z: round(z0 + SCAN_TUNNEL.exitDistance - 2 - a * 3), yaw: 0 }));
+    // Line forklift: AMRs never lift a floor pallet, it puts each full pallet onto the waiting AMR's deck.
+    add({ kind: "amr", x: out(lane1), z: round(z0 + SCAN_TUNNEL.exitDistance - 2 - amrs * 3), yaw: 0, settings: { amrRole: "forklift" } });
     const dockZ = round(beltEnd + 3);
     const normalDocks = [], defectDocks = [];
     if (defect) defectDocks.push(add({ kind: "dock", x: out(lane2), z: dockZ, yaw: 0, settings: { acceptGrade: "defect" } }));
@@ -136,6 +139,7 @@ try {
     const p1 = add({ kind: "pallet", x: round(p1x), z: r1z, yaw: 0, settings: { capacity } });
     const amr1 = add({ kind: "amr", x: round(D - lane2), z: round(unloadZ - 8), yaw: 0 });
     links.push({ type: "pickup", from: amr1, to: p1 }, { type: "deliver", from: p1, to: unload });
+    add({ kind: "amr", x: round(D - lane1), z: round(unloadZ - 11), yaw: 0, settings: { amrRole: "forklift" } });
     // Palletizing robots at B's end (east side) and the outbound conveyor at the east aisle's downstream end.
     const pallets = [];
     for (let k = 0; k < cells; k++) {
@@ -144,6 +148,7 @@ try {
       pallets.push(add({ kind: "pallet", x: round(D + R.beltToRobot + R.robotToPallet), z, yaw: 0, settings: { capacity } }));
     }
     const amr2 = add({ kind: "amr", x: round(D + lane2), z: round(SCAN_TUNNEL.exitDistance - 2), yaw: 0 });
+    add({ kind: "amr", x: round(D + lane1), z: round(SCAN_TUNNEL.exitDistance - 5), yaw: 0, settings: { amrRole: "forklift" } });
     const oStart = bEnd + 3 + STREAM_CONFIG.palletDepth;
     const outbound = add({ kind: "conveyor", x: round(D + lane1), z: round(oStart + BELT.length / 2), yaw: 0, settings: { conveyorRole: "outbound" } });
     for (const p of pallets) links.push({ type: "pickup", from: amr2, to: p }, { type: "deliver", from: p, to: outbound });
@@ -159,13 +164,16 @@ try {
    *    the full pallet into a Rack_m level and a new empty pallet (pallet source stack) back onto shuttle B.
    * 4. A full Rack_m is carried by the AGV to the rack drop point; the rack forklift stores its pallets in the Racks and
    *    takes the oldest ones to the stage dock east of the rack row, where R4 puts the boxes on the ship belt (출하).
-   * Pallet-unit inbound (inboundUnit "pallet"): the inbound belt feeds whole pallets onto shuttle A (no R1).
+   * Pallet-unit inbound (inboundUnit "pallet"): the inbound belt feeds whole pallets onto shuttle A (no R1);
+   * emptyPallet "forklift": the service forklift lifts the emptied pallet off shuttle A at the unload dock onto the source stack.
+   * carrier: shuttle A is replaced by a carrier forklift holding P1 on its forks (from the south) at R1; it carries the full
+   * pallet to the unload dock, waits there while R2 unloads it and brings it back.
    * Approach rules: forklifts reach a Rack_m from its local +X face (east, yaw 0), the AGV drives under it from local -Z
    * (south); the two bays sit in a row on the same z, bay2 6.5 m west so its forklift stand clears bay1's AGV lane.
    * Fixed racks (yaw pi/2) load from the south. Service/source docks use yaw -pi/2; the stage dock (yaw pi/2)
    * is served from the west (rack side), so the rack forklift never crosses the drop point.
    */
-  function palletCycle({ x0 = 0, cells = 1, inbounds = 1, relay = false, capacity = 4, spawn = 6, inboundUnit = "box", palletSpawn = 60, robotSpeed } = {}) {
+  function palletCycle({ x0 = 0, cells = 1, inbounds = 1, relay = false, capacity = 4, spawn = 6, inboundUnit = "box", palletSpawn = 60, robotSpeed, emptyPallet, carrier = false, feedPark = 0 } = {}) {
     const eq = [], links = [];
     const fast = robotSpeed ? { speed: robotSpeed } : {};
     const add = (e) => (eq.push(e), eq.length - 1);
@@ -184,13 +192,23 @@ try {
     const iEnd = unloadZ + 2, r1z = round(iEnd - BOX_SIZES[0].z / 2);
     if (inboundUnit === "pallet") {
       // Pallet-unit inbound: the belt runs straight into the roller-top shuttle (same surface height), no R1.
-      add({ kind: "conveyor", x: round(p1x), z: round(r1z - ROLLER_GAP - BELT.length / 2), yaw: 0, settings: { conveyorRole: "inbound", inboundUnit: "pallet", spawnInterval: palletSpawn } });
+      var palletBelt = add({ kind: "conveyor", x: round(p1x), z: round(r1z - ROLLER_GAP - BELT.length / 2), yaw: 0, settings: { conveyorRole: "inbound", inboundUnit: "pallet", spawnInterval: palletSpawn } });
     } else {
       add({ kind: "conveyor", x: round(ix), z: round(iEnd - BELT.length / 2), yaw: 0, settings: { conveyorRole: "inbound", inboundUnit: "box", spawnInterval: spawn } });
       add({ kind: "robot", x: round(r1x), z: r1z, yaw: 0, ...(robotSpeed ? { settings: fast } : {}) });
     }
-    const shuttleA = add({ kind: "amr", x: round(p1x), z: r1z, yaw: 0, settings: { amrRole: "shuttle" } });
-    const p1 = add({ kind: "pallet", x: round(p1x), z: r1z, yaw: 0, settings: { capacity, mountedOn: id(shuttleA) } });
+    let p1;
+    if (carrier) {
+      p1 = add({ kind: "pallet", x: round(p1x), z: r1z, yaw: 0, settings: { capacity } });
+      const stand = forkliftStop({ x: p1x, z: r1z }, 0, 0);
+      add({ kind: "amr", x: round(stand.x), z: round(stand.z), yaw: 0, settings: { amrRole: "forklift", forkliftTask: "carrier" } });
+    } else {
+      // feedPark: the empty receiving AMR starts parked west of the belt end and is linked (🔗 공급) to the pallet belt.
+      const ax = round(p1x - feedPark);
+      const shuttleA = add({ kind: "amr", x: ax, z: r1z, yaw: 0, settings: { amrRole: "shuttle", ...(emptyPallet && { emptyPallet }) } });
+      p1 = add({ kind: "pallet", x: ax, z: r1z, yaw: 0, settings: { capacity, mountedOn: id(shuttleA) } });
+      if (feedPark && inboundUnit === "pallet") links.push({ type: "feed", from: palletBelt, to: shuttleA });
+    }
     links.push({ type: "deliver", from: p1, to: unload });
     // Relay shuttle: a second shuttle home north of an inbound robot (also in its reach). The robot fills the nearest
     // pallet first, then the other, so one pallet is always at the station while the full one is away.
@@ -303,6 +321,12 @@ try {
       ...compose([palletCycle({ inboundUnit: "pallet" })]) },
     { id: "pallet-cycle-multi-line", name: "팔레트 순환 · 4라인 고처리량", description: "순환 라인 4개를 30m 간격으로 촘촘히 배치했습니다. 라인마다 입하 컨베이어 2개·입하 로봇 2대·입하 셔틀 AMR 2대가 각자의 하역 도크(하역 로봇 2대, 속도 3×)로 병렬 운반해 흐름이 끊기지 않고, 재적재 로봇·셔틀 2대, 서비스·랙 지게차, AGV, Rack_m 2대, 랙 2개, 출하 컨베이어가 독립된 셀로 동작합니다.",
       ...compose(multiCycle({ lines: 4, cells: 2, inbounds: 2, relay: false, spawn: 20, robotSpeed: 3, pitch: 30 })) },
+    { id: "pallet-cycle-inbound-forklift-empty", name: "팔레트 순환 · 팔레트 입하 + 지게차 빈 팔레트 회수", description: "입하 컨베이어가 적재된 팔레트를 롤러 AMR 위에 바로 올리고, AMR이 하역 로봇 옆으로 옮깁니다. 로봇이 박스를 모두 내리면 서비스 지게차가 AMR 위의 빈 팔레트를 들어 빈 팔레트 적치장에 쌓고, AMR은 다시 입하 컨베이어로 돌아가 다음 팔레트를 받습니다.",
+      ...compose([palletCycle({ inboundUnit: "pallet", emptyPallet: "forklift" })]) },
+    { id: "pallet-cycle-forklift-carrier", name: "팔레트 순환 · 지게차 팔레트 운반", description: "입하 로봇이 지게차 포크 위 팔레트에 박스를 쌓고, 다 차면 지게차가 팔레트를 든 채 하역 로봇 옆으로 운반합니다. 하역 로봇이 박스를 스캐너 라인에 모두 올리면 지게차가 빈 팔레트를 다시 입하 로봇으로 가져옵니다. 이후 재적재 → Rack_m → AGV → 랙 → 출하 흐름은 동일합니다.",
+      ...compose([palletCycle({ carrier: true })]) },
+    { id: "pallet-cycle-conveyor-pallet-feed", name: "팔레트 순환 · 컨베이어 팔레트 투입 (연결된 빈 AMR)", description: "입하 컨베이어가 '팔레트 투입' 방식으로 적재 팔레트를 내보냅니다. 🔗 공급으로 연결된 빈 셔틀 AMR이 대기 위치에서 컨베이어 끝 받는 위치로 먼저 이동하고, 팔레트는 롤러로 AMR에 넘어갑니다(AMR이 없으면 컨베이어 끝에서 정지). 이후 하역 로봇 → 지게차 빈 팔레트 회수 → 다시 받는 위치 순으로 반복합니다.",
+      ...compose([palletCycle({ inboundUnit: "pallet", emptyPallet: "forklift", feedPark: 3 })]) },
   ];
   // 자동 생성: new conveyors default to off, so every flow source (a belt start with no feeding belt that is not
   // robot-fed / outbound) is switched on explicitly; all other belts are written off.

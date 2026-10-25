@@ -1,3 +1,4 @@
+import { AUTO_LAYOUT_DEFAULTS } from "@/constants/auto-layout";
 /**
  * Auto layout (step 1): pure geometry for generating palletizing-line layouts from constraints.
  * No three.js / DOM / store imports, so it can run in a Web Worker. Simulation-based scoring lives
@@ -19,11 +20,6 @@ import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
 import { planStack } from "@/domain/pallet/packing/stacking";
 import { AMR_TRAFFIC, SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import { SCAN_TUNNEL, scanTunnelPose } from "@/domain/conveyor/scanTunnel";
-
-/** Drop-in animation when an auto-layout is applied: linear fall time (ms) and start height (m). */
-export const AUTO_LAYOUT_DROP_IN_DURATION_MS = 300;
-export const AUTO_LAYOUT_DROP_IN_HEIGHT = 2.5;
-export const AUTO_LAYOUT_DROP_IN_STAGGER_MS = 65;
 
 export type Wall = "south" | "north" | "east" | "west";
 export type LayoutConstraints = {
@@ -105,6 +101,8 @@ export type LayoutCandidate = {
   counts: Record<"robots" | "pallets" | "conveyors" | "amrs" | "docks" | "racks", number> & {
     /** Dedicated rack-unloading AMRs (door layouts only); not in `amrs`, not in the cost score. */
     forklifts: number;
+    /** Optional Rack_m buffer (with one AGV) beside the line; 0 or 1. */
+    rackM?: number;
   };
   /** R-STORAGE: rack slots placed vs pallets that must be stored. */
   storage: { slots: number; required: number };
@@ -163,7 +161,6 @@ export const LAYOUT_RULES = {
 type Rect = { cx: number; cz: number; yaw: number; w: number; d: number; tag: string; index?: number };
 type Item = TemplateEquipment & { line?: number };
 
-const DIR = (yaw: number) => ({ x: Math.sin(yaw), z: Math.cos(yaw) });
 /** Unit normal to the flow (x, z) = (cos, -sin): +1 side is +x for a belt at yaw 0. */
 const NORMAL = (yaw: number) => ({ x: Math.cos(yaw), z: -Math.sin(yaw) });
 
@@ -177,22 +174,38 @@ function rectOf(item: Item, index: number): Rect {
   }
   return { cx: item.x, cz: item.z, yaw: item.kind === "rack" ? item.yaw - RACK_FACE_YAW : item.yaw, w, d, tag: item.kind, index };
 }
-function corners(r: Rect) {
-  const c = Math.cos(r.yaw), s = Math.sin(r.yaw);
-  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => {
-    const lx = (a * r.w) / 2, lz = (b * r.d) / 2;
-    return { x: r.cx + lx * c + lz * s, z: r.cz - lx * s + lz * c };
-  });
+type Pt = { x: number; z: number };
+/** Corner cache: rects are shifted in place, so an entry is reused only while its pose/size is unchanged. */
+const cornerCache = new WeakMap<Rect, { cx: number; cz: number; yaw: number; w: number; d: number; pts: Pt[] }>();
+const SIGNS = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
+function corners(r: Rect): Pt[] {
+  const hit = cornerCache.get(r);
+  if (hit && hit.cx === r.cx && hit.cz === r.cz && hit.yaw === r.yaw && hit.w === r.w && hit.d === r.d) return hit.pts;
+  const c = Math.cos(r.yaw), s = Math.sin(r.yaw), pts: Pt[] = new Array(4);
+  for (let k = 0; k < 4; k++) {
+    const lx = (SIGNS[k][0] * r.w) / 2, lz = (SIGNS[k][1] * r.d) / 2;
+    pts[k] = { x: r.cx + lx * c + lz * s, z: r.cz - lx * s + lz * c };
+  }
+  cornerCache.set(r, { cx: r.cx, cz: r.cz, yaw: r.yaw, w: r.w, d: r.d, pts });
+  return pts;
 }
-/** Separating-axis overlap test with a margin. */
+function projectOn(pts: Pt[], ax: number, az: number, out: [number, number]) {
+  let lo = Infinity, hi = -Infinity;
+  for (const p of pts) { const v = p.x * ax + p.z * az; if (v < lo) lo = v; if (v > hi) hi = v; }
+  out[0] = lo; out[1] = hi;
+}
+const PA: [number, number] = [0, 0], PB: [number, number] = [0, 0];
+/** Separating-axis overlap test with a margin; bounding-circle early exit, no per-call allocations. */
 export function rectsOverlap(a: Rect, b: Rect, margin = 0) {
-  for (const yaw of [a.yaw, b.yaw]) for (const axis of [DIR(yaw), NORMAL(yaw)]) {
-    const project = (r: Rect) => {
-      const values = corners(r).map((p) => p.x * axis.x + p.z * axis.z);
-      return [Math.min(...values), Math.max(...values)];
-    };
-    const [a0, a1] = project(a), [b0, b1] = project(b);
-    if (a1 + margin <= b0 || b1 + margin <= a0) return false;
+  const reach = Math.hypot(a.w, a.d) / 2 + Math.hypot(b.w, b.d) / 2 + margin;
+  const dx = a.cx - b.cx, dz = a.cz - b.cz;
+  if (dx * dx + dz * dz >= reach * reach) return false;
+  const ca = corners(a), cb = corners(b);
+  for (let k = 0; k < 4; k++) {
+    const yaw = k < 2 ? a.yaw : b.yaw;
+    const ax = k % 2 ? Math.cos(yaw) : Math.sin(yaw), az = k % 2 ? -Math.sin(yaw) : Math.cos(yaw);
+    projectOn(ca, ax, az, PA); projectOn(cb, ax, az, PB);
+    if (PA[1] + margin <= PB[0] || PB[1] + margin <= PA[0]) return false;
   }
   return true;
 }
@@ -236,6 +249,30 @@ function settingsFor(kind: EquipmentKind, interval: number): Partial<EquipmentSe
  * mirrored second line of a straight pair. Docks/racks sit at the upstream end of the aisle, toward the door.
  */
 export function buildLayout(constraints: LayoutConstraints, params: LayoutParams): LayoutCandidate {
+  const ckey = JSON.stringify(constraints);
+  if (ckey !== memoKey) { memo.clear(); memoKey = ckey; }
+  const key = JSON.stringify(params);
+  let hit = memo.get(key);
+  if (!hit) { hit = buildUncached(constraints, params); memo.set(key, hit); }
+  return hit;
+}
+/** Geometry memo (per constraint set): the search revisits the same params (grow/trim, fixed-mode variants). */
+const memo = new Map<string, LayoutCandidate>();
+let memoKey = "";
+/** Pallet moves one forklift handles per hour (pick-up, travel, set-down); beyond this a forklift is the bottleneck. */
+export const FORKLIFT_PALLETS_PER_HOUR = 18;
+/** Rack_m + AGV buffer is added only when the mean pallet -> main rack leg is at least this long (m). */
+export const RACK_M_MIN_DISTANCE = 15;
+/** Forklifts per layout: at least one per cell, more when the pallet rate exceeds the cell forklifts' capacity. */
+export function forkliftsFor(constraints: LayoutConstraints, lines: number) {
+  const pallets = constraints.targetPerHour / (constraints.boxesPerPallet ?? PALLET_CAPACITY);
+  return Math.max(lines, Math.ceil(pallets / FORKLIFT_PALLETS_PER_HOUR));
+}
+/** Deterministic forklift mode: carrier when AMRs are fewer than the cells, otherwise service (re-load onto AMRs). */
+export function forkliftModeFor(amrs: number, lines: number): "carrier" | "service" {
+  return amrs < lines ? "carrier" : "service";
+}
+function buildUncached(constraints: LayoutConstraints, params: LayoutParams): LayoutCandidate {
   if (params.rackPlacement) return buildOriented(constraints, params);
   const variants: LayoutParams[] = [
     { ...params, rackPlacement: "lineEnd", stack: params.stack ?? 1 },
@@ -244,7 +281,7 @@ export function buildLayout(constraints: LayoutConstraints, params: LayoutParams
   ];
   let first: LayoutCandidate | null = null;
   for (const variant of variants) {
-    const candidate = buildOriented(constraints, variant);
+    const candidate = buildLayout(constraints, variant);
     if (!candidate.issues.length) return candidate;
     first ??= candidate;
   }
@@ -286,8 +323,11 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   let unitStartItem = 0, unitStartAisle = 0, unitMaxX = -Infinity, baseX0: number | null = null;
   let rowMaxZ = -Infinity, zBase = 0;
   const extent = (from: number, fromAisle: number) => {
-    const pts = [...items.slice(from).map((it, k) => rectOf(it, from + k)), ...aisles.slice(fromAisle)].flatMap(corners);
-    return { x0: Math.min(...pts.map((q) => q.x)), x1: Math.max(...pts.map((q) => q.x)), z0: Math.min(...pts.map((q) => q.z)), z1: Math.max(...pts.map((q) => q.z)) };
+    const e = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+    const grow = (r: Rect) => { for (const q of corners(r)) { if (q.x < e.x0) e.x0 = q.x; if (q.x > e.x1) e.x1 = q.x; if (q.z < e.z0) e.z0 = q.z; if (q.z > e.z1) e.z1 = q.z; } };
+    for (let k = from; k < items.length; k++) grow(rectOf(items[k], k));
+    for (let k = fromAisle; k < aisles.length; k++) grow(aisles[k]);
+    return e;
   };
   // R-NEAR: the unit's racks sit just past its line output, fronts facing the line, reached from the unit aisle.
   const placeUnitRacks = (count: number) => {
@@ -437,8 +477,10 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   for (const item of items) { const p = rotate(item.x, item.z); item.x = p.x; item.z = p.z; item.yaw += rotation; }
   for (const a of aisles) { const p = rotate(a.cx, a.cz); a.cx = p.x; a.cz = p.z; a.yaw += rotation; }
   const rects = items.map(rectOf);
-  const all = [...rects, ...aisles].flatMap(corners);
-  const box = { x0: Math.min(...all.map((p) => p.x)), x1: Math.max(...all.map((p) => p.x)), z0: Math.min(...all.map((p) => p.z)), z1: Math.max(...all.map((p) => p.z)) };
+  const box = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  for (const r of [rects, aisles]) for (const rect of r) for (const p of corners(rect)) {
+    if (p.x < box.x0) box.x0 = p.x; if (p.x > box.x1) box.x1 = p.x; if (p.z < box.z0) box.z0 = p.z; if (p.z > box.z1) box.z1 = p.z;
+  }
   const W = Math.ceil(constraints.width), D = Math.ceil(constraints.depth), clear = constraints.wallClearance ?? rules.wallClearance;
   let dx = -(box.x0 + box.x1) / 2, dz = -(box.z0 + box.z1) / 2;
   // Pull the dock end toward the door wall, leaving the door keep-out zone free.
@@ -456,6 +498,14 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   const shifted = { x0: box.x0 + dx, x1: box.x1 + dx, z0: box.z0 + dz, z1: box.z1 + dz };
   if (shifted.x0 < -W / 2 + clear || shifted.x1 > W / 2 - clear || shifted.z0 < -D / 2 + clear || shifted.z1 > D / 2 - clear)
     issues.push(`레이아웃(${(box.x1 - box.x0).toFixed(1)}×${(box.z1 - box.z0).toFixed(1)}m)이 공장(${W}×${D}m, 벽 여유 ${clear}m)에 들어가지 않습니다.`);
+  // Early exit: an infeasible footprint is never simulated, so skip the O(n²) overlap / spot / route checks.
+  const usedArea = Math.round((box.x1 - box.x0) * (box.z1 - box.z0) * 10) / 10;
+  if (issues.length) return {
+    params, issues: [...new Set(issues)], crossings: 0, closeness: 0,
+    template: { id: `auto-infeasible-${params.pattern}-${lines}`, name: `${params.pattern}×${lines}`, description: "", equipment: [], links: [] },
+    counts: { robots: 0, pallets: 0, conveyors: 0, amrs: params.amrs, docks: params.docks, racks: params.racks, forklifts: 0 },
+    storage: { slots: params.racks * RACK_SLOTS, required: storageRequirement(constraints).pallets }, travel: 0, rackDistance: 0, outbound: [], usedArea,
+  };
 
   // Overlaps: equipment pairs (designed belt-robot-pallet neighbours are spaced by the rules above).
   const solid = rects.map((r, i) => ({ r, item: items[i] })).filter(({ item }) => item.kind !== "amr");
@@ -470,49 +520,17 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   }
   for (const a of aisles) for (const { r, item } of solid)
     if (item.kind !== "dock" && item.kind !== "rack" && rectsOverlap(a, { ...r, w: r.w - 0.02, d: r.d - 0.02 }, 0)) { issues.push(`통로 침범: ${item.kind}#${r.index}`); break; }
-  if (door) {
-    const doorWidth = door.width ?? 3, offset = door.offset ?? 0;
-    const keep: Rect = wall === "south" || wall === "north"
-      ? { cx: offset, cz: (wall === "south" ? -1 : 1) * (D / 2 - rules.doorKeepOut / 2), yaw: 0, w: doorWidth + 1, d: rules.doorKeepOut, tag: "door" }
-      : { cx: (wall === "west" ? -1 : 1) * (W / 2 - rules.doorKeepOut / 2), cz: offset, yaw: 0, w: rules.doorKeepOut, d: doorWidth + 1, tag: "door" };
+  const doorWidth = door?.width ?? 3, doorOffset = door?.offset ?? 0;
+  const keep: Rect | null = !door ? null : wall === "south" || wall === "north"
+    ? { cx: doorOffset, cz: (wall === "south" ? -1 : 1) * (D / 2 - rules.doorKeepOut / 2), yaw: 0, w: doorWidth + 1, d: rules.doorKeepOut, tag: "door" }
+    : { cx: (wall === "west" ? -1 : 1) * (W / 2 - rules.doorKeepOut / 2), cz: doorOffset, yaw: 0, w: rules.doorKeepOut, d: doorWidth + 1, tag: "door" };
+  if (keep) {
     for (const { r, item } of solid) if (rectsOverlap(keep, r, 0)) { issues.push(`문 앞 여유 공간 침범: ${item.kind}#${r.index}`); break; }
   }
 
   // R-GUARD: the door keep-out zone may not touch any robot envelope (reach circle, as its bounding square).
-  if (door) {
-    const doorWidth = door.width ?? 3, offset = door.offset ?? 0;
-    const keep: Rect = wall === "south" || wall === "north"
-      ? { cx: offset, cz: (wall === "south" ? -1 : 1) * (D / 2 - rules.doorKeepOut / 2), yaw: 0, w: doorWidth + 1, d: rules.doorKeepOut, tag: "door" }
-      : { cx: (wall === "west" ? -1 : 1) * (W / 2 - rules.doorKeepOut / 2), cz: offset, yaw: 0, w: rules.doorKeepOut, d: doorWidth + 1, tag: "door" };
+  if (keep) {
     for (const item of items) if (item.kind === "robot" && rectsOverlap(keep, { cx: item.x, cz: item.z, yaw: 0, w: 2 * reach, d: 2 * reach, tag: "envelope" }, 0)) { issues.push("로봇 작업 반경이 문 앞 통행 구역과 겹칩니다."); break; }
-  }
-  // Rack outfeed: with a door, one dedicated forklift (amrRole "forklift") waits inside beside the door,
-  // clear of the door keep-out zone, the aisles and equipment. Not part of `amrs` / maxAmrs (it serves racks only).
-  let forklift: TemplateEquipment | null = null;
-  if (door) {
-    const doorWidth = door.width ?? 3, offset = door.offset ?? 0;
-    const frame = { south: { ax: 1, az: 0, nx: 0, nz: 1 }, north: { ax: 1, az: 0, nx: 0, nz: -1 }, west: { ax: 0, az: 1, nx: 1, nz: 0 }, east: { ax: 0, az: 1, nx: -1, nz: 0 } }[wall];
-    const origin = { south: { x: offset, z: -D / 2 }, north: { x: offset, z: D / 2 }, west: { x: -W / 2, z: offset }, east: { x: W / 2, z: offset } }[wall];
-    const keep: Rect = wall === "south" || wall === "north"
-      ? { cx: offset, cz: (wall === "south" ? -1 : 1) * (D / 2 - rules.doorKeepOut / 2), yaw: 0, w: doorWidth + 1, d: rules.doorKeepOut, tag: "door" }
-      : { cx: (wall === "west" ? -1 : 1) * (W / 2 - rules.doorKeepOut / 2), cz: offset, yaw: 0, w: rules.doorKeepOut, d: doorWidth + 1, tag: "door" };
-    const [fw, fd] = rules.footprint.amr, yaw = Math.round(Math.atan2(frame.nx, frame.nz) * 1000) / 1000;
-    const fits = (x: number, z: number) => {
-      const r: Rect = { cx: x, cz: z, yaw, w: fw, d: fd, tag: "amr" };
-      if (Math.abs(x) > W / 2 - fw / 2 - 0.2 || Math.abs(z) > D / 2 - fd / 2 - 0.2) return false;
-      if (rectsOverlap(keep, r, 0.3)) return false;
-      return solid.every(({ r: other }) => !rectsOverlap(other, r, rules.gap)) && aisles.every((a) => !rectsOverlap(a, r, 0)) &&
-        items.every((it) => it.kind !== "amr" || Math.hypot(it.x - x, it.z - z) > fw + rules.gap);
-    };
-    // Nearest spot first: beside the keep-out zone along the wall, then deeper into the room.
-    search: for (let along = doorWidth / 2 + 0.5 + fw / 2 + 0.3; along < Math.max(W, D); along += 0.5)
-      for (let depth = clear + fd / 2; depth <= rules.doorKeepOut + 3; depth += 0.5)
-        for (const side of [1, -1]) {
-          const x = Math.round((origin.x + frame.ax * along * side + frame.nx * depth) * 1000) / 1000;
-          const z = Math.round((origin.z + frame.az * along * side + frame.nz * depth) * 1000) / 1000;
-          if (fits(x, z)) { forklift = { kind: "amr", x, z, yaw: ((yaw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), settings: { amrRole: "forklift" } }; break search; }
-        }
-    if (!forklift) issues.push("지게차를 문 근처에 둘 자리가 없습니다.");
   }
   // R-CROSS: straight AMR legs (pallet -> rack store, rack -> dock retrieve; pallet -> dock without racks) crossing belts.
   // R-TRAVEL: mean store + retrieve leg length per pallet.
@@ -534,6 +552,70 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   const doorPoint = door ? [{ kind: "door" as EquipmentKind, ...{ south: { x: door.offset ?? 0, z: -D / 2 }, north: { x: door.offset ?? 0, z: D / 2 }, west: { x: -W / 2, z: door.offset ?? 0 }, east: { x: W / 2, z: door.offset ?? 0 } }[wall] }] : [];
   const closeness = Math.round(closenessCost([...items, ...doorPoint]) * 100) / 100;
 
+  // Forklifts (mandatory) and the optional Rack_m + AGV buffer: free floor spots found by a ring search
+  // around an anchor, clear of equipment, aisles, the door keep-out and each other. Not part of `amrs`.
+  const extras: TemplateEquipment[] = [], extraRects: Rect[] = [];
+  const [fw, fd] = rules.footprint.amr;
+  const freeAt = (r: Rect) => {
+    if (Math.abs(r.cx) > W / 2 - Math.max(r.w, r.d) / 2 - 0.2 || Math.abs(r.cz) > D / 2 - Math.max(r.w, r.d) / 2 - 0.2) return false;
+    if (keep && rectsOverlap(keep, r, 0.3)) return false;
+    for (const o of solid) if (rectsOverlap(o.r, r, rules.gap)) return false;
+    for (const o of aisles) if (rectsOverlap(o, r, 0)) return false;
+    for (const o of extraRects) if (rectsOverlap(o, r, rules.gap)) return false;
+    for (const it of items) if (it.kind === "amr" && Math.hypot(it.x - r.cx, it.z - r.cz) < fw + rules.gap) return false;
+    return true;
+  };
+  const findSpot = (x0: number, z0: number, w: number, d: number, yaw: number, maxRadius = 14): Rect | null => {
+    const probe: Rect = { cx: x0, cz: z0, yaw, w, d, tag: "extra" };
+    for (let radius = 0; radius <= maxRadius; radius += 0.5) {
+      const steps = radius ? Math.ceil((2 * Math.PI * radius) / 0.5) : 1;
+      for (let k = 0; k < steps; k++) {
+        const t = (2 * Math.PI * k) / steps;
+        probe.cx = Math.round((x0 + radius * Math.cos(t)) * 1000) / 1000;
+        probe.cz = Math.round((z0 + radius * Math.sin(t)) * 1000) / 1000;
+        if (freeAt(probe)) { const hit = { ...probe }; extraRects.push(hit); return hit; }
+      }
+    }
+    return null;
+  };
+  const normYaw = (y: number) => Math.round((((y % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) * 1000) / 1000;
+  const lineYaw = normYaw(rotation);
+  // Forklift mode: carrier (forklift holds the pallet for the robot) when AMRs are few for the cells, else service
+  // (forklift re-loads pallets onto AMRs). Count: >= 1 per cell, plus more when pallet moves exceed one forklift's rate.
+  const forkliftTask = forkliftModeFor(params.amrs, lines);
+  const forkliftCount = forkliftsFor(constraints, lines);
+  for (let k = 0; k < forkliftCount; k++) {
+    const line = k % lines, ids = palletsOf[line];
+    const ax = ids.reduce((sum, i) => sum + items[i].x, 0) / ids.length, az = ids.reduce((sum, i) => sum + items[i].z, 0) / ids.length;
+    const spot = findSpot(ax, az, fw, fd, lineYaw);
+    if (!spot) { issues.push("지게차를 둘 자리가 없습니다."); break; }
+    extras.push({ kind: "amr", x: spot.cx, z: spot.cz, yaw: lineYaw, settings: { amrRole: "forklift", forkliftTask } });
+  }
+  // Rack outfeed with a door: one more forklift beside the door (rack -> outbound).
+  if (door && keep) {
+    const frame = { south: { ax: 1, az: 0, nx: 0, nz: 1 }, north: { ax: 1, az: 0, nx: 0, nz: -1 }, west: { ax: 0, az: 1, nx: 1, nz: 0 }, east: { ax: 0, az: 1, nx: -1, nz: 0 } }[wall];
+    const origin = { south: { x: doorOffset, z: -D / 2 }, north: { x: doorOffset, z: D / 2 }, west: { x: -W / 2, z: doorOffset }, east: { x: W / 2, z: doorOffset } }[wall];
+    const yaw = normYaw(Math.atan2(frame.nx, frame.nz));
+    const spot = findSpot(origin.x + frame.ax * (doorWidth / 2 + 0.8 + fw / 2) + frame.nx * (clear + fd / 2), origin.z + frame.az * (doorWidth / 2 + 0.8 + fw / 2) + frame.nz * (clear + fd / 2), fw, fd, yaw);
+    if (spot) extras.push({ kind: "amr", x: spot.cx, z: spot.cz, yaw, settings: { amrRole: "forklift", forkliftTask: "rack" } });
+    else issues.push("지게차를 문 근처에 둘 자리가 없습니다.");
+  }
+  // Optional Rack_m + AGV: buffer pallets beside the line and move them in bulk, only when the main racks are far.
+  let rackM = 0;
+  if (rackItems.length && rackDistance >= RACK_M_MIN_DISTANCE) {
+    const all = palletsOf.flat();
+    const ax = all.reduce((sum, i) => sum + items[i].x, 0) / all.length, az = all.reduce((sum, i) => sum + items[i].z, 0) / all.length;
+    const [rw, rd] = rules.footprint.rack;
+    const rackSpot = findSpot(ax, az, rw, rd, lineYaw);
+    const agvSpot = rackSpot && findSpot(rackSpot.cx, rackSpot.cz, fw, fd, lineYaw, 6);
+    if (rackSpot && agvSpot) {
+      extras.push({ kind: "rack", x: rackSpot.cx, z: rackSpot.cz, yaw: normYaw(lineYaw + RACK_FACE_YAW), settings: { rackType: "mobile" } });
+      extras.push({ kind: "amr", x: agvSpot.cx, z: agvSpot.cz, yaw: lineYaw, settings: { amrRole: "agv" } });
+      rackM = 1;
+    }
+  }
+  const forklifts = extras.filter((e) => e.settings?.amrRole === "forklift").length;
+
   // Links: per line feed/load; AMRs serve every station; stations deliver to every dock/rack.
   const links: TemplateLink[] = [];
   const pallets = palletsOf.flat();
@@ -544,23 +626,23 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   // Full pallets go to storage (racks); docks are kept for outbound (see `outbound`). Without racks they ship directly.
   for (const pallet of pallets) for (const destination of rackItems.length ? rackItems : dockItems) links.push({ type: "deliver", from: pallet, to: destination });
 
-  const floor: TemplateEquipment = { kind: "floor", x: 0, z: 0, yaw: 0, floor: { width: W, depth: D, wallHeight: constraints.height ?? 6 } };
+  const floor: TemplateEquipment = { kind: "floor", x: 0, z: 0, yaw: 0, floor: { width: W, depth: D, wallHeight: constraints.height ?? AUTO_LAYOUT_DEFAULTS.height } };
   const equipment: TemplateEquipment[] = [...items.map(({ line, ...rest }) => { void line; return rest.settings ? rest : (({ settings, ...bare }) => { void settings; return bare; })(rest); }), floor];
   if (door) {
     const offset = door.offset ?? 0, at = { south: { x: offset, z: -D / 2, yaw: 0 }, north: { x: offset, z: D / 2, yaw: Math.PI }, west: { x: -W / 2, z: offset, yaw: Math.PI / 2 }, east: { x: W / 2, z: offset, yaw: -Math.PI / 2 } }[wall];
     equipment.push({ kind: "door", ...at, settings: { doorWidth: door.width ?? 3 } });
-    if (forklift) equipment.push(forklift);
   }
+  equipment.push(...extras);
   const count = (kind: EquipmentKind) => items.filter((it) => it.kind === kind).length;
-  const name = `${params.pattern}×${lines}${stack > 1 ? ` (${stack}단)` : ""} · 로봇 ${count("robot")} · AMR ${params.amrs}${lineEnd ? " · 라인 끝 랙" : ""}`;
+  const name = `${params.pattern}×${lines}${stack > 1 ? ` (${stack}단)` : ""} · 로봇 ${count("robot")} · AMR ${params.amrs} · 지게차 ${forklifts}${rackM ? " · Rack_m" : ""}${lineEnd ? " · 라인 끝 랙" : ""}`;
   return {
     params, issues: [...new Set(issues)], crossings, closeness,
     template: { id: `auto-${params.pattern}-${lines}-${count("robot")}r-s${stack}-${lineEnd ? "end" : "row"}-${params.amrs}-${params.docks}-${params.racks}`, name, description: constraints.mode === "fixed" ? "자동 배치 (고정 장비 · 최대 처리량)" : `자동 배치 (${constraints.targetPerHour}박스/h 목표)`, equipment, links },
-    counts: { robots: count("robot"), pallets: count("pallet"), conveyors: count("conveyor"), amrs: params.amrs, docks: params.docks, racks: params.racks, forklifts: forklift ? 1 : 0 },
+    counts: { robots: count("robot"), pallets: count("pallet"), conveyors: count("conveyor"), amrs: params.amrs, docks: params.docks, racks: params.racks, forklifts, rackM },
     storage: { slots: params.racks * RACK_SLOTS, required: storageRequirement(constraints).pallets },
     travel, rackDistance,
     outbound: rackItems.map((rack) => ({ rack, dock: dockItems.length ? dockItems.reduce((best, d) => (dist(items[d], items[rack]) < dist(items[best], items[rack]) ? d : best)) : -1 })).filter((pair) => pair.dock >= 0),
-    usedArea: Math.round((box.x1 - box.x0) * (box.z1 - box.z0) * 10) / 10,
+    usedArea,
     fit: Math.round(Math.abs(Math.log(((box.x1 - box.x0) / Math.max(0.1, box.z1 - box.z0)) / (W / D))) * 100) / 100,
   };
 }
@@ -582,7 +664,7 @@ export type SimMetrics = {
 export function scoreLayout(candidate: LayoutCandidate, metrics: SimMetrics, targetPerHour: number) {
   const shortfall = Math.max(0, targetPerHour - metrics.placedPerHour) / targetPerHour;
   const c = candidate.counts;
-  const cost = c.robots * 10 + c.amrs * 6 + c.racks * 4 + c.docks * 2 + c.conveyors * 0.5;
+  const cost = c.robots * 10 + c.amrs * 6 + c.forklifts * 5 + (c.rackM ?? 0) * 8 + c.racks * 4 + c.docks * 2 + c.conveyors * 0.5;
   // R-RATE (shortfall, cost, area), R-PALLET-CHANGE (pallet wait), R-CROSS, R-SLP.
   // R-STORAGE: missing rack capacity; R-TRAVEL: AMR metres per pallet (store + retrieve).
   // R-LINE-LEN: one belt feeding many robots starves the downstream ones and makes a long, thin layout;

@@ -41,6 +41,15 @@
       "yaw": 0
     },
     {
+      "kind": "amr",
+      "x": -4.871,
+      "z": 7.0909,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
       "kind": "dock",
       "x": -4.871,
       "z": 16.8322,
@@ -54,7 +63,7 @@
       "floor": {
         "width": 13,
         "depth": 40,
-        "wallHeight": 9.5
+        "wallHeight": 10
       }
     }
   ],
@@ -67,7 +76,7 @@
     {
       "type": "deliver",
       "from": 3,
-      "to": 5
+      "to": 6
     }
   ]
 }

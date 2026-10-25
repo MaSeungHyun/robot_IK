@@ -44,6 +44,14 @@ export const TRAFFIC_RESOLUTION = {
   reverseSpeed: 0.5,
   /** Seconds a vehicle that backed off for a forklift waits before replanning. */
   bodyHold: 2,
+  /** Path searches allowed per advance() call (perf cap). Vehicles take turns starting the budget (round robin). */
+  searchesPerStep: 6,
+  /** Seconds between detour attempts of a waiting vehicle (was 1 s; with the 2 s failure cache movers stalled ~3 s). */
+  retry: 0.4,
+  /** An idle AMR steps aside only when its round trip (m, x this weight) is cheaper than the mover's detour extra. */
+  evadeWeight: 1.5,
+  /** Mover route (m) an evading idle AMR must clear. */
+  evadeCorridor: 10 * AMR_DIAMETER,
 };
 
 // Closest separation of two swept discs, including crossings between frames.
@@ -143,6 +151,11 @@ export class AMRTrafficController {
     const blockedA = this.occupiesGoal(a, b),
       blockedB = this.occupiesGoal(b, a);
     if (blockedA !== blockedB) return blockedA ? 1 : -1;
+    // Loaded beats empty; an AMR on an active job (moving, not gated/parked aside) beats an idle/waiting one.
+    const loaded = Number(b.dispatch.loaded) - Number(a.dispatch.loaded);
+    if (loaded) return loaded;
+    const active = Number(this.active(b)) - Number(this.active(a));
+    if (active) return active;
     const returning =
       Number(b.dispatch.phase === "returning") -
       Number(a.dispatch.phase === "returning");
@@ -151,7 +164,16 @@ export class AMRTrafficController {
     if (Math.abs(remaining) > 0.5) return remaining;
     return a.id.localeCompare(b.id);
   }
-  advance(vehicles: Vehicle[], delta: number, replan: TrafficPlanner, bodies: readonly TrafficBody[] = []) {
+  private active(v: Vehicle) {
+    return v.enabled && v.dispatch.moving && !v.dispatch.gated && !v.dispatch.holding && v.dispatch.phase !== "returning";
+  }
+  private round = 0;
+  advance(vehicles: Vehicle[], delta: number, plan: TrafficPlanner, bodies: readonly TrafficBody[] = []) {
+    // Cap path searches per advance (deterministic, not wall-clock): a burst of side-step attempts used to run
+    // dozens of grid searches in one step (60 ms frame spikes). Over budget a search reports "no path" and the
+    // vehicle simply keeps waiting/retries on a later step.
+    let searches = 0;
+    const replan: TrafficPlanner = (vehicle, target) => (++searches > TRAFFIC_RESOLUTION.searchesPerStep ? null : plan(vehicle, target));
     const steps = Math.max(1, Math.ceil(delta / (1 / 30))),
       dt = delta / steps;
     for (const vehicle of vehicles)
@@ -174,12 +196,15 @@ export class AMRTrafficController {
           motion.yieldFrom = null;
           motion.hold = 0;
         }
+        // Reversing drives slower: predict what advance() will actually cover, or a chasing
+        // vehicle is let in on the strength of an escape that is not happening.
+        const pace = vehicle.dispatch.reversing ? TRAFFIC_RESOLUTION.reverseSpeed : 1;
         vehicle.dispatch.predict(
-          vehicle.enabled ? dt * vehicle.speed : 0,
+          vehicle.enabled ? dt * vehicle.speed * pace : 0,
           motion.next,
         );
         vehicle.dispatch.predict(
-          vehicle.enabled ? 0.8 * vehicle.speed : 0,
+          vehicle.enabled ? 0.8 * vehicle.speed * pace : 0,
           motion.ahead,
         );
         vehicle.dispatch.yielding = false;
@@ -298,7 +323,10 @@ export class AMRTrafficController {
         )
           motion.allowed = true;
       }
-      for (const vehicle of vehicles) {
+      // Round robin: the vehicle that starts the search budget rotates, so the per-step cap never starves the same AMRs.
+      const start = vehicles.length ? this.round++ % vehicles.length : 0;
+      for (let n = 0; n < vehicles.length; n++) {
+        const vehicle = vehicles[(start + n) % vehicles.length];
         const motion = this.motions.get(vehicle.id)!,
           dispatch = vehicle.dispatch;
         if (!vehicle.enabled) continue;
@@ -313,7 +341,7 @@ export class AMRTrafficController {
           dispatch.yielding = true;
           motion.wait += dt;
           if (motion.wait < 0.8 || motion.retry > 0) continue;
-          motion.retry = 1;
+          motion.retry = TRAFFIC_RESOLUTION.retry;
           // Timeout: look for a detour around the current bodies first.
           if (motion.wait < TRAFFIC_RESOLUTION.deadlock) {
             const path = replan(vehicle);
@@ -380,13 +408,17 @@ export class AMRTrafficController {
       return;
     }
     const otherMoves = other.enabled && other.dispatch.moving;
-    // A parked/loading/unloading peer cannot move: detour around it, else back off so a detour opens up.
     if (!otherMoves) {
+      // Cooperative yield: an idle, empty peer (parked / idle at home) steps into a free pocket off this vehicle's
+      // route when that round trip is cheaper than the detour; a loading/unloading peer cannot move, so detour.
       const path = replan(vehicle);
+      const extra = path ? pathLength(path) - vehicle.dispatch.remainingLength() : Infinity;
+      if (this.evade(other, vehicle, extra, vehicles, replan, bodies)) return;
       if (path) vehicle.dispatch.reroute(path);
       else this.backOff(vehicle, this.peer(other), vehicles, replan, bodies);
       return;
     }
+    // A gated / parked-aside peer is waiting, not driving: it yields like an idle one when it loses priority.
     const [loser, winner] =
       this.priority(vehicle, other) <= 0 ? [other, vehicle] : [vehicle, other];
     if (this.motions.get(loser.id)!.yieldFrom === winner.id && loser.dispatch.holding) return;
@@ -396,6 +428,41 @@ export class AMRTrafficController {
     if (this.backOff(loser, this.peer(winner), vehicles, replan, bodies)) return;
     if (this.stepAside(winner, this.peer(loser), vehicles, replan, bodies)) return;
     this.backOff(winner, this.peer(loser), vehicles, replan, bodies);
+  }
+  /** Idle, empty `idle` moves to the nearest free pocket clear of `mover`'s route (nav grid via the planner, so
+   * wall/equipment clearance uses the AMR radius), then returns once the mover has passed (see release). */
+  private evade(idle: Vehicle, mover: Vehicle, detourExtra: number, vehicles: Vehicle[], replan: TrafficPlanner, bodies: readonly TrafficBody[]) {
+    const d = idle.dispatch;
+    if (!idle.enabled || d.phase !== "idle" || d.loaded || this.priority(mover, idle) > 0) return false;
+    const corridor = mover.dispatch.remaining(TRAFFIC_RESOLUTION.evadeCorridor);
+    const peer: Peer = { id: mover.id, position: mover.dispatch.carrier.position, radius: mover.dispatch.radius, corridor };
+    const position = d.carrier.position, need = d.radius + peer.radius + this.margin;
+    const candidates: { point: Vector3; ring: number }[] = [];
+    for (const ring of TRAFFIC_RESOLUTION.rings) {
+      // Round trip estimate already too dear: farther rings only cost more.
+      if (2 * ring * TRAFFIC_RESOLUTION.evadeWeight >= detourExtra) break;
+      for (let k = 0; k < TRAFFIC_RESOLUTION.angles; k++) {
+        const angle = (k / TRAFFIC_RESOLUTION.angles) * Math.PI * 2,
+          point = new Vector3(position.x + ring * Math.cos(angle), 0, position.z + ring * Math.sin(angle));
+        if (polylineDistance(point, corridor) < need + 0.05) continue;
+        if (!this.clearOfOthers(point, idle, peer, vehicles, bodies)) continue;
+        candidates.push({ point, ring });
+      }
+    }
+    candidates.sort((a, b) => a.ring - b.ring || polylineDistance(b.point, corridor) - polylineDistance(a.point, corridor));
+    for (const { point } of candidates.slice(0, TRAFFIC_RESOLUTION.attempts)) {
+      const path = replan(idle, point);
+      if (!path) continue;
+      if (2 * pathLength(path) * TRAFFIC_RESOLUTION.evadeWeight >= detourExtra) continue;
+      if (!d.evade(path)) return false;
+      const motion = this.motions.get(idle.id)!;
+      motion.yieldFrom = mover.id;
+      motion.hold = 0;
+      motion.wait = 0;
+      motion.retry = TRAFFIC_RESOLUTION.retry;
+      return true;
+    }
+    return false;
   }
   private peer(vehicle: Vehicle): Peer {
     return {
@@ -534,7 +601,7 @@ export class AMRTrafficController {
     dispatch.yielding = true;
     motion.hold += dt;
     if (motion.retry > 0) return;
-    motion.retry = 0.5;
+    motion.retry = TRAFFIC_RESOLUTION.retry;
     // Yielded to a forklift (no known route): give it a moment to pass first.
     if (motion.yieldFrom === BODY_YIELD && motion.hold < TRAFFIC_RESOLUTION.bodyHold) return;
     const winner = vehicles.find((other) => other.id === motion.yieldFrom);

@@ -11,6 +11,7 @@ import {
   Vector3,
 } from "three";
 import { Line2, LineGeometry, LineMaterial } from "three-stdlib";
+import { AMR_PATH_LAYERS as LAYERS } from "@/constants/amrPath";
 import amrUrl from "@/assets/models/AMR.glb?url";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { selectionContext } from "@react-three/postprocessing";
@@ -26,14 +27,6 @@ export type AMRRoute = {
 const ROUTE_Y = 0.025;
 const FLOW_SPEED = 0.9;
 
-// Wide, faint layers fake a glow around the bright core (no bloom pass);
-// the dashed top layer's travelling pulses show the direction of travel.
-const LAYERS = [
-  { color: "#0284c7", linewidth: 14, opacity: 0.14 },
-  { color: "#38bdf8", linewidth: 6, opacity: 0.45 },
-  { color: "#f0f9ff", linewidth: 2.5, opacity: 0.7 },
-  { color: "#7dd3fc", linewidth: 4, opacity: 0.9, dashed: true },
-] as const;
 
 /**
  * Shows only the remaining route: from the carrier to the last waypoint.

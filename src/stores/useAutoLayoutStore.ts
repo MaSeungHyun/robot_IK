@@ -1,4 +1,8 @@
+import { AUTO_LAYOUT_DEFAULTS } from "@/constants/auto-layout";
 import { create } from "zustand";
+import { applySceneTemplate } from "@/stores/actions/applySceneTemplate";
+import { useSceneStore } from "@/stores/useSceneStore";
+import { scheduleDropIn } from "@/viewport/editor/dropIn";
 import type { LayoutConstraints, LayoutMode, Wall } from "@/domain/layout/autoLayout";
 import type { SearchResult } from "@/domain/layout/searchLayouts";
 import { runAutoLayout, type AutoLayoutRun } from "@/workers/autoLayoutClient";
@@ -17,7 +21,7 @@ export type AutoLayoutForm = {
 };
 export const DEFAULT_AUTO_LAYOUT_FORM: AutoLayoutForm = {
   mode: "target", fixedRobots: 8, fixedAmrs: 3, fixedRacks: 6, fixedDocks: 1,
-  width: 30, depth: 20, height: 6, targetPerHour: 600, storageHours: 2,
+  width: AUTO_LAYOUT_DEFAULTS.width, depth: AUTO_LAYOUT_DEFAULTS.depth, height: AUTO_LAYOUT_DEFAULTS.height, targetPerHour: 600, storageHours: 2,
   door: "none", doorOffset: 0, doorWidth: 3, maxRobots: 24, maxAmrs: 6, maxRacks: 0,
 };
 export function formToConstraints(form: AutoLayoutForm): LayoutConstraints {
@@ -63,7 +67,18 @@ export const useAutoLayoutStore = create<AutoLayoutState>((set, get) => ({
     active = run;
     set({ status: "running", result: null, error: null, progress: { evaluated: 0, total: 0, current: "모델 불러오는 중" } });
     run.promise.then(
-      (result) => { if (active === run) { active = null; set({ status: "done", result }); } },
+      (result) => {
+        if (active !== run) return;
+        active = null;
+        set({ status: "done", result });
+        // Only the single best-scoring layout is applied (no candidate list); unmet target -> closest one.
+        const best = result.ranked[0] ?? result.closest;
+        if (best && !result.cancelled) {
+          const scene = useSceneStore.getState();
+          if (!scene.editing) scene.edit();
+          if (applySceneTemplate(best.candidate.template)) scheduleDropIn(useSceneStore.getState().objects);
+        }
+      },
       (error: Error) => { if (active === run) { active = null; set({ status: error.name === "AbortError" ? "idle" : "error", error: error.name === "AbortError" ? null : error.message }); } },
     );
   },

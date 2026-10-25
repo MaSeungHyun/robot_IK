@@ -92,7 +92,7 @@ export class SelectionOutline {
     fragmentShader: `uniform vec3 color;void main(){gl_FragColor=vec4(color,1.0);}`,
   });
   /** `color`: outline colour (default: selection sky). Kept in sRGB like the former hardcoded value. */
-  constructor(color: ColorRepresentation = 0x38bdf8) {
+  constructor(color: ColorRepresentation = 0x02dfef) {
     this.lines.color.set(color);
     (this.material.uniforms.color.value as Color).set(color).convertLinearToSRGB();
   }

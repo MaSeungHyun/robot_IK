@@ -70,6 +70,12 @@ export const CYCLE_CONFIG = {
   standoffGap: 0.45,
   /** Traffic: bodies keep this gap; after holdTimeout s a vehicle replans, after giveUp s it proceeds (counted). */
   safetyGap: 0.15,
+  /** AMR footprint keep-out radius (same as the dispatch radius): two AMR centres stay ≥ 2× apart. */
+  amrClearance: 1.243,
+  /** Idle service forklift steps aside (m) when a working one has been held this long (s) within `yieldRange` (m). */
+  yieldAfter: 2,
+  yieldRange: 6,
+  yieldStep: 3.5,
   holdTimeout: 3,
   giveUp: 8,
   /** Deadlock pass window (s) after giveUp. */
@@ -78,4 +84,6 @@ export const CYCLE_CONFIG = {
   sourceStack: 4,
   /** Pallet-unit inbound: max distance (m) from a belt end to the shuttle AMR it feeds. */
   feedReach: 2.2,
+  /** Receive pose: AMR centre this far past the pallet-inbound belt end (roller transfer, same deck height). */
+  feedReceiveGap: 0.95,
 } as const;

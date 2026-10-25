@@ -36,6 +36,14 @@ export type ForkliftJob = {
   take?: () => Group | null;
   /** store: called with the pallet on the shelf; the owner reparents it into the rack. */
   store?: (payload: Group, target: ForkliftTarget) => void;
+  /** store: keep the pallet on the forks after `store` while this is true (e.g. a robot unloads it there), then
+   *  `release` gets the (emptied) pallet and the forklift backs off. */
+  hold?: () => boolean;
+  /** Store target not ready yet (e.g. the receiving AMR is still driving in): the forklift waits at the approach. */
+  ready?: () => boolean;
+  release?: (payload: Group) => void;
+  /** Scene id of the vehicle the pallet is handed to (traffic hold ignores it while placing). */
+  peerId?: string;
   /** retrieve: door and floor points just inside / outside its opening. */
   doorId?: string;
   inside?: Vector3;
@@ -51,7 +59,7 @@ export type ForkliftPlanner = (from: Vector3, to: Vector3, loaded: boolean) => V
 
 type Stage =
   | "toPick" | "alignPick" | "insertPick" | "liftPick" | "retreatPick" | "waitTarget" | "recover"
-  | "toRack" | "align" | "raise" | "insert" | "lift" | "place" | "retreat" | "lower" | "reset"
+  | "toRack" | "align" | "raise" | "insert" | "lift" | "place" | "holdPlace" | "retreat" | "lower" | "reset"
   | "toDoor" | "waitDoor" | "toOutside" | "setDown" | "backOut" | "toInside" | "returning";
 
 const STATUS: Record<Stage, string> = {
@@ -68,6 +76,7 @@ const STATUS: Record<Stage, string> = {
   insert: "포크 삽입 중",
   lift: "팔레트 들어올림",
   place: "칸에 팔레트 내려놓는 중",
+  holdPlace: "팔레트를 든 채 로봇 하역 대기",
   retreat: "랙에서 후진",
   lower: "포크 운반 높이로 하강",
   reset: "포크 원위치",
@@ -385,6 +394,7 @@ export class ForkliftController {
         return;
       case "retreatPick":
         if (!this.creep(this.pickBack, delta)) return;
+        if (this.job?.ready && !this.job.ready()) return;
         this.chooseOrRecover();
         return;
       case "waitTarget":
@@ -423,9 +433,24 @@ export class ForkliftController {
       case "place": {
         if (!this.raise(this.shelfLift, delta)) return;
         const payload = this.payload;
+        if (job.hold) {
+          // Pallet stays on the forks: the owner hands its boxes to a robot, then release() takes it back.
+          if (payload) job.store!(payload, this.target!);
+          this.stored++;
+          this.stage = "holdPlace";
+          return;
+        }
         this.payload = null;
         if (payload) job.store!(payload, this.target!);
         this.stored++;
+        this.stage = "retreat";
+        return;
+      }
+      case "holdPlace": {
+        if (job.hold!()) return;
+        const payload = this.payload;
+        this.payload = null;
+        if (payload) job.release?.(payload);
         this.stage = "retreat";
         return;
       }

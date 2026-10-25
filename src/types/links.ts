@@ -12,7 +12,7 @@ export type SceneLink = { id: string; type: LinkType; from: string; to: string }
 export type TemplateLink = { type: LinkType; from: number; to: number };
 
 export const LINK_RULES: Record<LinkType, { from: EquipmentKind; to: readonly EquipmentKind[]; label: string }> = {
-  feed: { from: "conveyor", to: ["robot"], label: "공급" },
+  feed: { from: "conveyor", to: ["robot", "amr"], label: "공급" },
   load: { from: "robot", to: ["pallet"], label: "적재" },
   pickup: { from: "amr", to: ["pallet"], label: "픽업" },
   deliver: { from: "pallet", to: ["dock", "rack", "conveyor"], label: "출고" },

@@ -79,6 +79,15 @@
       "yaw": 0
     },
     {
+      "kind": "amr",
+      "x": -4.871,
+      "z": -24.7318,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
       "kind": "robot",
       "x": 1.2207,
       "z": 13.4352,
@@ -115,6 +124,15 @@
       "yaw": 0
     },
     {
+      "kind": "amr",
+      "x": 4.871,
+      "z": 7.0909,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
       "kind": "conveyor",
       "x": 4.871,
       "z": 33.9334,
@@ -132,7 +150,7 @@
       "floor": {
         "width": 25,
         "depth": 86,
-        "wallHeight": 9.5
+        "wallHeight": 10
       }
     }
   ],
@@ -149,23 +167,23 @@
     },
     {
       "type": "pickup",
-      "from": 13,
-      "to": 10
+      "from": 14,
+      "to": 11
     },
     {
       "type": "deliver",
-      "from": 10,
-      "to": 14
+      "from": 11,
+      "to": 16
     },
     {
       "type": "pickup",
-      "from": 13,
-      "to": 12
+      "from": 14,
+      "to": 13
     },
     {
       "type": "deliver",
-      "from": 12,
-      "to": 14
+      "from": 13,
+      "to": 16
     }
   ]
 }

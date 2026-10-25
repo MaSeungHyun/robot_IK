@@ -31,8 +31,16 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** AMR role: "forklift" = rack-unloading forklift (ForkliftController; legacy "rack" means the same); default pallet AMR.
    * Pallet cycle (domain/cycle): "shuttle" = AMR carrying a pallet on its deck (robot loads it in place), "agv" = Rack_m lifting AGV. */
   amrRole?:"pallet"|"forklift"|"rack"|"shuttle"|"agv";
-  /** Forklift only, pallet cycle: "service" = swaps pallets on shuttle AMRs (full → Rack_m, empty → AMR), "rack" = Rack_m → Rack and Rack → 출하. */
-  forkliftTask?:"service"|"rack";
+  /** Forklift only, pallet cycle: "service" = swaps pallets on shuttle AMRs (full → Rack_m, empty → AMR), "rack" = Rack_m → Rack and Rack → 출하,
+   * "carrier" = holds a pallet on its forks at the pallet in front of it (the robot loads it there) and carries it to an unload dock robot. */
+  forkliftTask?:"service"|"rack"|"carrier";
+  /** Service forklift only: job split when several forklifts share a cell. "auto" (default) = any job; "unload" = only full
+   * pallets AMR → Rack_m; "supply" = only empty pallets (source → AMR, and empty pallets off inbound AMRs → source). */
+  forkliftRole?:"auto"|"unload"|"supply";
+  /** Shuttle AMR fed by a pallet-unit inbound only: what happens to the emptied pallet. "return" (default) = it rolls off to the
+   * return line at the AMR's home; "forklift" = the cell's service forklift lifts it off the AMR at the unload dock and stacks it
+   * on the empty-pallet source (palletSource dock), then the AMR goes back for the next loaded pallet. */
+  emptyPallet?:"return"|"forklift";
   /** Rack only: "mobile" = Rack_m (2 levels, carried by an AGV); default fixed Rack.glb. */
   rackType?:"fixed"|"mobile";
   /** Pallet only: id of the AMR it is mounted on (editor snap; the pallet rides on that shuttle AMR). */

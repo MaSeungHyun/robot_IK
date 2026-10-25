@@ -109,8 +109,15 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
    * horizontal during pickup can still plan out of it (and never deeper); it tightens back as the arm rises.
    */
   let realElevation = Infinity;
+  let elbowBelowShoulder = false;
+  controls[1].node.traverseAncestors((node) => { if (node === controls[0].node) elbowBelowShoulder = true; });
   const shoulderElevation = () => {
-    controls[0].node.getWorldPosition(shoulderPoint); controls[1].node.getWorldPosition(elbowPoint);
+    // The elbow joint is below the shoulder in the chain: one parent-chain update refreshes both matrices
+    // (getWorldPosition twice walked the chain twice; hot at high playback speed).
+    if (elbowBelowShoulder) {
+      controls[1].node.updateWorldMatrix(true, false);
+      shoulderPoint.setFromMatrixPosition(controls[0].node.matrixWorld); elbowPoint.setFromMatrixPosition(controls[1].node.matrixWorld);
+    } else { controls[0].node.getWorldPosition(shoulderPoint); controls[1].node.getWorldPosition(elbowPoint); }
     return Math.atan2(elbowPoint.y - shoulderPoint.y, Math.hypot(elbowPoint.x - shoulderPoint.x, elbowPoint.z - shoulderPoint.z));
   };
   const read = () => all.map(control => control.angle);

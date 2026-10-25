@@ -9,7 +9,7 @@ try {
   const amr = s().objects.at(-1);
   s().add("pallet", { x: 2.4, z: 3.3, yaw: 0 });
   const pallet = s().objects.at(-1);
-  const read = () => { const p = s().objects.find((o) => o.id === pallet.id); return { x: p.x, z: p.z, yaw: p.yaw, on: s().settings[pallet.id]?.mountedOn ?? null, role: s().settings[amr.id]?.amrRole ?? null }; };
+  const read = () => { const p = s().objects.find((o) => o.id === pallet.id); if (!p) return { gone: true, role: s().settings[amr.id]?.amrRole ?? null }; return { x: p.x, z: p.z, yaw: p.yaw, on: s().settings[pallet.id]?.mountedOn ?? null, role: s().settings[amr.id]?.amrRole ?? null }; };
   const out = [];
   const step = (label, ok) => { out.push(`${ok ? "OK  " : "FAIL"} ${label} ${JSON.stringify(read())}`); if (!ok) process.exitCode = 1; };
   let r = read(); step("snap on add", r.on === amr.id && r.x === 2 && r.z === 3 && r.yaw === 0.5 && r.role === "shuttle");
@@ -18,7 +18,7 @@ try {
   s().redo(); r = read(); step("redo AMR move", r.x === 5 && r.z === 1);
   s().updatePose(pallet.id, { x: 9, z: 9 }); r = read(); step("unmount when moved away", r.on === null);
   s().undo(); r = read(); step("undo unmount", r.on === amr.id && r.x === 5);
-  s().remove(amr.id); r = read(); step("remove AMR releases", r.on === null);
+  s().remove(amr.id); r = read(); step("remove AMR removes its pallet (none left on the floor)", r.gone === true);
   s().undo(); r = read(); step("undo remove", r.on === amr.id);
   // Shuttle preset: comes with a mounted deck pallet; '팔레트 포함' toggles it (one undo step each).
   s().setPending("amr", { amrRole: "shuttle" });
@@ -38,5 +38,20 @@ try {
   s().undo(); check("undo role change", deck().length === 1 && s().settings[shuttle.id].amrRole === "shuttle");
   s().updateSettingsMany([shuttle.id], { amrRole: "agv" }); check("bulk role → agv releases pallet", deck().length === 0);
   s().undo(); check("undo bulk role", deck().length === 1);
+  // Pallet/box AMR role: the deck pallet is deleted, never left on the floor.
+  const pallets = () => s().objects.filter((o) => o.kind === "pallet").length;
+  let before = pallets();
+  s().updateSettings(shuttle.id, { amrRole: "pallet" }); check("role → 팔레트(박스) AMR deletes deck pallet", deck().length === 0 && pallets() === before - 1);
+  s().undo(); check("undo restores deck pallet", deck().length === 1 && pallets() === before);
+  // Ctrl+D / paste and array copies bring the deck pallet along.
+  const copyId = s().duplicate(s().objects.find((o) => o.id === shuttle.id), s().settings[shuttle.id]);
+  const onCopy = () => s().objects.filter((o) => o.kind === "pallet" && s().settings[o.id]?.mountedOn === copyId);
+  check("duplicate copies deck pallet", onCopy().length === 1 && onCopy()[0].x === 0 && onCopy()[0].z === 7);
+  s().undo(); check("undo duplicate removes both", onCopy().length === 0 && !s().objects.some((o) => o.id === copyId));
+  before = pallets();
+  const ids = s().arrayCopies(shuttle.id, [1, 1], { count: 3, gap: 0.5, axis: "x" });
+  const riders = ids.filter((id) => s().objects.some((o) => o.kind === "pallet" && s().settings[o.id]?.mountedOn === id)).length;
+  check(`array copies carry deck pallets (${ids.length} copies)`, ids.length > 0 && riders === ids.length && pallets() === before + ids.length);
+  s().undo(); check("undo array copies", pallets() === before);
   console.log(out.join("\n"));
 } finally { await server.close(); }

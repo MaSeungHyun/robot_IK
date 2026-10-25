@@ -9,11 +9,15 @@ export const SHUTTLE_STATES = {
   toService: "만재 · 지게차 교체 위치로 이동",
   waitSwap: "지게차 팔레트 교체 대기",
   swapping: "지게차가 팔레트 교체 중",
+  waitEmpty: "만재 팔레트 내림 · 빈 팔레트 공급 대기",
   returning: "빈 팔레트로 적재 위치 복귀",
   docking: "적재 위치 정렬",
   waitDock: "하역 위치 비기를 대기",
+  toReceive: "빈 AMR · 입하 컨베이어 받는 위치로 이동",
   waitPallet: "입하 컨베이어 팔레트 대기 (롤러 상단)",
   rollOn: "입하 팔레트가 롤러로 AMR에 이송 중",
+  waitEmptyPick: "빈 팔레트 지게차 회수 대기",
+  emptyPicking: "지게차가 빈 팔레트 회수 중",
 } as const;
 export type ShuttleState = keyof typeof SHUTTLE_STATES;
 
@@ -26,6 +30,10 @@ export const FORKLIFT_TASK_STATES = {
   putDown: "팔레트 내려놓기 · 포크 빼기",
   toSource: "빈 팔레트 적치장으로 이동",
   returning: "대기 위치 복귀",
+  holdLoading: "팔레트를 든 채 로봇 적재 대기",
+  toDock: "만재 팔레트를 하역 로봇으로 운반",
+  holdUnloading: "팔레트를 든 채 로봇 하역 대기",
+  toStation: "빈 팔레트로 적재 위치 복귀",
 } as const;
 export type ForkliftTaskState = keyof typeof FORKLIFT_TASK_STATES;
 
@@ -35,6 +43,8 @@ export const FORKLIFT_JOBS = {
   swapEmpty: "빈 팔레트 적치장 → AMR",
   store: "Rack_m → 랙 적재",
   ship: "랙 → 출하 로봇 옆",
+  takeEmpty: "빈 팔레트 AMR → 빈 팔레트 적치장",
+  carry: "팔레트 운반 (적재 로봇 → 하역 로봇)",
 } as const;
 export type ForkliftJobKind = keyof typeof FORKLIFT_JOBS;
 

@@ -1,3 +1,4 @@
+import InfoTip from "@/components/InfoTip";
 import { useShallow } from "zustand/react/shallow";
 import {
   EQUIPMENT_NAMES,
@@ -194,7 +195,7 @@ export default function ObjectPropertiesPanel({
         </div>
         {!multi && object.kind === "floor" && object.floor && (
           <section className="mt-5 border-t border-white/10 pt-4">
-            <h3 className="mb-3 text-xs text-text-primary">바닥 / 벽</h3>
+            <h3 className="mb-3 flex items-center text-xs text-text-primary">바닥 / 벽<InfoTip label="바닥 / 벽 설명" text="벽 높이 0 = 바닥만. 벽을 올리면 기둥과 천장 트러스가 함께 생성됩니다. 위에서 보면 천장이 숨겨지고, 내부 시점에서는 표시됩니다." /></h3>
             <div className="flex flex-col gap-2">
               {(
                 [
@@ -227,11 +228,6 @@ export default function ObjectPropertiesPanel({
                 </label>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-text-secondary">
-              벽 높이 0 = 바닥만. 벽을 올리면 기둥과 천장 트러스가 함께
-              생성됩니다. 위에서 보면 천장이 숨겨지고, 내부 시점에서는
-              표시됩니다.
-            </p>
           </section>
         )}
         {!mixedKinds && (

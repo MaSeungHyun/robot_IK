@@ -32,9 +32,8 @@ export async function handleRequest(request: AutoLayoutRequest) {
   cancelled = false;
   try {
     const loaded = await loadModels();
-    const { seconds, warmup, top } = request.options;
+    const { seconds, warmup } = request.options;
     const result = await searchLayouts(request.constraints, {
-      top,
       patterns: request.options.patterns,
       cancelled: () => cancelled,
       onProgress: (progress) => post({ type: "progress", progress: { evaluated: progress.evaluated, total: progress.total, current: progress.current } }),

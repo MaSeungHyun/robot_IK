@@ -1,6 +1,7 @@
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
-import { LINKABLE_KINDS, resolveLink } from "@/types/links";
+import { LINKABLE_KINDS } from "@/types/links";
+import { linkOwner, resolveOwnedLink } from "@/viewport/editor/links/linkOwners";
 
 /**
  * Link mode click on equipment `id`: the first click picks the source, a click on a valid partner
@@ -11,6 +12,8 @@ import { LINKABLE_KINDS, resolveLink } from "@/types/links";
  */
 export function pickLinkEnd(id: string) {
   const scene = useSceneStore.getState(), mode = useLinkModeStore.getState();
+  // A pallet mounted on an AMR acts as that AMR (the AMR owns its links).
+  id = linkOwner(id, scene);
   const target = scene.objects.find((object) => object.id === id);
   if (!target || !LINKABLE_KINDS.has(target.kind)) return;
   const source = scene.objects.find((object) => object.id === mode.source);
@@ -18,7 +21,7 @@ export function pickLinkEnd(id: string) {
     mode.setSource(source?.id === id ? null : id);
     return;
   }
-  const link = resolveLink(source, target);
+  const link = resolveOwnedLink(source, target, scene);
   if (!link) {
     mode.setSource(id);
     return;

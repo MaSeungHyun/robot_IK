@@ -38,9 +38,9 @@ export default function FloorRoom({ width, depth, wallHeight, preview = false, i
         {pbr && !preview ? (
           <meshStandardMaterial key="pbr" {...pbr} color="#ffffff" roughness={1} metalness={0} normalScale={[0.6, 0.6]} />
         ) : (
-          <meshStandardMaterial key="flat" map={preview ? null : floor} color={preview ? "#38bdf8" : C.floorColor} transparent={preview} opacity={preview ? 0.25 : 1} depthWrite={!preview} roughness={0.42} metalness={0.08} />
+          <meshStandardMaterial key="flat" map={preview ? null : floor} color={preview ? "#02dfef" : C.floorColor} transparent={preview} opacity={preview ? 0.25 : 1} depthWrite={!preview} roughness={0.42} metalness={0.08} />
         )}
-        <Edges color={preview ? "#38bdf8" : "#87979d"} />
+        <Edges color={preview ? "#02dfef" : "#87979d"} />
       </mesh>
       {wallHeight > 0 && <>
         <group position={[0, 0, -depth / 2]}><RoomWall length={width} height={wallHeight} preview={preview} openings={openings?.[0]} /></group>

@@ -69,7 +69,7 @@ export default function ConveyorExtensionControls({ entity }: { entity: SceneEqu
   ];
   return (
     <group userData={{ noOutline: true }}>
-      {selected && <Line points={points} color="#38bdf8" lineWidth={3} />}
+      {selected && <Line points={points} color="#02dfef" lineWidth={3} />}
       {selected && !connected && hover && extension && (
         <group
           position={[extension.x, 0, extension.z]}
@@ -82,7 +82,7 @@ export default function ConveyorExtensionControls({ entity }: { entity: SceneEqu
         <group position={[end.x, 0.28, end.z]} rotation={[0, end.yaw, 0]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[0.065, 20]} />
-            <meshBasicMaterial color="#38bdf8" />
+            <meshBasicMaterial color="#02dfef" />
           </mesh>
           {!connected &&
             directions.map((direction) => (

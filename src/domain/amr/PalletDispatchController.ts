@@ -1,4 +1,4 @@
-import { Euler, Group, Quaternion, Vector3 } from "three";
+import { Group, Vector3 } from "three";
 import type { FactoryLayout } from "@/types/layout";
 import { SIMULATOR_CONFIG, AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { layoutPath } from "@/domain/amr/navigation/layoutNavigation";
@@ -12,9 +12,24 @@ export type DispatchRoutes = {
   returning: Vector3[];
   /** Rack delivery: `dispatch` ends in front of the slot; the AMR faces `heading`, lifts, drives in to `slot` (y = shelf), sets the pallet down and backs out. */
   store?: { slot: Vector3; heading: number };
+  /** Pallet-inbound conveyor: `pickup` ends at the receive pose past the belt end; the AMR faces `heading`, waits
+   * ("receiving") while the pallet rolls onto its deck, then received() starts `dispatch`. Never a floor pickup. */
+  /**
+   * Inbound-conveyor feed: `heading` is the exact receive yaw, `lane` a replan waypoint in front of the belt.
+   * `dockGate`/`dockStage`: a loaded AMR stops `dockStage` m short of the dock until `dockGate()` (dock free & cleared).
+   */
+  feed?: {
+heading: number; lane?: Vector3; dockGate?: () => boolean; dockStage?: number;
+    /** Index in `dispatch` of a staging point off the dock lane: the gated AMR waits exactly there instead. */
+    stage?: number };
+  /** Unload dock: the AMR never sets the pallet down itself. It stays still at the dock, pallet on its deck, while
+   * `busy()` (the dock robot depalletizes it there); then it drives back with the empty pallet and `emptyHome()` hands it off. */
+  hold?: { busy: () => boolean; emptyHome: (pallet: Group) => void };
 };
 
 export class PalletDispatchController {
+  /** Times an AMR reached a floor pallet to lift it itself (always refused; checked by verify-pallet-modes). */
+  static floorLiftAttempts = 0;
   readonly carrier = new Group();
   readonly home: Vector3;
   phase:
@@ -25,6 +40,7 @@ export class PalletDispatchController {
     | "unloading"
     | "storing"
     | "returning"
+    | "receiving"
     | "blocked" = "idle";
   path: Vector3[] = [];
   /** End of the current leg; a traffic side-step path can end elsewhere. */
@@ -33,6 +49,8 @@ export class PalletDispatchController {
   yielding = false;
   /** Backing out of another AMR's way: keeps its heading and drives backward (slower). */
   reversing = false;
+  /** Waiting at the inbound queue pose for the receive pose to clear. */
+  gated = false;
   get moving() {
     return (
       this.phase === "pickup" ||
@@ -42,7 +60,7 @@ export class PalletDispatchController {
   }
   /** Carrying a pallet (decides the loaded navigation check; radii may coincide, so never compare radii). */
   get loaded() {
-    return ["loading", "dispatch", "unloading", "storing"].includes(this.phase);
+    return ["loading", "dispatch", "unloading", "storing"].includes(this.phase) || !!this.carried;
   }
   get radius() {
     return this.loaded
@@ -59,7 +77,9 @@ export class PalletDispatchController {
   }
   predict(delta: number, out: Vector3) {
     out.copy(this.carrier.position);
-    if (!this.moving) return out;
+    // Gated at the dock stage or parked at a side cell: it will not move, so never predict motion
+    // (a phantom forward prediction made peers stop for a vehicle that was standing still).
+    if (!this.moving || this.gated || this.holding || this.turnTarget !== null) return out;
     let remaining = delta * SIMULATOR_CONFIG.amrSpeed;
     for (let i = this.cursor; i < this.path.length && remaining > 0; i++) {
       const point = this.path[i],
@@ -115,6 +135,19 @@ export class PalletDispatchController {
     this.reversing = false;
     this.version++;
   }
+  /** Steps an idle, empty AMR aside for a passing vehicle (cooperative yield): it drives `points` to the free pocket,
+   * holds there (traffic `holding`) and then returns to where it was parked. False when it is not idle / empty. */
+  evade(points: Vector3[]) {
+    if (this.phase !== "idle" || this.carried || points.length < 2) return false;
+    this.goal = this.carrier.position.clone();
+    this.turnTarget = null;
+    this.path = points;
+    this.cursor = 1;
+    this.reversing = false;
+    this.phase = "returning";
+    this.version++;
+    return true;
+  }
   /** Like reroute, but drives the first leg backward with the current heading kept. */
   reverse(points: Vector3[]) {
     this.reroute(points);
@@ -131,9 +164,10 @@ export class PalletDispatchController {
   }
   private elapsed = 0;
   private routes: DispatchRoutes | null = null;
+  /** Empty pallet still on the deck on the way back from a feed dock. */
+  private carried: Group | null = null;
   /** In-place turn target (rad); null when not turning. */
   private turnTarget: number | null = null;
-  private aligned = false;
   /** Rack storing: where the AMR stopped in front of the slot, and the current sub-step. */
   private storeFrom = new Vector3();
   private storeStage: "lift" | "insert" | "lower" | "retreat" = "lift";
@@ -145,7 +179,7 @@ export class PalletDispatchController {
   }
   /** Free for a new task: idle, or empty on the way home (the return leg is dropped and it heads straight to the next job). */
   get available() {
-    return this.phase === "idle" || this.phase === "returning";
+    return (this.phase === "idle" || this.phase === "returning") && !this.carried;
   }
   request(payload: Group, complete: () => void, routes?: DispatchRoutes) {
     if (!this.available) throw Error("AMR already has a pallet task");
@@ -154,7 +188,6 @@ export class PalletDispatchController {
       this.goal = null;
       this.routes = null;
       this.turnTarget = null;
-      this.aligned = false;
       this.phase = "idle";
     }
     this.payload = payload;
@@ -216,6 +249,13 @@ export class PalletDispatchController {
     this.phase = phase;
     this.version++;
   }
+  /** Docked-heading check: largest |heading − station yaw| (wrapped) seen on arrival, and arrivals counted. */
+  readonly stationYaw = { arrivals: 0, maxError: 0 };
+  private recordStationYaw(target: number) {
+    const diff = Math.atan2(Math.sin(this.carrier.rotation.y - target), Math.cos(this.carrier.rotation.y - target));
+    this.stationYaw.arrivals++;
+    this.stationYaw.maxError = Math.max(this.stationYaw.maxError, Math.abs(diff));
+  }
   /** Nearest equivalent of `yaw + k·step` to the current heading. */
   private nearestHeading(yaw: number, step: number) {
     const current = this.carrier.rotation.y;
@@ -241,8 +281,26 @@ export class PalletDispatchController {
       return;
     }
     if (this.phase === "blocked") return;
+    if (this.phase === "receiving") {
+      this.turn(delta);
+      return;
+    }
     if (this.phase === "storing") {
       this.store(delta);
+      return;
+    }
+    const keep = this.phase === "unloading" ? this.routes?.hold?.busy : undefined;
+    if (keep) {
+      // Pallet stays on the deck: the dock robot takes the boxes off it; the AMR does not move or lower anything.
+      if (this.complete) {
+        const complete = this.complete;
+        this.complete = null;
+        complete();
+      }
+      if (keep()) return;
+      this.carried = this.payload;
+      this.payload = null;
+      this.follow(this.routes!.returning, "returning");
       return;
     }
     if (this.phase === "loading" || this.phase === "unloading") {
@@ -264,11 +322,10 @@ export class PalletDispatchController {
         this.payload = null;
         if (this.routes) this.follow(this.routes.returning, "returning");
         else {
-          // Wait at the dock axis-aligned.
-          this.turnTarget = this.nearestHeading(0, Math.PI / 2);
+          // Wait at the dock with exactly the dock heading (no 90°/180° equivalent).
+          this.turnTarget = this.nearestHeading(this.layout.dock.yaw, Math.PI * 2);
           this.phase = "idle";
           this.path = [];
-      this.goal = null;
           this.goal = null;
           this.version++;
         }
@@ -276,6 +333,30 @@ export class PalletDispatchController {
       return;
     }
     let distance = delta * SIMULATOR_CONFIG.amrSpeed;
+    // Inbound feed: a loaded AMR waits at a staging distance from the unload dock until the previous AMR has
+    // finished there and driven clear (no queuing right next to the dock).
+    const feed = this.phase === "dispatch" ? this.routes?.feed : undefined;
+    const dockEnd = this.routes?.dispatch.at(-1);
+    this.gated = false;
+    // The path may have been replanned around traffic, so locate the staging point in the current path.
+    const stageAt = feed?.stage !== undefined ? this.routes!.dispatch[feed.stage] : undefined;
+    const stage = stageAt ? this.path.findIndex((point) => point.distanceTo(stageAt) < 1e-3) : -1;
+    if (feed?.dockGate && stage >= 0 && this.cursor <= stage && !feed.dockGate()) {
+      // Remaining distance along the path up to the off-lane staging point.
+      let left = 0, from = this.carrier.position;
+      for (let i = this.cursor; i <= stage; i++) {
+        left += from.distanceTo(this.path[i]);
+        from = this.path[i];
+      }
+      if (left <= 1e-6) this.gated = true;
+      else distance = Math.min(distance, left);
+    } else if (feed?.dockGate && feed.stage === undefined && feed.dockStage && dockEnd && !feed.dockGate()) {
+      const left = this.carrier.position.distanceTo(dockEnd);
+      if (left <= feed.dockStage + 1e-6) this.gated = true;
+      // Never drive past the staging circle this tick.
+      else distance = Math.min(distance, left - feed.dockStage);
+    }
+    if (this.gated) return;
     while (distance > 0 && this.cursor < this.path.length) {
       const point = this.path[this.cursor],
         position = this.carrier.position;
@@ -293,7 +374,9 @@ export class PalletDispatchController {
         const yaw = this.carrier.rotation.y;
         if (-(Math.sin(yaw) * dx + Math.cos(yaw) * dz) / length < 0.5) this.reversing = false;
       }
-      this.carrier.rotation.y = this.reversing ? Math.atan2(-dx, -dz) : Math.atan2(dx, dz);
+      // Symmetric AMR: drive whichever end is closer to the leg direction (backing up instead of a 180° spin).
+      const ahead = Math.atan2(dx, dz), current = this.carrier.rotation.y;
+      this.carrier.rotation.y = this.reversing ? Math.atan2(-dx, -dz) : ahead + Math.PI * Math.round((current - ahead) / Math.PI);
       if (distance >= length) {
         position.x = point.x;
         position.z = point.z;
@@ -307,30 +390,34 @@ export class PalletDispatchController {
     }
     if (this.cursor >= this.path.length) this.reversing = false;
     if (this.cursor < this.path.length || this.holding) return;
-    // Under the pallet: align with it (square pallet, so any 90° equivalent) before lifting.
-    if (this.phase === "pickup" && this.payload) {
-      if (this.turnTarget === null && !this.aligned) {
-        const yaw = new Euler().setFromQuaternion(
-          this.payload.getWorldQuaternion(new Quaternion()),
-          "YXZ",
-        ).y;
-        this.turnTarget = this.nearestHeading(yaw, Math.PI / 2);
-      }
+    // At the inbound conveyor's receive pose: face along the belt, then wait for the roller transfer.
+    if (this.phase === "pickup" && this.routes?.feed) {
+      // Final heading is exactly the receive pose's heading (the shortest turn gets there; no 180° flip).
+      this.turnTarget ??= this.nearestHeading(this.routes.feed.heading, Math.PI * 2);
       if (!this.turn(delta)) return;
-      this.aligned = true;
+      this.recordStationYaw(this.routes.feed.heading);
+      this.phase = "receiving";
+      this.version++;
+      return;
     }
-    // At the dock: turn in place to the nearest 90° of the dock's heading before
+    // At the dock: turn in place to exactly the dock's heading (shortest direction) before
     // releasing, so the pallet (held at a 90° multiple) lands square to the dock.
     if (this.phase === "dispatch") {
       const store = this.routes?.store;
-      // A rack slot is entered head-on; a dock accepts any 90° heading.
+      // A rack slot and a dock are both entered with exactly their station heading.
       this.turnTarget ??= store
         ? this.nearestHeading(store.heading, Math.PI * 2)
-        : this.nearestHeading(this.layout.dock.yaw, Math.PI / 2);
+        : this.nearestHeading(this.layout.dock.yaw, Math.PI * 2);
       if (!this.turn(delta)) return;
     }
     this.elapsed = 0;
     if (this.phase === "returning") {
+      // Empty pallet ridden back from a feed dock: handed off here (e.g. to the empty-pallet forklift / stack).
+      if (this.carried) {
+        const pallet = this.carried;
+        this.carried = null;
+        this.routes?.hold?.emptyHome(pallet);
+      }
       // Settle to the home heading in place (handled while idle).
       this.turnTarget = this.nearestHeading(this.layout.amr.yaw, Math.PI * 2);
       this.phase = "idle";
@@ -339,18 +426,37 @@ export class PalletDispatchController {
       this.routes = null;
       this.version++;
     } else if (this.phase === "pickup") {
-      this.carrier.updateWorldMatrix(true, true);
-      this.carrier.attach(this.payload!);
-      // Remove residual skew: the relative yaw is an exact multiple of 90°.
-      const payload = this.payload!;
-      payload.rotation.y = (Math.PI / 2) * Math.round(payload.rotation.y / (Math.PI / 2));
-      this.aligned = false;
-      this.phase = "loading";
+      // Never lift a pallet off the floor: floor pallets are put on the deck by a forklift (receive pose, routes.feed).
+      PalletDispatchController.floorLiftAttempts++;
+      this.phase = "blocked";
+      this.version++;
+      return;
     } else if (this.routes?.store) {
       this.storeFrom.copy(this.carrier.position);
       this.storeStage = "lift";
+      this.recordStationYaw(this.routes.store.heading);
       this.phase = "storing";
-    } else this.phase = "unloading";
+    } else {
+      this.recordStationYaw(this.layout.dock.yaw);
+      this.phase = "unloading";
+    }
+  }
+  /** Approach lane point in front of an inbound conveyor's receive pose (feed trips only). */
+  get feedLane() {
+    return this.routes?.feed?.lane ?? null;
+  }
+  /** Facing the belt end, square to it (receive pose reached and turned). */
+  get readyToReceive() {
+    return this.phase === "receiving" && this.turnTarget === null;
+  }
+  /** Pallet rolled onto the deck (payload already at deck height): attach it and drive the dispatch leg. */
+  received() {
+    if (this.phase !== "receiving" || !this.payload || !this.routes) return;
+    this.carrier.updateWorldMatrix(true, true);
+    this.carrier.attach(this.payload);
+    this.payload.position.y = AMR_DECK;
+    this.payload.rotation.y = (Math.PI / 2) * Math.round(this.payload.rotation.y / (Math.PI / 2));
+    this.follow(this.routes.dispatch, "dispatch");
   }
   /** Lift to the shelf, drive in, set the pallet down (complete), back out, then return home. */
   private store(delta: number) {
@@ -396,8 +502,11 @@ export class PalletDispatchController {
     this.storeStage = "retreat";
   }
   get status() {
+    if (this.gated) return "하역 위치에서 떨어진 대기 지점에서 대기 (앞 AMR 하역·이탈 중)";
     if (this.reversing) return "다른 AMR에게 길 양보 중 · 후진";
     if (this.yielding) return "다른 AMR 통과 대기 · 안전거리 확보 후 자동 출발";
+    if (this.routes?.feed && this.phase === "pickup") return "입하 컨베이어 받는 위치로 이동";
+    if (this.routes?.feed && this.phase === "dispatch") return "입하 팔레트 하역 위치로 운반 중";
     return {
       idle: "완성 팔레트 대기",
       pickup: "완성 팔레트 픽업 지점으로 이동",
@@ -406,6 +515,7 @@ export class PalletDispatchController {
       unloading: "출고 완료 처리",
       storing: "랙에 팔레트 보관 중",
       returning: "대기 위치로 복귀 중",
+      receiving: "입하 컨베이어에서 팔레트 받는 중 (롤러 이송)",
       blocked: "AMR 경로가 막혔습니다. 배치를 수정해 주세요.",
     }[this.phase];
   }

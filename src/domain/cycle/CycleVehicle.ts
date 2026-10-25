@@ -2,10 +2,11 @@ import { Group, Vector3 } from "three";
 import { CYCLE_CONFIG } from "@/constants/cycle";
 
 /** Floor route planner (null = no route); the vehicle falls back to a straight line. */
-export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean) => Vector3[] | null;
+export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean, avoid?: readonly { x: number; z: number; r: number }[]) => Vector3[] | null;
 
 /** A body other vehicles keep clear of: floor circles (world xz) with radii. */
-export type CycleBody = { id: string; circles: () => readonly { x: number; z: number; r: number }[] };
+/** `clearance`: centre-to-centre keep-out radius (AMR footprint); two bodies with clearance stay ≥ the sum apart. */
+export type CycleBody = { id: string; circles: () => readonly { x: number; z: number; r: number }[]; clearance?: number; center?: () => { x: number; z: number } };
 
 type Action =
   | { type: "path"; to: Vector3; loaded: boolean; ignore?: readonly string[] }
@@ -19,6 +20,31 @@ const TAU = Math.PI * 2;
 /** Ring (m) and samples tried around a blocked start or goal before falling back to a straight line. */
 const APPROACH_RADII = [1, 1.6, 2.4];
 const APPROACH_STEPS = 8;
+/**
+ * Shared per-step budget of grid searches for traffic detours (all cycle vehicles together). PalletCycle resets it every
+ * simulation step; without a reset (other users) it is unlimited, i.e. the search completes at once.
+ */
+const planning = { budget: Infinity };
+export const PLANNING_SEARCHES_PER_STEP = 4;
+export function beginPlanningStep(searches = PLANNING_SEARCHES_PER_STEP) {
+  planning.budget = searches;
+}
+/** Steps a search while budget remains; returns the final result once it is done. */
+function advanceSearch<T>(search: Generator<void, T>): { value: T } | null {
+  while (planning.budget > 0) {
+    planning.budget--;
+    const next = search.next();
+    if (next.done) return { value: next.value };
+  }
+  return null;
+}
+/** Runs a search to the end (static routes: memoised and needed at once). */
+function run<T>(search: Generator<void, T>): T {
+  for (;;) {
+    const next = search.next();
+    if (next.done) return next.value;
+  }
+}
 
 /**
  * Pallet-cycle vehicle (shuttle AMR, forklift, AGV): a carrier group driven by a queue of
@@ -32,6 +58,8 @@ export type CycleVehicleOptions = {
   speed: number;
   /** Local body circles (z along forward, radius), loaded variant optional. */
   circles: readonly { z: number; r: number }[];
+  /** Footprint keep-out radius (centre distance to another clearance body never drops below the sum). */
+  clearance?: number;
   loadedCircles?: readonly { z: number; r: number }[];
   plan: CyclePlanner;
   bodies: () => readonly CycleBody[];
@@ -47,6 +75,8 @@ export class CycleVehicle {
   private cursor = 0;
   private queue: Action[] = [];
   private started = false;
+  /** Traffic detour search in progress (spread over steps by the planning budget). */
+  private detour: Generator<void, Vector3[] | null> | null = null;
   private hold = 0;
   /** Times a held vehicle proceeded anyway / routes that fell back to a straight line. */
   overrides = 0;
@@ -60,7 +90,7 @@ export class CycleVehicle {
     this.id = id;
     this.name = name;
     this.options = options;
-    this.body = { id, circles: () => this.circlesAt(this.carrier.position.x, this.carrier.position.z, this.carrier.rotation.y) };
+    this.body = { id, circles: () => this.circlesAt(this.carrier.position.x, this.carrier.position.z, this.carrier.rotation.y), clearance: options.clearance, center: () => this.carrier.position };
     this.carrier.position.set(pose.x, 0, pose.z);
     this.carrier.rotation.y = pose.yaw;
     this.carrier.userData.sceneId = id;
@@ -74,6 +104,10 @@ export class CycleVehicle {
   loaded = false;
   get pathCursor() {
     return this.cursor;
+  }
+  /** Seconds this vehicle has been held by another body in its current move. */
+  get held() {
+    return this.hold;
   }
   get idle() {
     return this.queue.length === 0;
@@ -110,17 +144,23 @@ export class CycleVehicle {
       if (other.id === this.id || ignore?.includes(other.id)) continue;
       for (const a of other.circles())
         for (const b of own) gap = Math.min(gap, Math.hypot(a.x - b.x, a.z - b.z) - a.r - b.r);
+      const mine = this.options.clearance;
+      if (mine && other.clearance && other.center) {
+        const c = other.center();
+        gap = Math.min(gap, Math.hypot(c.x - x, c.z - z) - mine - other.clearance);
+      }
     }
     return gap;
   }
-  /** Seconds left of a deadlock pass (after giveUp) during which traffic is ignored. */
+  /** Seconds left of a deadlock pass (after giveUp): the safety gap is waived, but bodies never overlap. */
   private pass = 0;
   private clearToMove(x: number, z: number, heading: number, dt: number, ignore?: readonly string[]) {
+    const next = this.gapAt(x, z, heading, ignore);
     if (this.pass > 0) {
       this.pass -= dt;
-      return true;
+      // A deadlock pass squeezes inside the safety gap but never lets two bodies overlap.
+      if (next >= 0 || next >= this.gapAt(this.carrier.position.x, this.carrier.position.z, this.carrier.rotation.y, ignore) - 1e-4) return true;
     }
-    const next = this.gapAt(x, z, heading, ignore);
     const now = next >= CYCLE_CONFIG.safetyGap ? Infinity : this.gapAt(this.carrier.position.x, this.carrier.position.z, this.carrier.rotation.y, ignore);
     // Moving away from (or along) a body that is already close is always allowed.
     if (next >= CYCLE_CONFIG.safetyGap || next >= now - 1e-4) {
@@ -215,12 +255,25 @@ export class CycleVehicle {
       case "path": {
         if (!this.started) {
           this.started = true;
+          this.detour = null;
           this.plan(action);
         }
-        if (this.hold >= CYCLE_CONFIG.holdTimeout && this.hold - dt < CYCLE_CONFIG.holdTimeout) this.plan(action);
+        // Blocked: replan around the other vehicles (as obstacles) instead of pushing through them. The search runs
+        // over the next steps within the shared planning budget; meanwhile the vehicle keeps its (held) route.
+        if (this.hold >= CYCLE_CONFIG.holdTimeout && this.hold - dt < CYCLE_CONFIG.holdTimeout) this.detour = this.detourSearch(action);
+        if (this.detour) {
+          const done = advanceSearch(this.detour);
+          if (done) {
+            this.detour = null;
+            // No detour: back to the static route from here (as before).
+            if (done.value && done.value.length >= 2) this.setPath(done.value);
+            else this.plan(action);
+          }
+        }
         const left = this.drive(this.path, this.options.speed, dt, false, action.ignore, true);
         if (left !== false) {
           this.path = [];
+          this.detour = null;
           this.version++;
         }
         return left;
@@ -229,21 +282,55 @@ export class CycleVehicle {
   }
   private plan(action: Extract<Action, { type: "path" }>) {
     const from = this.carrier.position.clone();
-    let route = this.options.plan(from, action.to, action.loaded) ?? this.planViaApproach(from, action.to, action.loaded);
+    let route = this.options.plan(from, action.to, action.loaded) ?? run(this.approach(from, action.to, action.loaded));
     if (!route || route.length < 2) {
       this.fallbacks += route ? 0 : 1;
       route = [from, action.to.clone()];
     }
+    this.setPath(route);
+  }
+  private setPath(route: readonly Vector3[]) {
     this.path = route.map((p) => p.clone().setY(0));
     // The first waypoint is the start itself.
     this.cursor = 1;
     this.version++;
   }
   /**
+   * Traffic detour around the other vehicles (as obstacles). A generator that yields after every grid search, so the
+   * work is spread over steps by the shared planning budget instead of stalling one frame (up to ~0.6 s before).
+   * Returns the detour, or null when there is none (the caller then keeps the static route).
+   */
+  private *detourSearch(action: Extract<Action, { type: "path" }>): Generator<void, Vector3[] | null> {
+    const from = this.carrier.position.clone();
+    const circles = this.options.bodies()
+      .filter((other) => other.id !== this.id && !action.ignore?.includes(other.id))
+      .flatMap((other) => {
+        const list = other.circles().map((c) => ({ x: c.x, z: c.z, r: c.r + CYCLE_CONFIG.safetyGap }));
+        // Footprint keep-out: the planner treats this vehicle as a point, so inflate by both clearances.
+        if (this.options.clearance && other.clearance && other.center) {
+          const c = other.center();
+          list.push({ x: c.x, z: c.z, r: other.clearance + this.options.clearance - Math.max(...this.options.circles.map((o) => o.r)) + CYCLE_CONFIG.safetyGap });
+        }
+        return list;
+      })
+      // Shrink a circle already touching this vehicle (start never "occupied"); skip one parked on the goal.
+      .map((c) => {
+        const own = this.circlesAt(from.x, from.z, this.carrier.rotation.y);
+        const room = Math.min(...own.map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - 1e-3));
+        return { ...c, r: Math.max(0, Math.min(c.r, room)) };
+      })
+      .filter((c) => Math.hypot(c.x - action.to.x, c.z - action.to.z) > c.r + 0.5 && Math.hypot(c.x - from.x, c.z - from.z) < 20);
+    const direct = this.options.plan(from, action.to, action.loaded, circles);
+    if (direct) return direct;
+    yield;
+    return yield* this.approach(from, action.to, action.loaded, circles);
+  }
+  /**
    * Start or goal inside an envelope (e.g. a shuttle home at a belt end): plans to/from the nearest free point on a
    * ring around it and drives the last short leg straight, instead of a straight line the whole way.
+   * Yields after every grid search (see detourSearch); `run` drives it to the end synchronously.
    */
-  private planViaApproach(from: Vector3, to: Vector3, loaded: boolean): Vector3[] | null {
+  private *approach(from: Vector3, to: Vector3, loaded: boolean, avoid?: readonly { x: number; z: number; r: number }[]): Generator<void, Vector3[] | null> {
     const ring = (center: Vector3) =>
       APPROACH_RADII.flatMap((r) => Array.from({ length: APPROACH_STEPS }, (_, i) => {
         const a = (i / APPROACH_STEPS) * TAU;
@@ -260,9 +347,20 @@ export class CycleVehicle {
         bestLength = length;
       }
     };
-    for (const goal of ring(to)) consider(this.options.plan(from, goal, loaded), [], [to.clone()]);
+    // Branch and bound, same result as trying all: visit candidates by their straight-line length (a lower bound of
+    // any route through them) and stop once that bound can no longer beat the best route found.
+    const order = (points: Vector3[]) => points.map((p) => ({ p, b: from.distanceTo(p) + p.distanceTo(to) })).sort((x, y) => x.b - y.b);
+    for (const { p: goal, b } of order(ring(to))) {
+      if (b >= bestLength - 1e-9) break;
+      consider(this.options.plan(from, goal, loaded, avoid), [], [to.clone()]);
+      yield;
+    }
     if (best) return best;
-    for (const start of ring(from)) consider(this.options.plan(start, to, loaded), [from.clone()], []);
+    for (const { p: start, b } of order(ring(from))) {
+      if (b >= bestLength - 1e-9) break;
+      consider(this.options.plan(start, to, loaded, avoid), [from.clone()], []);
+      yield;
+    }
     return best;
   }
   /** Follows `points` (from the cursor when `route`); turns towards each waypoint first. */

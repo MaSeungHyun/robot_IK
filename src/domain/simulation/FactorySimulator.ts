@@ -23,6 +23,7 @@ import { PalletDispatchController } from "@/domain/amr/PalletDispatchController"
 import { AMRTrafficController } from "@/domain/amr/AMRTrafficController";
 import type { DispatchRoutes } from "@/domain/amr/PalletDispatchController";
 import { layoutPath, routeFailureReason } from "@/domain/amr/navigation/layoutNavigation";
+import { CYCLE_CONFIG } from "@/constants/cycle";
 import type { NavigationObstacle } from "@/domain/amr/navigation/layoutNavigation";
 import {
   beltConnections,
@@ -41,8 +42,9 @@ import { wallSegments } from "@/domain/room/roomWalls";
 import { PALLET_CONVEYOR } from "@/constants/palletConveyor";
 import { PalletCycle, type PalletCycleHost } from "@/domain/cycle/PalletCycle";
 import { AMR_DECK, ROLLER_DECK } from "@/constants/cycle";
-import { isPalletInbound, palletFeeds } from "@/domain/cycle/palletFeed";
+import { isPalletInbound, palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
 import { createPalletModel } from "@/lib/three/palletModel";
+import { planStack } from "@/domain/pallet/packing/stacking";
 
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
 function mulberry32(seed: number) {
@@ -86,6 +88,25 @@ export type FactoryRobot = {
   count: number;
   busySeconds: number;
 };
+const PALLET_FEED_GAP = 0.3;
+/** AMRs booked onto one unload dock at a time: the next one is sent only after the previous has unloaded and driven clear. */
+/** Per unload dock: the AMR unloading there plus one loaded AMR waiting at the staging distance. */
+const FEED_DOCK_BOOKINGS = 2;
+/** Route-length penalty (m) per AMR already booked on a feed dock: larger than any route, so free docks go first. */
+/** Steps a failed route search is remembered (same start/goal), ~2 s of sim time. */
+/** ~0.5 s (was 2 s): a failure is also dropped as soon as the moving obstacles change (signature below). */
+const ROUTE_FAIL_HOLD_STEPS = 30;
+const FEED_DOCK_BUSY_COST = 1e5;
+/** Margin (m) beyond two AMR footprints the previous AMR must clear a station by before the next one heads there. */
+const FEED_CLEAR_MARGIN = 0.6;
+type HeldPallet = { group: Group; boxes: Cargo[]; distance: number; agent: FactoryAgent | null };
+/** Pallet-inbound belt: loaded pallets spawn on its interval, queue nose-to-tail and stop at the end stopper. */
+type PalletHold = {
+  belt: SceneEquipment; timer: number; pallets: HeldPallet[]; warned: string | null;
+  /** AMR that just took the lead pallet; the queued AMR enters the receive pose once it has cleared it. */
+  leaving: FactoryAgent | null;
+  fed?: number; arrivals: number[];
+};
 export type FactoryAgent = {
   object: SceneEquipment;
   dispatch: PalletDispatchController;
@@ -107,9 +128,37 @@ export type FactoryForkliftAgent = {
 /** Pallet an AMR left on an unload dock; a depalletizing robot takes its boxes (top first) onto a belt. */
 /** `keep`: the emptied pallet stays (pallet cycle shuttle), `onEmpty` runs once it is empty. */
 type AgentRow = EquipmentSnapshot["agents"][number];
-type UnloadLoad = { dock: SceneEquipment; group: Group; boxes: Cargo[]; palletId?: string; top: number; keep?: boolean; onEmpty?: () => void };
+const pathLength = (points: Vector3[]) => points.reduce((sum, p, i) => (i ? sum + p.distanceTo(points[i - 1]) : 0), 0);
+/** Shortest distance (xz) from `p` to a polyline. */
+function polylineDistance(p: Vector3, line: Vector3[]) {
+  let best = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz;
+    const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / l2)) : 0;
+    best = Math.min(best, Math.hypot(p.x - a.x - dx * t, p.z - a.z - dz * t));
+  }
+  return line.length === 1 ? Math.hypot(p.x - line[0].x, p.z - line[0].z) : best;
+}
+type UnloadLoad = { dock: SceneEquipment; group: Group; boxes: Cargo[]; palletId?: string; top: number; keep?: boolean; onEmpty?: () => void; scan?: boolean };
 /** Pallet handed from an AMR's top roller onto an outbound (출하) belt; `distance` < 0 = still rolling off the AMR. */
 type RollingPallet = { belt: SceneEquipment; group: Group; boxes: Group[]; distance: number; fromY: number; palletId?: string };
+const FORKLIFT_HANDOFF_GAP = 6.5;
+/** `points` shortened by `gap` metres from its end (at least the start remains). */
+function trimPath(points: Vector3[], gap: number) {
+  let left = gap;
+  for (let i = points.length - 1; i > 0; i--) {
+    const seg = points[i].distanceTo(points[i - 1]);
+    if (seg > left) return [...points.slice(0, i).map((p) => p.clone()), points[i].clone().lerp(points[i - 1], left / seg)];
+    left -= seg;
+  }
+  return [points[0].clone(), points[0].clone()];
+}
+const pathHeading = (points: Vector3[]) => {
+  const a = points[Math.max(0, points.length - 2)], b = points[points.length - 1];
+  return a.distanceTo(b) > 1e-3 ? Math.atan2(b.x - a.x, b.z - a.z) : 0;
+};
+const FORKLIFT_MISSING = "지게차 없음 · 바닥 팔레트 이동 불가";
+const NO_FLOW = "공정 흐름을 생성할 수 없음 · 로봇과 AMR이 없어 팔레트를 처리할 수 없습니다";
 const isOutbound = (o: SceneEquipment, settings: Record<string, EquipmentSettings>) =>
   o.kind === "conveyor" && settings[o.id]?.conveyorRole === "outbound";
 /** A pallet stored in a rack slot: its group and the box nodes registered for rendering. */
@@ -254,7 +303,7 @@ export class FactorySimulator {
     this.boxAsset.traverse((node) => { node.userData.noCastShadow = true; });
     const owned = PalletCycle.owned(objects, this.settings());
     // Roller-top shuttles fed by a pallet-unit inbound belt carry their pallet at the belt height.
-    const rollerShuttles = owned ? palletFeeds(objects, this.settings()) : new Map<string, SceneEquipment>();
+    const rollerShuttles = owned ? palletFeeds(objects, this.settings(), (id) => this.links.outgoing(id, "feed")) : new Map<string, SceneEquipment>();
     for (const object of objects) {
       if (owned?.has(object.id)) continue;
       if (object.kind === "robot") {
@@ -378,14 +427,338 @@ export class FactorySimulator {
       }
       pallet.orderFrom(loaders.map((robot) => ({ x: robot.object.x, z: robot.object.z, reach: this.settings()[robot.object.id]?.reach ?? Infinity })));
     }
+    this.scanners = objects.filter((o) => o.kind === "scanner");
     this.inspection.onScan = (node, scannerId, result) => {
+      const id = node.userData.boxId;
+      if (id) this.scannedIds.add(id);
+      // Inbound-pallet box checked by a scanner: it now flows like any other box.
+      if (id && this.feedBoxIds.delete(id)) this.feedScan.passed++;
       if (node.userData.boxId)
         this.cargo.scanBox({ t: this.elapsed, boxId: node.userData.boxId, scannerId, result: result === "fault" ? "defect" : "normal" });
     };
     for (const pallet of this.pallets) this.startPalletRecord(pallet);
     this.cycle = owned
-      ? new PalletCycle(objects, this.pallets, this.cycleHost(pallet), (id) => this.links.outgoing(id, "deliver"))
+      ? new PalletCycle(objects, this.pallets, this.cycleHost(pallet), (id) => this.links.outgoing(id, "deliver"), (id) => this.links.outgoing(id, "feed"))
       : null;
+    // Pallet-inbound belts not served by a pallet-cycle shuttle: a full pallet runs to the belt-end stopper and an AMR is
+    // dispatched to the receive pose (🔗-linked AMR first, else the nearest free empty pallet AMR); re-evaluated every tick.
+    for (const belt of objects) {
+      if (belt.kind !== "conveyor" || !isPalletInbound(this.settings(), belt.id) || this.cycle?.feedBelts.has(belt.id)) continue;
+      this.palletHolds.push({ belt, timer: spawnIntervalOf(this.settings()[belt.id] ?? {}), pallets: [], warned: null, leaving: null, arrivals: [] });
+    }
+    this.palletAsset = pallet;
+  }
+  private palletAsset: Group;
+  private scanners: SceneEquipment[] = [];
+  private scannedIds = new Set<string>();
+  private feedBoxIds = new Set<string>();
+  /** Inbound-pallet boxes: put on a belt by the scan-start robot / put where no scanner follows / left the line unscanned. */
+  feedScan = { dropped: 0, bypass: 0, passed: 0, unscanned: 0 };
+  /** A box set down at `d` on `belt` reaches a scanner further down its belt chain. */
+  private scanAfter(belt: SceneEquipment, d: number) {
+    const seen = new Set<string>();
+    for (let current: SceneEquipment | undefined = belt, from = d; current && !seen.has(current.id); from = 0) {
+      seen.add(current.id);
+      const length = beltLength(current);
+      for (const scanner of this.scanners)
+        for (let x = from; x <= length; x += 0.25) {
+          const p = beltPoint(current, x);
+          if (Math.hypot(p.x - scanner.x, p.z - scanner.z) < 1) return true;
+        }
+      const next = this.connections.get(current.id);
+      current = next ? this.beltById(next.id) : undefined;
+    }
+    return false;
+  }
+  /** Depalletizer that can set boxes on a belt ahead of a scanner (the scan line's start robot). */
+  private scanStart(robot: FactoryRobot, settings: Record<string, EquipmentSettings>) {
+    const reach = (settings[robot.object.id]?.reach ?? 0) - ROBOT_PICKING.pickReachMargin;
+    return this.belts.some(({ object: belt }) => {
+      for (let d = BOX_SIZES[0].z; d <= beltLength(belt) - BOX_SIZES[0].z; d += 0.25) {
+        const p = beltPoint(belt, d);
+        if (Math.hypot(p.x - robot.object.x, p.z - robot.object.z) <= reach && this.scanAfter(belt, d)) return true;
+      }
+      return false;
+    });
+  }
+  /** Pallet-inbound belts outside the pallet cycle: one full pallet at a time, held at the belt-end stopper until an AMR takes it. */
+  private palletHolds: PalletHold[] = [];
+  /** Unload docks booked by an AMR carrying a fed pallet. */
+  private feedDockQueue = new Map<string, FactoryAgent[]>();
+  /** AMRs that unloaded a fed pallet and are leaving the dock; the dock stays booked until they clear it. */
+  private feedDockLeaving: { dock: SceneEquipment; agent: FactoryAgent }[] = [];
+  /** Per unload dock (by name): fed pallets received and seconds spent depalletizing one (utilisation). */
+  private trafficTick = 0;
+  private readonly failedRoutes = new Map<string, { tick: number; loaded: boolean; sig: string; sx: number; sz: number; gx: number; gz: number }>();
+  feedDockStats: Record<string, { arrivals: number; busySec: number }> = {};
+  /** Distance an AMR must be from a station before the next AMR may head to it (two footprints + margin). */
+  private clearDistance(agent: FactoryAgent) {
+    return agent.dispatch.radius * 2 + FEED_CLEAR_MARGIN;
+  }
+  /** A loaded feed AMR waits this far from the unload dock until the previous one has unloaded and cleared it. */
+  private dockStageDistance(agent: FactoryAgent) {
+    return this.clearDistance(agent) + agent.dispatch.radius * 2;
+  }
+  /**
+   * Feed staging point off the shared dock lane: the AMR leaving the dock (back along that lane, empty pallet on its
+   * deck) must pass the waiting one with full AMR clearance. Picks the shortest detour among a few points around the
+   * dock at the staging radius; keeps the on-lane stop when none is reachable.
+   */
+  private sideStage(dock: SceneEquipment, layout: FactoryLayout, obstacles: NavigationObstacle[], routes: DispatchRoutes) {
+    const feed = routes.feed;
+    if (!feed?.dockStage) return;
+    const lanes = [routes.dispatch, routes.returning];
+    const off = (p: Vector3) => Math.min(...lanes.map((lane) => polylineDistance(p, lane)));
+    const need = 2 * CYCLE_CONFIG.amrClearance + 0.3;
+    // From the approach point in front of the belt (the receive pose itself hugs the belt inside its nav clearance).
+    const head = routes.dispatch.slice(0, routes.dispatch.length > 1 ? 1 : 0), start = routes.dispatch[head.length];
+    let best: { stage: Vector3; toStage: Vector3[]; toDock: Vector3[]; cost: number } | null = null;
+    for (const radius of [feed.dockStage, feed.dockStage + 1.5])
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2, stage = new Vector3(dock.x + Math.sin(a) * radius, 0, dock.z + Math.cos(a) * radius);
+        if (off(stage) < need) continue;
+        const cheap = start.distanceTo(stage) + radius;
+        if (best && cheap >= best.cost) continue;
+        const toStage = layoutPath(layout, start, stage, true, obstacles);
+        const toDock = toStage && layoutPath(layout, stage, dock, true, obstacles);
+        if (!toStage || !toDock) continue;
+        const cost = pathLength(toStage) + pathLength(toDock);
+        if (!best || cost < best.cost) best = { stage, toStage, toDock, cost };
+      }
+    // Detour worth at most ~25 m extra driving; otherwise the on-lane stop stays.
+    if (!best || best.cost > pathLength(routes.dispatch) + 25) return;
+    routes.dispatch = [...head, ...best.toStage, ...best.toDock.slice(1)];
+    feed.stage = head.length + best.toStage.length - 1;
+  }
+  private releaseFeedDocks() {
+    this.feedDockLeaving = this.feedDockLeaving.filter(({ dock, agent }) => {
+      const p = agent.dispatch.carrier.position, phase = agent.dispatch.phase;
+      // Also release when the leaver stopped nearby (idle / blocked) or was disabled: the booking leaked before and
+      // kept the dock gate shut for every other AMR (an idle one parked there now steps aside on demand).
+      const stuck = phase === "idle" || phase === "blocked" || this.settings()[agent.object.id]?.enabled === false;
+      if (!stuck && Math.hypot(p.x - dock.x, p.z - dock.z) < this.clearDistance(agent)) return true;
+      this.feedDockQueue.set(dock.id, (this.feedDockQueue.get(dock.id) ?? []).filter((a) => a !== agent));
+      return false;
+    });
+  }
+  get heldPalletBelts() {
+    return this.palletHolds.map((h) => ({
+      beltId: h.belt.id, pallet: h.pallets.length > 0, count: h.pallets.length, distance: h.pallets[0]?.distance ?? 0,
+      distances: h.pallets.map((p) => p.distance), atStopper: this.palletAtStopper(h),
+      agent: h.pallets[0]?.agent?.object.id ?? null, fed: h.fed ?? 0, arrivals: h.arrivals,
+    }));
+  }
+  private palletAtStopper(hold: PalletHold) {
+    const lead = hold.pallets[0];
+    return !!lead && lead.distance >= beltLength(hold.belt) - STREAM_CONFIG.palletDepth / 2 - 1e-6;
+  }
+  /** Lead pallet resting on the stopper with no AMR ready under it: the belt is stopped. */
+  private palletHalted(hold: PalletHold) {
+    return this.palletAtStopper(hold) && !hold.pallets[0].agent?.dispatch.readyToReceive;
+  }
+  private holdWarn(hold: PalletHold, key: string, message: string, detail?: string) {
+    if (hold.warned === key) return;
+    hold.warned = key;
+    log("warning", `${hold.belt.name}: ${message}`, detail);
+  }
+  private receivePoint(belt: SceneEquipment) {
+    const pose = receivePose(belt);
+    return { ...pose, v: new Vector3(pose.x, 0, pose.z) };
+  }
+  /** Picks an AMR and routes it: empty to the receive pose, loaded to a free unload dock, empty back home. */
+  private dispatchFeed(hold: PalletHold, held: HeldPallet, settings: Record<string, EquipmentSettings>) {
+    const claimed = new Set(this.palletHolds.flatMap((h) => h.pallets.map((p) => p.agent)).filter(Boolean));
+    const mounted = new Set(Object.values(settings).map((c) => c?.mountedOn).filter(Boolean));
+    const free = (a: FactoryAgent) => settings[a.object.id]?.enabled && a.dispatch.available && !a.charging && a.battery >= AMR_BATTERY.chargeBelow && !claimed.has(a) && !mounted.has(a.object.id);
+    const linkedIds = this.links.outgoing(hold.belt.id, "feed");
+    let candidates: FactoryAgent[];
+    if (linkedIds.length) {
+      candidates = this.agents.filter((a) => linkedIds.includes(a.object.id));
+      if (!candidates.length && linkedIds.some((id) => !this.robots.some((r) => r.object.id === id) && !this.unloadDocks.some((d) => d.id === id))) {
+        this.holdWarn(hold, "linkedRole", "🔗 연결된 AMR이 팔레트를 받을 수 없는 역할입니다", "팔레트 AMR(빈 상판)로 바꾸거나 연결을 수정하세요");
+        return;
+      }
+      if (!candidates.length) candidates = this.agents.filter(free);
+      else candidates = candidates.filter(free);
+      if (!candidates.length) { this.holdWarn(hold, "linkedBusy", "🔗 연결된 AMR이 작업 중 · 빈 상태가 되면 받으러 갑니다"); return; }
+    } else {
+      candidates = this.agents.filter(free);
+      if (!candidates.length) {
+        this.holdWarn(hold, "none", "팔레트를 받을 빈 팔레트 AMR이 없어 컨베이어 끝에서 대기", "팔레트 AMR을 두거나 🔗 공급(컨베이어 → AMR)으로 연결하세요 · AMR이 비면 자동 출동");
+        return;
+      }
+    }
+    // Inbound boxes must pass the scanner: only docks a scan-line start robot unloads (🔗-linked robot/dock first).
+    const starts = this.depalletizers.filter((r) => settings[r.object.id]?.enabled && this.scanStart(r, settings));
+    if (!starts.length) {
+      this.holdWarn(hold, "scanner", "스캐너 시작 로봇 없음 · 입하 팔레트 대기", "스캐너 앞 컨베이어에 박스를 내려놓을 하역 로봇과 하역 위치(dock)를 두세요");
+      return;
+    }
+    const served = (d: SceneEquipment) => starts.some((r) => distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5);
+    const linkedTargets = new Set(linkedIds);
+    const scanDocks = this.unloadDocks.filter(served);
+    const preferred = scanDocks.filter((d) => linkedTargets.has(d.id) || starts.some((r) => linkedTargets.has(r.object.id) && distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5));
+    // One AMR at the dock (booked until it has unloaded and driven clear) plus one waiting at the staging distance.
+    const docks = (preferred.length ? preferred : scanDocks).filter((d) => settings[d.id]?.enabled !== false && !this.shipments.some((sh) => sh.dock.id === d.id) && (this.feedDockQueue.get(d.id)?.length ?? 0) < FEED_DOCK_BOOKINGS);
+    if (!scanDocks.length) {
+      this.holdWarn(hold, "scanner", "스캐너 시작 로봇 옆에 하역 위치(dock)가 없습니다", "스캐너 시작 로봇 작업 범위 안에 하역 dock을 두세요");
+      return;
+    }
+    if (!docks.length) {
+      this.holdWarn(hold, "dock", this.unloadDocks.length ? "하역 위치가 비기를 대기" : "입하 팔레트를 내려놓을 하역 위치(dock: 하역)가 없습니다");
+      return;
+    }
+    const receive = this.receivePoint(hold.belt);
+    const length = (path: Vector3[] | null) => path ? path.reduce((sum, p, i) => sum + (i ? p.distanceTo(path[i - 1]) : 0), 0) : Infinity;
+    let best: { agent: FactoryAgent; dock: SceneEquipment; layout: FactoryLayout; obstacles: NavigationObstacle[]; routes: DispatchRoutes; cost: number } | null = null;
+    for (const dock of docks) {
+      const robot = [...this.robots].sort((a, b) => distance(a.object, dock) - distance(b.object, dock))[0];
+      const obstacles: NavigationObstacle[] = [
+        ...this.wallObstacles,
+        ...this.robots.filter((r) => r !== robot).map((r) => ({ kind: r.object.kind, pose: r.object })),
+        ...this.belts.filter((b) => b.object.id !== hold.belt.id).map((b) => ({ kind: b.object.kind, pose: b.object })),
+        ...this.pallets.filter((p) => !p.shipping).map((p) => ({ kind: p.object.kind, pose: p.object })),
+        ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
+        ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
+      ];
+      for (const agent of candidates) {
+        const from = agent.dispatch.carrier.position;
+        const layout: FactoryLayout = { robot: robot?.object ?? { x: 1e4, z: 1e4, yaw: 0 }, conveyor: hold.belt, pallet: { x: receive.x, z: receive.z, yaw: receive.yaw }, amr: { x: from.x, z: from.z, yaw: 0 }, dock };
+        // The receive pose hugs the belt end (inside the belt's nav clearance): route to an approach point straight out
+        // from it, then creep the final straight leg in/out, like a dock approach.
+        let pickup: Vector3[] | null = null, approach = receive.v;
+        const fwd = { x: Math.sin(receive.yaw), z: Math.cos(receive.yaw) }, side = { x: fwd.z, z: -fwd.x };
+        const at = (back: number, lateral = 0) => new Vector3(receive.x + fwd.x * back + side.x * lateral, 0, receive.z + fwd.z * back + side.z * lateral);
+        for (const back of [0, 0.5, 1, 1.5, 2, 2.5]) {
+          approach = at(back);
+          const path = layoutPath(layout, layout.amr, { x: approach.x, z: approach.z }, false, obstacles);
+          if (path) { pickup = back ? [...path, receive.v.clone()] : path; break; }
+        }
+        if (!pickup) continue;
+        const cost = length(pickup);
+        const leave = layoutPath(layout, approach, dock, true, obstacles);
+        const outbound = leave && (approach.equals(receive.v) ? leave : [receive.v.clone(), ...leave]);
+        const returning = outbound && layoutPath(layout, dock, agent.dispatch.home, false, obstacles);
+        if (!outbound || !returning) continue;
+        // Load balancing: a dock with nobody booked beats any busy one (then shortest drive); a busy dock only takes
+        // the next AMR (to its staging point) when every eligible dock is booked.
+        const total = cost + length(outbound) + (this.feedDockQueue.get(dock.id)?.length ?? 0) * FEED_DOCK_BUSY_COST;
+        if (best && total >= best.cost) continue;
+        best = { agent, dock, layout, obstacles, routes: { pickup, dispatch: outbound, returning, feed: { heading: receive.yaw, lane: approach.equals(receive.v) ? at(1.4) : approach, dockStage: this.dockStageDistance(agent), dockGate: () => this.feedDockQueue.get(dock.id)?.[0] === agent && !this.unloadLoads.some((l) => l.dock.id === dock.id) && !this.feedDockLeaving.some((l) => l.dock.id === dock.id && l.agent !== agent) } }, cost: total };
+      }
+    }
+    if (!best) {
+      this.holdWarn(hold, "route", "AMR가 받는 위치/하역 위치로 갈 경로가 없습니다", "컨베이어 끝 앞(0.95 m)과 하역 위치 주변을 비워 주세요");
+      return;
+    }
+    const { agent, dock, layout, obstacles, routes } = best;
+    this.sideStage(dock, layout, obstacles, routes);
+    held.agent = agent;
+    const queue = this.feedDockQueue.get(dock.id) ?? [];
+    queue.push(agent);
+    this.feedDockQueue.set(dock.id, queue);
+    hold.warned = null;
+    agent.waiting = false;
+    agent.waitingReason = null;
+    agent.target = hold.belt.name;
+    agent.dispatch.configure(layout, obstacles);
+    this.navigation.set(agent.object.id, { layout, obstacles });
+    log("info", `${agent.object.name}: 입하 컨베이어 받는 위치로 이동`, `${hold.belt.name} → ${dock.name}`);
+    const run = { group: held.group, boxes: held.boxes };
+    // The AMR never sets the pallet down: it stays still at the dock while the dock robot depalletizes it on its deck,
+    // then carries the empty pallet back (handed off there to the empty-pallet flow).
+    routes.hold = this.holdOnDeck(run.group);
+    agent.dispatch.request(run.group, () => {
+      const group = run.group;
+      const boxes = run.boxes.sort((a, b) => b.node.getWorldPosition(new Vector3()).y - a.node.getWorldPosition(this.point).y);
+      for (const box of boxes) box.state = "placed";
+      for (const box of boxes) this.feedBoxIds.add(box.id);
+      this.unloadLoads.push({ dock, group, boxes, palletId: undefined, top: 0, scan: true, keep: true });
+      // The booking is released once the AMR has driven clear of the dock (see releaseFeedDocks).
+      this.feedDockLeaving.push({ dock, agent });
+      (this.feedDockStats[dock.name] ??= { arrivals: 0, busySec: 0 }).arrivals++;
+      agent.completed++;
+      agent.target = null;
+      log("info", `${agent.object.name}: 입하 팔레트 ${dock.name} 도착 · AMR 위에서 로봇이 하역`, `박스 ${boxes.length}`);
+    }, routes);
+  }
+  /** The previous receiver has driven clear of the receive pose (two footprints + margin). */
+  private receiveClear(hold: PalletHold) {
+    const leaving = hold.leaving;
+    if (!leaving) return true;
+    const p = leaving.dispatch.carrier.position, receive = this.receivePoint(hold.belt);
+    if (Math.hypot(p.x - receive.x, p.z - receive.z) < this.clearDistance(leaving)) return false;
+    hold.leaving = null;
+    return true;
+  }
+  private spawnHeldPallet(hold: PalletHold) {
+    const group = new Group();
+    group.add(createPalletModel(this.palletAsset));
+    const size = new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
+    const total = planStack(1, size, BOX_SIZES[0], 0).capacity * PALLET_STACKING.layers;
+    const boxes = planStack(total, size, BOX_SIZES[0], 0).slots.map((slot) => {
+      const node = new Group();
+      node.add(this.boxAsset.clone(true));
+      node.userData.cargo = true;
+      const id = this.cargo.spawnBox({ t: this.elapsed, beltId: hold.belt.id });
+      node.userData.boxId = id;
+      node.position.copy(slot.position).add(new Vector3(0, STREAM_CONFIG.palletHeight + BOX_SIZES[0].y, 0));
+      group.add(node);
+      this.spawned++;
+      const item: Cargo = { id, node, belt: hold.belt, distance: 0, state: "departing", attempted: new Set() };
+      this.boxes.push(item);
+      return item;
+    });
+    this.render(group);
+    this.root.add(group);
+    hold.pallets.push({ group, boxes, distance: STREAM_CONFIG.palletDepth / 2, agent: null });
+    log("info", `${hold.belt.name}: 입하 팔레트 투입`, `박스 ${total}`);
+  }
+  private advancePalletHolds(dt: number) {
+    const settings = this.settings();
+    const pitch = STREAM_CONFIG.palletDepth + PALLET_FEED_GAP;
+    this.releaseFeedDocks();
+    for (const load of this.unloadLoads) if (load.scan) {
+      const stat = this.feedDockStats[load.dock.name] ??= { arrivals: 0, busySec: 0 };
+      stat.busySec += dt;
+    }
+    for (const hold of this.palletHolds) {
+      const config = settings[hold.belt.id];
+      if (!config?.enabled) continue;
+      const halted = this.palletHalted(hold);
+      // Interval spawning pauses while the stopper holds the line, and never drops a pallet onto the tail one.
+      if (!halted) hold.timer += dt;
+      const tail = hold.pallets[hold.pallets.length - 1];
+      if (autoSpawns(config) && hold.timer >= spawnIntervalOf(config) && !halted && (!tail || tail.distance - STREAM_CONFIG.palletDepth / 2 >= pitch - 1e-6)) {
+        hold.timer = 0;
+        this.spawnHeldPallet(hold);
+      }
+      // One AMR per station: the next receiver is sent only after the previous one has fully left the receive pose.
+      const lead = hold.pallets[0];
+      if (lead && !lead.agent && this.receiveClear(hold)) this.dispatchFeed(hold, lead, settings);
+      const length = beltLength(hold.belt), stop = length - STREAM_CONFIG.palletDepth / 2;
+      const receive = this.receivePoint(hold.belt), end = beltPoint(hold.belt, length);
+      const transfer = length + Math.hypot(receive.x - end.x, receive.z - end.z);
+      const speed = beltSpeedOf(config) * dt;
+      let ahead = Infinity;
+      for (const held of hold.pallets) {
+        const ready = held === hold.pallets[0] && !!held.agent?.dispatch.readyToReceive;
+        const limit = Math.min(ready ? transfer : stop, ahead - pitch);
+        held.distance = Math.max(held.distance, Math.min(held.distance + speed, limit));
+        ahead = held.distance;
+        const along = Math.min(held.distance, length), point = beltPoint(hold.belt, along), extra = held.distance - along;
+        // Over the belt at belt height; across the gap it eases down to the AMR deck (roller transfer, never from the floor).
+        const over = Math.max(0, Math.min(1, (held.distance - length) / Math.max(1e-6, transfer - length)));
+        held.group.position.set(point.x + Math.sin(point.yaw) * extra, ROLLER_DECK + (AMR_DECK - ROLLER_DECK) * over, point.z + Math.cos(point.yaw) * extra);
+        held.group.rotation.set(0, point.yaw, 0);
+      }
+      if (!lead?.agent?.dispatch.readyToReceive || lead.distance < transfer - 1e-6) continue;
+      lead.agent.dispatch.received();
+      hold.leaving = lead.agent;
+      hold.pallets.shift();
+      hold.fed = (hold.fed ?? 0) + 1;
+      hold.arrivals.push(this.elapsed);
+    }
   }
   /** Pallet cycle (shuttle AMR / Rack_m / AGV scenes); null otherwise. */
   readonly cycle: PalletCycle<Cargo> | null;
@@ -429,6 +802,9 @@ export class FactorySimulator {
           return item;
         });
         return { group, boxes };
+      },
+      inboundFed: (boxes) => {
+        for (const box of boxes) this.feedBoxIds.add(box.id);
       },
       registerLoaded: (stationId, boxes) => {
         for (const box of boxes) {
@@ -651,6 +1027,7 @@ export class FactorySimulator {
       if (box.distance >= beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT)
         blocked.add(box.belt.id);
     }
+    for (const hold of this.palletHolds) if (this.palletHalted(hold)) halted.add(hold.belt.id);
     if (!blocked.size) return halted;
     for (const belt of this.belts) {
       const end = this.stopperBelt(belt.object.id, settings);
@@ -761,6 +1138,7 @@ export class FactorySimulator {
       // Legacy safety net (should not trigger with the end stopper).
       if (shipped || (box.distance > beltLength(box.belt) + 1 && box.state === "moving")) {
         box.state = "passed";
+        if (this.feedBoxIds.delete(box.id)) this.feedScan.unscanned++;
         this.cargo.passBox({ t: this.elapsed, boxId: box.id, beltId: box.belt.id });
         box.node.removeFromParent();
         this.unrender(box.node);
@@ -772,9 +1150,24 @@ export class FactorySimulator {
       this.boxes = this.boxes.filter((box) => box.state !== "passed");
     this.advanceDepalletizers(settings, halted);
     this.advanceOutbound(dt, settings);
+    // Pickable boxes (moving, not on a ship belt) with their grade, computed once per step instead of once per
+    // robot × pallet; this loop dominated the step at high speed with many robots.
+    let pickable: { box: Cargo; grade: CargoGrade }[] | null = null;
     for (const robot of this.robots) {
       const config = settings[robot.object.id];
       if (robot.busy || !config.enabled || this.depalletizers.includes(robot)) continue;
+      pickable ??= this.boxes
+        .filter((box) => box.state === "moving" && settings[box.belt.id]?.conveyorRole !== "ship")
+        .map((box) => ({ box, grade: this.grade(box) }));
+      // Boxes this robot could take regardless of pallet (feed belt, reach, not yet attempted), in box order.
+      const feed = this.feedBelts.get(robot.object.id);
+      const near = pickable.filter(
+        ({ box }) =>
+          (!feed || feed.has(box.belt.id)) &&
+          !box.attempted.has(robot.object.id) &&
+          distance(robot.object, box.node.position) <= config.reach - 0.05,
+      );
+      if (!near.length) continue;
       const filter = config.pickFilter ?? "all";
       // Grades that have a pallet within this robot's reach. With the "all" filter a box
       // goes to a pallet of its own grade when one exists, otherwise to any pallet (legacy).
@@ -798,21 +1191,12 @@ export class FactorySimulator {
           target = pallet.slots[slot],
           grade = palletGrade(settings[pallet.object.id]);
         if (distance(robot.object, target) > config.reach) continue;
-        for (const box of this.boxes) {
-          if (box.state !== "moving" || settings[box.belt.id]?.conveyorRole === "ship") continue;
-          const feed = this.feedBelts.get(robot.object.id);
-          if (feed && !feed.has(box.belt.id)) continue;
-          const boxGrade = this.grade(box);
+        for (const { box, grade: boxGrade } of near) {
           // Non-matching boxes are left on the belt and continue downstream.
           if (filter !== "all" && boxGrade !== filter) continue;
           if (
             boxGrade !== grade &&
             (filter !== "all" || reachable.has(boxGrade))
-          )
-            continue;
-          if (
-            box.attempted.has(robot.object.id) ||
-            distance(robot.object, box.node.position) > config.reach - 0.05
           )
             continue;
           const speed = box.speed ?? beltSpeedOf(settings[box.belt.id]);
@@ -845,6 +1229,7 @@ export class FactorySimulator {
       .filter((agent) => settings[agent.object.id].enabled)
       // Capsule footprint as a row of circles (body + tines), so clearance matches the model.
       .flatMap((agent) => agent.controller.bodies.map((position) => ({ position, radius: agent.controller.radius })));
+    this.trafficTick++;
     this.traffic.advance(this.trafficVehicles, dt, (vehicle, target) => {
       const navigation = this.navigation.get(vehicle.id);
       if (!navigation) return null;
@@ -887,17 +1272,38 @@ export class FactorySimulator {
       }
       if (dispatch.phase === "returning")
         obstacles.push({ kind: "pallet", pose: navigation.layout.pallet });
-      return layoutPath(
-        navigation.layout,
-        dispatch.carrier.position,
-        goal,
-        dispatch.loaded,
-        obstacles,
-      );
+      // A failed search explores the whole region (~50 ms); retrying the same trip every step stalled frames.
+      // Remember the failure briefly (same start/goal within a few cm) and report "no path" without searching.
+      const failed = this.failedRoutes.get(vehicle.id), p0 = dispatch.carrier.position;
+      // Coarse signature of the moving obstacles (0.5 m grid): when a blocker leaves, the cached failure is stale.
+      let sig = "";
+      for (let i = navigation.obstacles.length; i < obstacles.length; i++) {
+        const o = obstacles[i];
+        if (o.kind !== "pallet") sig += `${Math.round(o.pose.x * 2)},${Math.round(o.pose.z * 2)};`;
+      }
+      const repeat = failed && failed.sig === sig && this.trafficTick - failed.tick < ROUTE_FAIL_HOLD_STEPS && failed.loaded === dispatch.loaded
+        && Math.hypot(failed.sx - p0.x, failed.sz - p0.z) < 0.05 && Math.hypot(failed.gx - goal.x, failed.gz - goal.z) < 0.05;
+      const direct = repeat ? null : layoutPath(navigation.layout, p0, goal, dispatch.loaded, obstacles);
+      if (direct) this.failedRoutes.delete(vehicle.id);
+      if (!direct && !repeat) this.failedRoutes.set(vehicle.id, { tick: this.trafficTick, loaded: dispatch.loaded, sig, sx: p0.x, sz: p0.z, gx: goal.x, gz: goal.z });
+      // Inbound-conveyor receive pose sits inside the belt clearance: route via its straight approach lane.
+      const lane = dispatch.feedLane;
+      if (direct || !lane) return direct;
+      const here = dispatch.carrier.position.clone();
+      if (Math.hypot(goal.x - lane.x, goal.z - lane.z) < 1.6) {
+        const path = layoutPath(navigation.layout, here, lane, dispatch.loaded, obstacles);
+        return path && [...path, new Vector3(goal.x, 0, goal.z)];
+      }
+      if (here.distanceTo(lane) < 1.6) {
+        const path = layoutPath(navigation.layout, lane, goal, dispatch.loaded, obstacles);
+        return path && [here, ...path];
+      }
+      return null;
     }, forkliftBodies);
     this.advanceBatteries(dt, settings);
     this.advanceForklifts(dt, settings);
     this.cycle?.advance(dt);
+    this.advancePalletHolds(dt);
     for (const shipment of this.shipments) {
       if (shipment.replaced || shipment.agent.dispatch.phase !== "dispatch")
         continue;
@@ -960,6 +1366,10 @@ export class FactorySimulator {
         settings[pallet.object.id].enabled &&
         pallet.full,
     );
+    // Pallet stations with neither a robot (to load / unload them) nor an AMR (to move them): no process flow at all.
+    if (!this.cycle && this.pallets.some((p) => settings[p.object.id]?.enabled) &&
+      !this.robots.some((r) => settings[r.object.id]?.enabled) && !this.agents.some((a) => settings[a.object.id]?.enabled))
+      this.warnOnce(NO_FLOW, this.pallets[0].object.name);
     // A full station raises a transport task (FIFO by the time it became ready).
     for (const pallet of ready) {
       pallet.readyAt ??= this.elapsed;
@@ -986,7 +1396,13 @@ export class FactorySimulator {
           !a.charging &&
           a.battery >= AMR_BATTERY.chargeBelow,
       );
-      if (!agents.length) continue;
+      if (!agents.length) {
+        // No AMR can take it at all: a forklift carries the pallet to the outbound robot instead.
+        // (Pallets riding on shuttles / handled by the pallet cycle are not floor pallets.)
+        if (!this.agents.some((a) => settings[a.object.id].enabled) && !settings[pallet.object.id]?.mountedOn && !this.cycle)
+          this.forkliftShip(pallet, settings);
+        continue;
+      }
       const away = (a: FactoryAgent) => distance(a.dispatch.carrier.position, pallet.object);
       agents.sort((a, b) => away(a) - away(b) || a.completed - b.completed);
       for (const agent of agents) {
@@ -1051,6 +1467,7 @@ export class FactorySimulator {
         box.state === "reserved" && box.distance < beltLength(box.belt),
       onPick: () => {
         box.state = "held";
+        if (this.feedBoxIds.delete(box.id)) this.feedScan.unscanned++;
         this.cargo.pickBox({ t: this.elapsed, robotId: robot.object.id, boxId: box.id });
       },
       onPlace: () => {
@@ -1074,6 +1491,7 @@ export class FactorySimulator {
     this.move(box);
   }
   /** Unload docks: a depalletizing robot puts the delivered boxes (top first) one by one onto its nearest belt. */
+  private readonly dropPointCache = new Map<string, { best: number; bestGap: number }>();
   private advanceDepalletizers(settings: Record<string, EquipmentSettings>, halted: Set<string>) {
     for (let i = this.unloadLoads.length - 1; i >= 0; i--) {
       const load = this.unloadLoads[i];
@@ -1100,15 +1518,25 @@ export class FactorySimulator {
         continue;
       }
       let target: { belt: SceneEquipment; d: number } | null = null;
+      // Boxes received from an inbound pallet (hold flow or feed shuttle) must pass a scanner.
+      const scan = !!load.scan || (!!load.boxes[0] && this.feedBoxIds.has(load.boxes[0].id));
       for (const { object: belt } of this.belts) {
         if (!settings[belt.id].enabled || halted.has(belt.id) || this.dropBooked.has(belt.id)) continue;
         const length = beltLength(belt);
-        let best = -1, bestGap = Infinity;
-        for (let d = BOX_SIZES[0].z; d <= length - BOX_SIZES[0].z; d += 0.25) {
-          const p = beltPoint(belt, d), gap = Math.hypot(p.x - robot.object.x, p.z - robot.object.z);
-          if (gap < bestGap) { bestGap = gap; best = d; }
+        // Nearest drop point on this belt is static for a robot/belt pair; cached (was a 0.25 m scan every step).
+        const key = `${robot.object.id}|${belt.id}|${robot.object.x},${robot.object.z}|${length}`;
+        let nearest = this.dropPointCache.get(key);
+        if (!nearest) {
+          let best = -1, bestGap = Infinity;
+          for (let d = BOX_SIZES[0].z; d <= length - BOX_SIZES[0].z; d += 0.25) {
+            const p = beltPoint(belt, d), gap = Math.hypot(p.x - robot.object.x, p.z - robot.object.z);
+            if (gap < bestGap) { bestGap = gap; best = d; }
+          }
+          this.dropPointCache.set(key, (nearest = { best, bestGap }));
         }
+        const { best, bestGap } = nearest;
         if (best < 0 || bestGap > reach) continue;
+        if (scan && !this.scanAfter(belt, best)) continue;
         if (!target || bestGap < distance(robot.object, beltPoint(target.belt, target.d))) target = { belt, d: best };
       }
       if (!target) {
@@ -1123,6 +1551,10 @@ export class FactorySimulator {
         continue;
       }
       const box = load.boxes.shift()!;
+      if (scan) {
+        this.feedScan.dropped++;
+        if (!this.scanAfter(belt, d)) this.feedScan.bypass++;
+      }
       load.top++;
       this.dropBooked.add(belt.id);
       robot.busy = true;
@@ -1251,6 +1683,8 @@ export class FactorySimulator {
         dock.kind === "rack"
           ? this.freeSlot(dock) >= 0 && (!this.forkliftAgents.length || !this.handoffBusy(dock))
           : !this.shipments.some((s) => s.dock.id === dock.id) &&
+            // Strictly one AMR per dock: the previous one must have fully left its footprint.
+            !this.agents.some((a) => a !== agent && distance(a.dispatch.carrier.position, dock) < a.dispatch.radius * 2 + 0.5) &&
             !(dock.kind === "conveyor" && this.outboundBusy(dock)) &&
             !this.unloadLoads.some((l) => l.dock.id === dock.id),
       )
@@ -1266,6 +1700,13 @@ export class FactorySimulator {
         robot && belt && this.docks.length + this.racks.length
           ? `${grade === "defect" ? "불량품" : "정상품"} 적재 팔레트를 받을 출고 구역이 없습니다.`
           : "운반할 로봇·컨베이어·출고 구역을 확인해 주세요.";
+      return false;
+    }
+    // AMRs never lift a floor pallet: a forklift brings it onto the AMR's deck where the AMR waits.
+    const forklift = this.idleForklift(pallet);
+    if (!forklift) {
+      agent.waitingReason = this.forkliftAgents.length ? "지게차 대기 · 팔레트를 AMR에 올려줄 지게차가 없습니다." : FORKLIFT_MISSING;
+      if (!this.forkliftAgents.length) this.warnOnce(FORKLIFT_MISSING, pallet.object.name);
       return false;
     }
     const layout: FactoryLayout = {
@@ -1293,24 +1734,16 @@ export class FactorySimulator {
       ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
       ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
     ];
-    const pickup = layoutPath(
-      layout,
-      layout.amr,
-      layout.pallet,
-      false,
-      obstacles,
-    );
-    if (!pickup) {
-      agent.waitingReason ??= routeFailureReason(
-        layout,
-        layout.amr,
-        layout.pallet,
-        false,
-        obstacles,
-        `${pallet.object.name} 픽업`,
-      );
+    const approach = layoutPath(layout, layout.amr, layout.pallet, false, obstacles);
+    if (!approach) {
+      agent.waitingReason ??= routeFailureReason(layout, layout.amr, layout.pallet, false, obstacles, `${pallet.object.name} 픽업`);
       return false;
     }
+    // Hand-off pose: the AMR stops short of the station on its approach (it never drives under the floor
+    // pallet) and waits there, deck up, for the forklift.
+    const pickup = trimPath(approach, FORKLIFT_HANDOFF_GAP);
+    const handoffAt = pickup[pickup.length - 1].clone();
+    const handoffPose = { x: handoffAt.x, z: handoffAt.z, yaw: 0 };
     let routes: DispatchRoutes | null = null;
     let target: SceneEquipment | null = null,
       targetSlot: number | undefined;
@@ -1326,11 +1759,11 @@ export class FactorySimulator {
           ? { ...destination, x: approach.x, z: approach.z }
           : destination;
       layout.dock = dock;
-      const outbound = layoutPath(layout, layout.pallet, dock, true, obstacles);
+      const outbound = layoutPath(layout, handoffPose, dock, true, obstacles);
       if (!outbound) {
         agent.waitingReason ??= routeFailureReason(
           layout,
-          layout.pallet,
+          handoffPose,
           dock,
           true,
           obstacles,
@@ -1360,7 +1793,7 @@ export class FactorySimulator {
         );
         continue;
       }
-      routes = { pickup, dispatch: outbound, returning };
+      routes = { pickup, dispatch: outbound, returning, feed: { heading: pathHeading(pickup) } };
       if (slot !== undefined && !handoff)
         routes.store = {
           slot: rackSlotPoint(destination, slot),
@@ -1373,8 +1806,30 @@ export class FactorySimulator {
       break;
     }
     if (!routes || !target) return false;
+    let handed: Group | null = null;
+    const deck = new Vector3(handoffAt.x, AMR_DECK, handoffAt.z);
+    const job: ForkliftJob = {
+      kind: "store",
+      peerId: agent.object.id,
+      ready: () => agent.dispatch.phase === "receiving",
+      pickup: { point: new Vector3(pallet.object.x, 0, pallet.object.z), heading: pallet.object.yaw },
+      take: () => handed,
+      targets: () => this.aroundTargets(deck, agent.object.id),
+      store: (payload) => {
+        this.root.attach(payload);
+        payload.position.copy(deck);
+        agent.dispatch.received();
+        this.forkliftHandoffs++;
+        log("info", `팔레트 ${pallet.object.name} 지게차 → AMR 인계`, agent.object.name);
+      },
+    };
+    if (!forklift.controller.start(job)) {
+      agent.waitingReason = `${pallet.object.name}: 지게차가 팔레트로 갈 경로가 없습니다.`;
+      return false;
+    }
     const group = pallet.beginShipment();
     if (!group) return false;
+    handed = group;
     // The outgoing pallet is cargo from now on: it is selected and tracked by its own pallet id,
     // not the station's (the station gets a new pallet group with the station id).
     delete group.userData.sceneId;
@@ -1407,6 +1862,8 @@ export class FactorySimulator {
     for (const box of shipment.cargo) box.state = "departing";
     agent.dispatch.configure(layout, obstacles);
     this.navigation.set(agent.object.id, { layout, obstacles });
+    // Unload dock: the pallet stays on the AMR while the dock robot depalletizes it.
+    if (routes && this.unloadDocks.includes(target)) routes.hold = this.holdOnDeck(shipment.group);
     agent.dispatch.request(
       shipment.group,
       () => {
@@ -1414,6 +1871,7 @@ export class FactorySimulator {
         // In a rack it is placed exactly on its PalletPoint and stays.
         const group = shipment.group,
           dock = shipment.dock;
+        const onDeck = routes?.hold ? group.parent : null;
         group.parent?.updateWorldMatrix(true, false);
         this.root.updateWorldMatrix(true, false);
         this.root.attach(group);
@@ -1425,6 +1883,14 @@ export class FactorySimulator {
           this.rolling.push({ belt: dock, group, boxes: [...shipment.cargo].map((b) => b.node), distance: -PALLET_CONVEYOR.transferOffset, fromY: group.position.y, palletId: shipment.palletId });
           shipment.stored = true;
           log("info", `팔레트 ${shipment.palletId ?? "-"} ${dock.name} 출하 컨베이어로 이송`, agent.object.name);
+        } else if (this.unloadDocks.includes(dock) && onDeck) {
+          // Stays on the AMR deck (re-parented back): the dock robot depalletizes it there.
+          onDeck.attach(group);
+          const boxes = [...shipment.cargo].sort((a, b) => b.node.getWorldPosition(new Vector3()).y - a.node.getWorldPosition(this.point).y);
+          for (const box of boxes) box.state = "placed";
+          this.unloadLoads.push({ dock, group, boxes, palletId: shipment.palletId, top: 0, keep: true });
+          if (shipment.palletId) this.cargo.arrivePallet({ t: this.elapsed, palletId: shipment.palletId, dockId: dock.id });
+          shipment.stored = true;
         } else if (this.unloadDocks.includes(dock)) {
           group.position.y = 0;
           group.rotation.set(0, dock.yaw, 0);
@@ -1469,7 +1935,7 @@ export class FactorySimulator {
         }
         // Read yaw in YXZ so headings past ±90° don't decompose into X/Z flips.
         const yaw = new Euler().setFromQuaternion(group.quaternion, "YXZ").y;
-        if (dock.kind !== "conveyor") group.rotation.set(
+        if (dock.kind !== "conveyor" && group.parent === this.root) group.rotation.set(
           0,
           dock.yaw + (Math.PI / 2) * Math.round((yaw - dock.yaw) / (Math.PI / 2)),
           0,
@@ -1482,6 +1948,122 @@ export class FactorySimulator {
       },
       routes,
     );
+    return true;
+  }
+  /** Unload dock hold: the AMR waits with the pallet on its deck until the dock robot has emptied it, then drives the
+   * empty pallet back; there it leaves the AMR (handed to the empty-pallet flow). */
+  private holdOnDeck(group: Group) {
+    return {
+      busy: () => this.unloadLoads.some((l) => l.group === group),
+      emptyHome: (pallet: Group) => {
+        pallet.removeFromParent();
+        this.unrender(pallet);
+      },
+    };
+  }
+  /** Warnings raised once per cause (not every tick). */
+  private readonly warned = new Set<string>();
+  get warnedMessages(): ReadonlySet<string> {
+    return this.warned;
+  }
+  get floorLiftAttempts() {
+    return PalletDispatchController.floorLiftAttempts;
+  }
+  /** Pallets handed forklift -> AMR deck, and pallets carried by forklift to an outbound robot. */
+  forkliftHandoffs = 0;
+  forkliftOutbound = 0;
+  private warnOnce(message: string, source?: string) {
+    if (this.warned.has(message)) return;
+    this.warned.add(message);
+    log("warning", message, source);
+  }
+  private idleForklift(near: { object: { x: number; z: number } }) {
+    const settings = this.settings();
+    return this.forkliftAgents
+      .filter((f) => settings[f.object.id]?.enabled && f.controller.idle)
+      .sort((a, b) => distance(a.controller.carrier.position, near.object) - distance(b.controller.carrier.position, near.object))[0];
+  }
+  /** Forklift drop poses around `point`: the pallet lands on `point` (height y) approached from four sides. */
+  private aroundTargets(point: Vector3, id: string): ForkliftTarget[] {
+    return [0, Math.PI / 2, Math.PI, -Math.PI / 2].map((heading, slot) => ({
+      rackId: id,
+      slot,
+      slotPoint: point.clone(),
+      heading,
+      approach: forkliftStop(point, heading, FORKLIFT_CONFIG.forkLength),
+    }));
+  }
+  /** Drop poses in front of a robot (within its reach), pallet facing it. */
+  private robotTargets(robot: FactoryRobot, reach: number): ForkliftTarget[] {
+    const d = Math.min(1.6, Math.max(1.0, reach - 0.7));
+    const out: ForkliftTarget[] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = robot.object.yaw + (i * Math.PI) / 4;
+      const point = new Vector3(robot.object.x + Math.sin(a) * d, 0, robot.object.z + Math.cos(a) * d);
+      const heading = a + Math.PI;
+      out.push({ rackId: robot.object.id, slot: i, slotPoint: point, heading, approach: forkliftStop(point, heading, FORKLIFT_CONFIG.forkLength) });
+    }
+    return out;
+  }
+  /** No AMR: the forklift brings the full pallet to an outbound robot, holds it while the boxes are unloaded, then
+   * takes the empty pallet away. */
+  private forkliftShip(pallet: PalletController, settings: Record<string, EquipmentSettings>) {
+    // A linked depalletizer if any (the deliver link usually names its unload dock, not the robot), else the nearest.
+    const enabled = this.depalletizers.filter((r) => settings[r.object.id]?.enabled);
+    const linked = this.linkedOrAll(enabled, this.links.outgoing(pallet.object.id, "deliver"), (r) => r.object.id);
+    const robots = (linked.length ? linked : enabled)
+      .sort((a, b) => distance(a.object, pallet.object) - distance(b.object, pallet.object));
+    if (!robots.length) {
+      this.warnOnce(NO_FLOW, pallet.object.name);
+      return false;
+    }
+    if (!this.forkliftAgents.length) {
+      this.warnOnce(FORKLIFT_MISSING, pallet.object.name);
+      return false;
+    }
+    const forklift = this.idleForklift(pallet);
+    if (!forklift) return false;
+    const robot = robots[0];
+    const reach = settings[robot.object.id].reach - ROBOT_PICKING.pickReachMargin;
+    let group: Group | null = null;
+    const boxes = this.boxes.filter((b) => b.pallet === pallet.object.id && b.state === "placed");
+    const palletId = this.cargo.currentPallet(pallet.object.id)?.id;
+    const job: ForkliftJob = {
+      kind: "store",
+      pickup: { point: new Vector3(pallet.object.x, 0, pallet.object.z), heading: pallet.object.yaw },
+      take: () => {
+        if (!group) return null;
+        const taken = group;
+        // Station gets a fresh pallet as soon as the full one is on the forks.
+        this.fullReported.delete(pallet);
+        this.root.add(pallet.replace());
+        this.render(pallet.group);
+        this.startPalletRecord(pallet);
+        return taken;
+      },
+      targets: () => this.robotTargets(robot, reach),
+      store: (payload) => {
+        const sorted = [...boxes].sort((a, b) => b.node.getWorldPosition(new Vector3()).y - a.node.getWorldPosition(this.point).y);
+        for (const box of sorted) box.pallet = undefined;
+        this.unloadLoads.push({ dock: pallet.object, group: payload, boxes: sorted, palletId, top: 0, keep: true });
+        log("info", `팔레트 ${palletId ?? "-"} 지게차 → ${robot.object.name} 하역`, forklift.object.name);
+      },
+      hold: () => this.unloadLoads.some((l) => l.group === group),
+      release: (payload) => {
+        payload.removeFromParent();
+        this.unrender(payload);
+        this.forkliftOutbound++;
+        log("info", `빈 팔레트 회수`, forklift.object.name);
+      },
+    };
+    if (!forklift.controller.start(job)) {
+      forklift.waitingReason = `${pallet.object.name}: 팔레트로 가는 경로가 없습니다.`;
+      return false;
+    }
+    group = pallet.beginShipment();
+    if (!group) return false;
+    delete group.userData.sceneId;
+    group.userData.cargo = true;
     return true;
   }
   /** A racked pallet keeps rendering with its boxes; it only leaves the live box list. */
@@ -1536,7 +2118,7 @@ export class FactorySimulator {
     controller.predict(0.8 * (step / dt), this.forkliftAhead);
     const others: { at: Vector3; radius: number }[] = [];
     for (const other of this.agents)
-      if (settings[other.object.id].enabled) others.push({ at: other.dispatch.carrier.position, radius: other.dispatch.radius });
+      if (settings[other.object.id].enabled && other.object.id !== controller.job?.peerId) others.push({ at: other.dispatch.carrier.position, radius: other.dispatch.radius });
     for (const other of this.forkliftAgents)
       if (other !== agent && settings[other.object.id].enabled) for (const at of other.controller.bodies) others.push({ at: at.clone(), radius: other.controller.radius });
     // Footprint (capsule) clearance to each other body, now vs. after the predicted move.

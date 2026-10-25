@@ -8,7 +8,7 @@ import { cn } from "@/lib/style";
 
 const STATE_LABELS: Record<string, string> = {
   working: "작업 중", idle: "대기", disabled: "비활성", pickup: "픽업 이동", loading: "적재", dispatch: "운반", unloading: "하역",
-  storing: "랙 입고", returning: "복귀", blocked: "막힘", waiting: "대기", yielding: "양보", charging: "충전",
+  storing: "랙 입고", returning: "복귀", receiving: "팔레트 수령", blocked: "막힘", waiting: "대기", yielding: "양보", charging: "충전",
 };
 
 function rank(list: DashboardEquipment[], value: (e: DashboardEquipment) => number | null) {

@@ -8,11 +8,7 @@ import Select from "@/components/Select";
 import { cn } from "@/lib/style";
 import type { Wall } from "@/domain/layout/autoLayout";
 import type { EvaluatedCandidate } from "@/domain/layout/searchLayouts";
-import { applySceneTemplate } from "@/stores/actions/applySceneTemplate";
 import { useAutoLayoutStore, type AutoLayoutForm } from "@/stores/useAutoLayoutStore";
-import { useSceneStore } from "@/stores/useSceneStore";
-import { scheduleDropIn } from "@/viewport/editor/dropIn";
-import TemplatePreview from "@/ui/Hud/template/TemplatePreview";
 
 const input =
   "h-6 w-24 min-w-0 rounded-[3px] border border-[#2c2e33] bg-[#1b1c1f] px-2 text-right text-xs tabular-nums text-text-primary outline-none hover:border-[#3a3d43] focus:border-brand-primary disabled:opacity-40";
@@ -25,7 +21,7 @@ const RING = "focus-visible:ring-1 focus-visible:ring-brand-primary";
 const fixed1 = (value: number) => value.toFixed(1);
 const int = (value: number) => Math.round(value).toLocaleString("ko-KR");
 
-/** Docked in the right properties column (replaces object properties while open): constraints form -> worker search -> candidate cards. */
+/** Docked in the right properties column (replaces object properties while open): constraints form -> worker search -> the best layout is applied. */
 export default function AutoLayoutPanel() {
   const { form, status, progress, result, error, setForm, start, cancel, setOpen } = useAutoLayoutStore();
   const running = status === "running";
@@ -134,10 +130,12 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** Result: the single best-scoring layout, already applied to the scene (no candidate list / alternatives). */
 function Results() {
   const result = useAutoLayoutStore((state) => state.result)!;
   const ok = result.diagnosis.code === "ok";
   const fixedMode = result.constraints.mode === "fixed";
+  const best = result.ranked[0] ?? result.closest;
   return (
     <div className="flex flex-col gap-2 border-t border-white/10 px-3 py-3">
       <div className="flex items-center justify-between text-xs text-text-secondary">
@@ -148,20 +146,13 @@ function Results() {
       {!ok && (
         <p role="status" className="rounded-lg border border-warning/25 bg-warning/10 p-2 text-xs text-warning">{result.diagnosis.message}</p>
       )}
-      {!ok && result.closest && <p className="text-[11px] text-text-secondary">가장 가까운 후보:</p>}
-      {!ok && result.closest && <CandidateCard entry={result.closest} rank={0} />}
-      {result.ranked.filter((entry) => entry !== result.closest).map((entry, i) => <CandidateCard key={entry.candidate.template.id} entry={entry} rank={i + 1} fixedMode={fixedMode} />)}
+      {best && <AppliedLayout entry={best} fixedMode={fixedMode} />}
     </div>
   );
 }
 
-function CandidateCard({ entry, rank, fixedMode = false }: { entry: EvaluatedCandidate; rank: number; fixedMode?: boolean }) {
+function AppliedLayout({ entry, fixedMode }: { entry: EvaluatedCandidate; fixedMode: boolean }) {
   const m = entry.metrics!, c = entry.candidate;
-  const apply = () => {
-    const scene = useSceneStore.getState();
-    if (!scene.editing) scene.edit();
-    if (applySceneTemplate(c.template)) scheduleDropIn(useSceneStore.getState().objects);
-  };
   const stats: [string, string][] = [
     ["처리량", `${int(m.placedPerHour)}/h`], ["로봇 가동률", `${fixed1(m.robotUtilization * 100)}%`],
     ["로봇 · AMR · 컨베이어", `${int(c.counts.robots)} · ${int(c.counts.amrs)}${c.counts.forklifts ? ` (+지게차 ${int(c.counts.forklifts)})` : ""} · ${int(c.counts.conveyors)}`],
@@ -171,22 +162,17 @@ function CandidateCard({ entry, rank, fixedMode = false }: { entry: EvaluatedCan
   return (
     <article className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[.035] p-2">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="truncate text-xs font-medium">{rank ? `#${rank} ` : ""}{c.template.name}</h3>
-        <div className="flex shrink-0 items-center gap-1">
-          {fixedMode ? <Badge tone="safe">고정 장비</Badge> : <Badge tone={entry.met ? "safe" : "warning"}>{entry.met ? "목표 달성" : "미달"}</Badge>}
-          <span className="text-[11px] tabular-nums text-text-secondary" title="점수 (낮을수록 좋음)">{fixed1(entry.score)}</span>
-        </div>
+        <h3 className="truncate text-xs font-medium">적용됨 · {c.template.name}</h3>
+        {fixedMode ? <Badge tone="safe">고정 장비</Badge> : <Badge tone={entry.met ? "safe" : "warning"}>{entry.met ? "목표 달성" : "미달"}</Badge>}
       </div>
-      <TemplatePreview template={c.template} />
       <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
         {stats.map(([label, value]) => (
           <div key={label} className="flex justify-between gap-2">
             <dt className="truncate text-text-secondary">{label}</dt>
-            <dd className={cn("shrink-0 tabular-nums")}>{value}</dd>
+            <dd className="shrink-0 tabular-nums">{value}</dd>
           </div>
         ))}
       </dl>
-      <Button className={cn("h-7 text-xs", RING)} onClick={apply}>이 배치 적용</Button>
     </article>
   );
 }

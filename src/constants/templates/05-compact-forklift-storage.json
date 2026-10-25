@@ -65,6 +65,15 @@
       "yaw": 0
     },
     {
+      "kind": "amr",
+      "x": -4.871,
+      "z": 7.0909,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
       "kind": "dock",
       "x": -4.871,
       "z": 27.5866,
@@ -141,7 +150,7 @@
       "floor": {
         "width": 26,
         "depth": 40,
-        "wallHeight": 9.5
+        "wallHeight": 10
       }
     },
     {
@@ -170,11 +179,6 @@
     {
       "type": "deliver",
       "from": 3,
-      "to": 9
-    },
-    {
-      "type": "deliver",
-      "from": 3,
       "to": 10
     },
     {
@@ -204,8 +208,8 @@
     },
     {
       "type": "deliver",
-      "from": 5,
-      "to": 9
+      "from": 3,
+      "to": 16
     },
     {
       "type": "deliver",
@@ -239,8 +243,8 @@
     },
     {
       "type": "deliver",
-      "from": 7,
-      "to": 9
+      "from": 5,
+      "to": 16
     },
     {
       "type": "deliver",
@@ -271,6 +275,11 @@
       "type": "deliver",
       "from": 7,
       "to": 15
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 16
     }
   ]
 }

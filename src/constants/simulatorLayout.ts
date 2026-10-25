@@ -53,7 +53,7 @@ export const AMR_BATTERY = {
 };
 
 export const ROBOT_RANGE_STYLE = {
-  color: "#38bdf8",
+  color: "#02dfef",
   overlapColor: "#f9c335", // var(--color-warning) warning token
   height: 0.005,
   segments: 80,

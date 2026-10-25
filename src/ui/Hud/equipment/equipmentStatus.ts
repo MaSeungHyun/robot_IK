@@ -42,6 +42,7 @@ export const AGENT_STATES = {
   unloading: "operating",
   storing: "operating",
   returning: "operating",
+  receiving: "operating",
   yielding: "operating",
   charging: "charging",
   blocked: "fault",

@@ -4,7 +4,8 @@ import { QuadraticBezierCurve3, Vector3 } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { selectedIds, useSceneStore } from "@/stores/useSceneStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
-import { LINKABLE_KINDS, resolveLink, type SceneLink } from "@/types/links";
+import { LINKABLE_KINDS, type SceneLink } from "@/types/links";
+import { linkOwner, mountedCarrier, resolveOwnedLink } from "@/viewport/editor/links/linkOwners";
 import type { SceneEquipment } from "@/types/layout";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 import { LINK_ACTIVE_COLOR, LINK_COLOR, linkPoint } from "@/viewport/editor/links/linkPoints";
@@ -18,7 +19,8 @@ const PATH_Y = 0.05;
  * link mode the interaction-point markers of linkable equipment, valid partners highlighted.
  */
 export default function LinkOverlay() {
-  const { objects, links } = useSceneStore(useShallow((s) => ({ objects: s.objects, links: s.links })));
+  const { objects, links, settings } = useSceneStore(useShallow((s) => ({ objects: s.objects, links: s.links, settings: s.settings })));
+  const scene = useMemo(() => ({ objects, settings }), [objects, settings]);
   const { active, source, selectedLink } = useLinkModeStore(
     useShallow((s) => ({ active: s.active, source: s.source, selectedLink: s.selectedLink })),
   );
@@ -33,19 +35,21 @@ export default function LinkOverlay() {
   return (
     <group>
       {links.map((link) => {
-        const from = byId.get(link.from), to = byId.get(link.to);
-        if (!from || !to) return null;
-        const touches = selected.has(link.from) || selected.has(link.to);
+        // Links of a mounted pallet are drawn from/to its AMR; its own pickup link (AMR -> that pallet) is hidden.
+        const fromId = linkOwner(link.from, scene), toId = linkOwner(link.to, scene);
+        const from = byId.get(fromId), to = byId.get(toId);
+        if (!from || !to || fromId === toId) return null;
+        const touches = selected.has(link.from) || selected.has(link.to) || selected.has(fromId) || selected.has(toId);
         return <LinkPath key={link.id} link={link} from={from} to={to} selected={selectedLink === link.id} dim={selected.size > 0 && !touches} active={touches} />;
       })}
       {active && (
         <LinkMarkers
           markers={objects
-            .filter((o) => LINKABLE_KINDS.has(o.kind))
+            .filter((o) => LINKABLE_KINDS.has(o.kind) && !mountedCarrier(o.id, scene))
             .map((o) => ({
               object: o,
               isSource: o.id === source,
-              valid: sourceObject ? o.id !== sourceObject.id && resolveLink(sourceObject, o) !== null : true,
+              valid: sourceObject ? o.id !== sourceObject.id && resolveOwnedLink(sourceObject, o, scene) !== null : true,
               picking: !!sourceObject,
             }))}
         />
