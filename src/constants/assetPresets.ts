@@ -9,6 +9,8 @@ export type AssetPreset = {
   settings?: Partial<EquipmentSettings>;
   /** Accent for grade-specific presets. */
   tone?: "normal" | "defect";
+  /** Thumbnail key override (ThumbnailBaker), e.g. role-specific models. */
+  thumbnail?: string;
 };
 
 /** Asset rail categories (order = rail order, after Templates) and the preset cards each one offers. */
@@ -20,6 +22,7 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
       { id: "all", label: "전체 집기", description: "모든 박스를 집습니다." },
       { id: "normal", label: "정상품만", description: "정상 판정 박스만 집습니다.", settings: { pickFilter: "normal" }, tone: "normal" },
       { id: "defect", label: "불량품만", description: "불량 판정 박스만 집습니다.", settings: { pickFilter: "defect" }, tone: "defect" },
+      { id: "depalletize", label: "하역 (디팔레타이징)", description: "하역 도크에 도착한 AMR 팔레트의 박스를 하나씩 가장 가까운 컨베이어(로봇 투입)에 올립니다.", settings: { robotRole: "depalletize" } },
     ],
   },
   {
@@ -28,6 +31,11 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     presets: [
       { id: "default", label: "기본", description: "시간당 450개(450개/h)를 투입합니다." },
       { id: "fast", label: "고빈도 투입", description: "시간당 1800개(1800개/h)를 투입합니다.", settings: { spawnInterval: 2 } },
+      { id: "inbound", label: "입하 컨베이어", description: "입하 박스가 들어옵니다. 끝의 로봇이 AMR 위 팔레트에 쌓습니다.", settings: { conveyorRole: "inbound" }, thumbnail: "conveyor-inbound" },
+      { id: "fed", label: "로봇 투입 컨베이어", description: "자동 투입 없이 하역 로봇이 올린 박스만 이송합니다 (스캐너 앞단).", settings: { conveyorRole: "fed" } },
+      { id: "palletInbound", label: "팔레트 입하", description: "적재 팔레트 단위로 들어옵니다. 끝의 롤러 셔틀 AMR로 팔레트가 그대로 넘어갑니다.", settings: { conveyorRole: "inbound", inboundUnit: "pallet" }, thumbnail: "conveyor-inbound" },
+      { id: "ship", label: "출하 라인", description: "스테이지에서 지게차가 올린 팔레트를 출하합니다 (자동 투입 없음).", settings: { conveyorRole: "ship" }, thumbnail: "conveyor-outbound" },
+      { id: "outbound", label: "출하 컨베이어", description: "AMR이 시작점 앞 이송 지점에 서면 상부 롤러로 팔레트를 넘겨받아 끝까지 이송 후 출하합니다.", settings: { conveyorRole: "outbound" }, thumbnail: "conveyor-outbound" },
     ],
   },
   {
@@ -52,6 +60,10 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     presets: [
       { id: "default", label: "기본", description: "완성 팔레트를 출고 구역·랙으로 운반합니다." },
       { id: "forklift", label: "지게차", description: "포크로 랙의 팔레트를 들어 꺼내 문 밖으로 반출합니다.", settings: { amrRole: "forklift" } },
+      { id: "shuttle", label: "셔틀 AMR", description: "팔레트를 싣고 로봇 적재 위치와 서비스 도크를 오갑니다. 에디터에서 팔레트를 AMR 위에 놓으면 장착됩니다.", settings: { amrRole: "shuttle" }, thumbnail: "shuttle" },
+      { id: "agv", label: "AGV (Rack_m 운반)", description: "Rack_m 아래로 들어가 들어 올려 랙 구역으로 옮깁니다.", settings: { amrRole: "agv" }, thumbnail: "agv" },
+      { id: "serviceForklift", label: "서비스 지게차", description: "셔틀의 적재 팔레트를 Rack_m에 싣고 빈 팔레트를 셔틀에 올립니다.", settings: { amrRole: "forklift", forkliftTask: "service" } },
+      { id: "rackForklift", label: "랙 지게차", description: "Rack_m의 팔레트를 랙에 보관하고 랙에서 출하 스테이지로 꺼냅니다.", settings: { amrRole: "forklift", forkliftTask: "rack" } },
     ],
   },
   {
@@ -59,8 +71,13 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     icon: "MapPin",
     presets: [
       { id: "any", label: "전체", description: "모든 팔레트를 받습니다." },
+      { id: "unload", label: "하역 도크", description: "AMR이 팔레트를 내려두면 하역 로봇이 박스를 컨베이어에 올립니다. 비면 빈 팔레트를 회수합니다.", settings: { dockRole: "unload" }, thumbnail: "dock-unload" },
       { id: "normal", label: "정상품 전용", description: "정상품 적재 팔레트만 받습니다.", settings: { acceptGrade: "normal" }, tone: "normal" },
       { id: "defect", label: "불량품 전용", description: "불량품 적재 팔레트만 받습니다.", settings: { acceptGrade: "defect" }, tone: "defect" },
+      { id: "service", label: "서비스 도크", description: "셔틀 AMR이 서서 지게차와 팔레트를 교환하는 위치입니다.", settings: { dockRole: "service" }, thumbnail: "dock-service" },
+      { id: "palletSource", label: "빈 팔레트 공급", description: "빈 팔레트 스택. 서비스 지게차가 여기서 빈 팔레트를 집습니다.", settings: { dockRole: "palletSource" }, thumbnail: "dock-palletSource" },
+      { id: "rackDrop", label: "Rack_m 하차 위치", description: "AGV가 가득 찬 Rack_m을 내려놓는 위치입니다.", settings: { dockRole: "rackDrop" }, thumbnail: "dock-rackDrop" },
+      { id: "stage", label: "출하 스테이지", description: "랙 지게차가 랙에서 꺼낸 팔레트를 놓는 출하 대기 위치입니다.", settings: { dockRole: "stage" }, thumbnail: "dock-stage" },
     ],
   },
   {
@@ -70,6 +87,7 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
       { id: "any", label: "전체", description: "모든 팔레트를 보관합니다." },
       { id: "normal", label: "정상품 전용", description: "정상품 적재 팔레트만 보관합니다.", settings: { acceptGrade: "normal" }, tone: "normal" },
       { id: "defect", label: "불량품 전용", description: "불량품 적재 팔레트만 보관합니다.", settings: { acceptGrade: "defect" }, tone: "defect" },
+      { id: "mobile", label: "Rack_m (이동식)", description: "서비스 지게차가 채우고 AGV가 들어 옮기는 이동식 랙입니다. 고정 랙과 별개 오브젝트입니다.", settings: { rackType: "mobile" }, thumbnail: "rack-mobile" },
     ],
   },
   {
@@ -88,8 +106,22 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
 ];
 
 /** Key into the baked thumbnails (ThumbnailBaker); null = no model (drawn as an icon). */
+/** Thumbnail key of a placed object (info panel), from its kind and role settings; matches the asset cards. */
+export function objectThumbnailKey(kind: EquipmentKind, settings?: Partial<EquipmentSettings>) {
+  if (kind === "floor") return null;
+  if (kind === "amr" && (settings?.amrRole === "forklift" || settings?.amrRole === "rack")) return "forklift";
+  if (kind === "amr" && (settings?.amrRole === "agv" || settings?.amrRole === "shuttle")) return settings.amrRole;
+  if (kind === "rack" && settings?.rackType === "mobile") return "rack-mobile";
+  if (kind === "conveyor" && settings?.conveyorRole === "ship") return "conveyor-outbound";
+  if (kind === "conveyor" && (settings?.conveyorRole === "inbound" || settings?.conveyorRole === "outbound")) return `conveyor-${settings.conveyorRole}`;
+  if (kind === "dock" && settings?.dockRole && settings.dockRole !== "ship") return `dock-${settings.dockRole}`;
+  if (kind === "dock") return settings?.dockRole === "unload" ? "dock-unload" : settings?.acceptGrade === "defect" ? "dock-defect" : "dock";
+  return kind;
+}
 export function thumbnailKey(kind: EquipmentKind, preset: AssetPreset) {
   if (kind === "floor") return null;
+  if (preset.thumbnail) return preset.thumbnail;
+  if (kind === "amr" && preset.settings?.amrRole === "forklift") return "forklift";
   if (kind === "dock") return preset.tone === "defect" ? "dock-defect" : "dock";
   if (kind === "door") return "door";
   return kind;

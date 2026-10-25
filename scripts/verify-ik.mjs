@@ -89,6 +89,7 @@ const sourcePaths = {
   ...Object.fromEntries(['placePoseCache','analyticIK','joints','collisions','robotKinematics','closedChainKinematics','robotIK','heldBoxCollision','picking','motionTiming'].map(name => [name, `src/domain/robot/ik/${name}.ts`])),
   ...Object.fromEntries(['packingDiagnostics','perfectTiling','tiling','onlinePacking','fixedLayerPacking'].map(name => [name, `src/domain/pallet/packing/${name}.ts`])),
 };
+const jsonPaths = {};
 // Pull in every transitively imported src module (flat ./<basename>.mjs, as the rewrite below expects).
 for (const queue = Object.values(sourcePaths); queue.length;) {
   const file = queue.pop();
@@ -96,10 +97,12 @@ for (const queue = Object.values(sourcePaths); queue.length;) {
     const base = path.basename(spec), name = base === 'simulation' ? 'constants' : base;
     if (sourcePaths[name]) continue;
     const stem = spec.startsWith('@/') ? path.join('src', spec.slice(2)) : path.join(path.dirname(file), spec);
+    if (spec.endsWith('.json') && fs.existsSync(stem)) { jsonPaths[base] = stem; continue; }
     const resolved = ['.ts', '.tsx', '/index.ts'].map(ext => stem + ext).find(p => fs.existsSync(p));
     if (resolved && !resolved.endsWith('.tsx')) { sourcePaths[name] = resolved; queue.push(resolved); }
   }
 }
+for (const [name, file] of Object.entries(jsonPaths)) fs.writeFileSync(path.join(output, `${name}.mjs`), `export default ${fs.readFileSync(file, 'utf8')};\n`);
 for (const name of Object.keys(sourcePaths)) {
   const source = fs.readFileSync(sourcePaths[name], "utf8").replace(/from "(?:@\/|(?:\.\.?\/)+)[^"\n]+"/g, spec => spec.replace(/"[^"\n]+"/, value => {const base=path.basename(value.slice(1,-1));return `"./${base==="simulation"?"constants":base}.mjs"`;}));
   fs.writeFileSync(path.join(output,`${name}.mjs`),ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}));
@@ -617,6 +620,27 @@ if(process.argv.includes('--instances')){
   if(Math.abs(matrix.elements[14]-cargo.node.children[0].children[0].matrixWorld.elements[14])>1e-4)throw Error('Held cargo render pose differs from source');
   world.dispose();runtime.sync();if(runtime.root.children.length)throw Error('Runtime disposal leaked batches');
   console.log('Instances: 1,000 mixed conveyors / 4,000 meshes rendered in 7 batches; static GPU uploads skipped; moved/attached transforms, runtime cargo, removal and cleanup passed');
+  process.exit(0);
+}
+if(process.argv.includes('--stopper')){
+  const {FactorySimulator}=await import('../.tmp/ik-tests/FactorySimulator.mjs');
+  const {beltLength,extendBelt}=await import('../.tmp/ik-tests/conveyorLayout.mjs');
+  const a={id:'a',kind:'conveyor',name:'A',x:0,z:0,yaw:0},b={...extendBelt(a,'straight'),id:'b',kind:'conveyor',name:'B'};
+  // Stopper halt: a box touching the end stopper stops the whole connected line and its feed.
+  const haltSettings=Object.fromEntries([a,b].map(o=>[o.id,{speed:2,enabled:true,spawnInterval:1}]));
+  const halt=new FactorySimulator([a,b],load('box'),load('pallet'),()=>haltSettings);
+  for(let i=0;i<30*120&&!halt.haltedBelts().has('a');i++)halt.advance(1/30);
+  if(![a,b].every(o=>halt.haltedBelts().has(o.id)))throw Error('Box at stopper did not halt the connected line');
+  const frozen=halt.boxes.map(box=>[box,box.belt,box.distance]),haltSpawned=halt.spawned;
+  for(let i=0;i<30*10;i++)halt.advance(1/30);
+  if(halt.spawned!==haltSpawned||frozen.some(([box,belt,d])=>box.belt!==belt||box.distance!==d))throw Error('Halted line kept moving or producing boxes');
+  const stopped=halt.boxes.filter(box=>box.belt===b).sort((p,q)=>q.distance-p.distance)[0];
+  stopped.state='held';
+  halt.advance(1/30);
+  if(halt.haltedBelts().size||!frozen.some(([box,,d])=>box!==stopped&&box.distance>d))throw Error('Clearing the stopper did not resume the line');
+  for(let i=0;i<30*8&&halt.spawned===haltSpawned;i++)halt.advance(1/30);
+  if(halt.spawned<=haltSpawned)throw Error('Box production did not resume after the stopper cleared');
+  console.log('Stopper: box at the end stopper halts every connected segment and box production; clearing it resumes both passed');
   process.exit(0);
 }
 if(process.argv.includes('--flow-speed')){

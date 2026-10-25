@@ -1,0 +1,171 @@
+{
+  "id": "inbound-depal-scan-outbound",
+  "name": "입하 · 하역 · 검사 · 출하 컨베이어",
+  "description": "입하 컨베이어 끝 로봇이 AMR용 팔레트에 쌓고, AMR이 하역 구역으로 옮기면 로봇이 박스를 하나씩 스캐너 라인에 올립니다. 스캔 후 라인 끝 로봇이 다시 적재하고, AMR 상부 롤러로 출하 컨베이어에 넘깁니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": -22.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 3.3945,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": -3.5864,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.8575,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -12.6305,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "spawnInterval": 6,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -11.4098,
+      "z": -12.1288,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -9.773,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 2
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -7.5596,
+      "z": -21.7318,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": 1.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": 2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 2
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 1.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": 2.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "capacity": 2
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 7.5596,
+      "z": 10.0909,
+      "yaw": 0
+    },
+    {
+      "kind": "conveyor",
+      "x": 4.871,
+      "z": 33.9334,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "outbound",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "floor",
+      "x": -2.5,
+      "z": 6,
+      "yaw": 0,
+      "floor": {
+        "width": 25,
+        "depth": 86,
+        "wallHeight": 9.5
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "pickup",
+      "from": 8,
+      "to": 7
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 4
+    },
+    {
+      "type": "pickup",
+      "from": 13,
+      "to": 10
+    },
+    {
+      "type": "deliver",
+      "from": 10,
+      "to": 14
+    },
+    {
+      "type": "pickup",
+      "from": 13,
+      "to": 12
+    },
+    {
+      "type": "deliver",
+      "from": 12,
+      "to": 14
+    }
+  ]
+}

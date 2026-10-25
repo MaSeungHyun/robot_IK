@@ -1,0 +1,388 @@
+{
+  "id": "two-line-ship-store",
+  "name": "2라인 검사 적재 + 출고/보관",
+  "description": "등을 맞댄 두 라인에서 스캔 후 적재하고, 라인별 AMR이 자기 쪽 랙에 보관하거나 도크로 출고합니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 6.0831,
+      "yaw": 0,
+      "settings": {
+        "spawnInterval": 4,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": -0.8978,
+      "yaw": 0,
+      "settings": {
+        "defectRate": 0
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 18.8124,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 18.8124,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": -7.5596,
+      "z": 10.0909,
+      "yaw": 0
+    },
+    {
+      "kind": "dock",
+      "x": -4.871,
+      "z": 27.5866,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.5258,
+      "z": 13.0479,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -11.5258,
+      "z": 20.3391,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -11.5258,
+      "z": 27.6303,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -15.542,
+      "z": 9.4023,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 3.034,
+      "z": 6.0831,
+      "yaw": 0,
+      "settings": {
+        "spawnInterval": 4,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 3.034,
+      "z": -0.8978,
+      "yaw": 0,
+      "settings": {
+        "defectRate": 0
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 4.2547,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": 5.8915,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": 4.2547,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": 5.8915,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": 4.2547,
+      "z": 18.8124,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": 5.8915,
+      "z": 18.8124,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 10.5936,
+      "z": 10.0909,
+      "yaw": 0
+    },
+    {
+      "kind": "dock",
+      "x": 7.905,
+      "z": 27.5866,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 14.5598,
+      "z": 13.0479,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 14.5598,
+      "z": 20.3391,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 14.5598,
+      "z": 27.6303,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 18.576,
+      "z": 9.4023,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
+      "kind": "floor",
+      "x": 1.5,
+      "z": 11,
+      "yaw": 0,
+      "floor": {
+        "width": 39,
+        "depth": 40,
+        "wallHeight": 9.5
+      }
+    },
+    {
+      "kind": "door",
+      "x": -18,
+      "z": 20.3391,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "door",
+      "x": 21,
+      "z": 20.3391,
+      "yaw": -1.5707963267948966
+    }
+  ],
+  "links": [
+    {
+      "type": "pickup",
+      "from": 8,
+      "to": 3
+    },
+    {
+      "type": "pickup",
+      "from": 8,
+      "to": 5
+    },
+    {
+      "type": "pickup",
+      "from": 8,
+      "to": 7
+    },
+    {
+      "type": "deliver",
+      "from": 3,
+      "to": 9
+    },
+    {
+      "type": "deliver",
+      "from": 3,
+      "to": 10
+    },
+    {
+      "type": "deliver",
+      "from": 3,
+      "to": 11
+    },
+    {
+      "type": "deliver",
+      "from": 3,
+      "to": 12
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 9
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 10
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 11
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 12
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 9
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 10
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 11
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 12
+    },
+    {
+      "type": "pickup",
+      "from": 22,
+      "to": 17
+    },
+    {
+      "type": "pickup",
+      "from": 22,
+      "to": 19
+    },
+    {
+      "type": "pickup",
+      "from": 22,
+      "to": 21
+    },
+    {
+      "type": "deliver",
+      "from": 17,
+      "to": 23
+    },
+    {
+      "type": "deliver",
+      "from": 17,
+      "to": 24
+    },
+    {
+      "type": "deliver",
+      "from": 17,
+      "to": 25
+    },
+    {
+      "type": "deliver",
+      "from": 17,
+      "to": 26
+    },
+    {
+      "type": "deliver",
+      "from": 19,
+      "to": 23
+    },
+    {
+      "type": "deliver",
+      "from": 19,
+      "to": 24
+    },
+    {
+      "type": "deliver",
+      "from": 19,
+      "to": 25
+    },
+    {
+      "type": "deliver",
+      "from": 19,
+      "to": 26
+    },
+    {
+      "type": "deliver",
+      "from": 21,
+      "to": 23
+    },
+    {
+      "type": "deliver",
+      "from": 21,
+      "to": 24
+    },
+    {
+      "type": "deliver",
+      "from": 21,
+      "to": 25
+    },
+    {
+      "type": "deliver",
+      "from": 21,
+      "to": 26
+    }
+  ]
+}

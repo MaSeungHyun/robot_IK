@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { Group, InstancedMesh, Object3D, Vector3 } from "three";
 import { useRoomMaps } from "@/objects/room/roomMaterials";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
+import { FACTORY_ROOM } from "@/constants/factoryRoom";
 import RoomFrame from "./RoomFrame";
 import type { RoomBeam } from "./RoomFrame";
 
@@ -72,7 +73,7 @@ export default function RoomRoof({ width, depth, wallHeight: height }: FloorSize
       }
     };
     // Primary girders along Z (deep lattice), wall to wall.
-    const girderDepth = Math.min(1.1, height * 0.14);
+    const girderDepth = Math.min(FACTORY_ROOM.girderDepth, height * 0.14);
     const girders = Math.max(1, Math.round(width / GRID.girderSpacing));
     const girderChord = Math.min(0.14, width / 25, height / 25);
     for (let i = 0; i <= girders; i++) {

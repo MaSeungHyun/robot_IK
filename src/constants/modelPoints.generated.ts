@@ -146,6 +146,8 @@ export const AMR_MODEL = {
   /** AMR scene bounds as authored (node transforms applied). */
   min: [-0.8316,0.0044,-0.922] as [number, number, number],
   max: [0.8316,1.0545,0.9256] as [number, number, number],
+  /** Pallet seat (AMR_point) in the rendered AMR frame (bounds-centred, floor at y = 0): pallet bottom centre. */
+  deck: [0,1.0024,0] as [number, number, number],
 };
 
 export const ROBOT_MODEL = {

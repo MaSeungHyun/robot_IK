@@ -1,0 +1,249 @@
+{
+  "id": "pallet-cycle-rack-m",
+  "name": "팔레트 순환 · Rack_m · AGV · 출하",
+  "description": "AMR 위 팔레트에 입하 박스를 쌓아 스캐너 하역 구역으로 옮기고, 스캔 후 다시 AMR 팔레트에 쌓습니다. 지게차가 다 찬 팔레트를 Rack_m에 옮기고 빈 팔레트를 올려 주며, 다 찬 Rack_m은 AGV가 랙 구역으로 운반합니다. 랙 지게차가 랙에 보관하고 출하할 팔레트를 출하 로봇 옆에 두면 로봇이 박스를 출하 컨베이어에 하나씩 올립니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": -25.5467,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 0.7059,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": -6.275,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": -16.4204,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.8575,
+      "z": -16.4204,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -12.6305,
+      "z": -27.5467,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 6,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -11.4098,
+      "z": -14.8174,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": -9.773,
+      "z": -14.8174,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -9.773,
+      "z": -14.8174,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-8"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 1.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-11"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 16.8322,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 9.871,
+      "z": 16.8322,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 19.8322,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 4.871,
+      "z": 24.3322,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -1.629,
+      "z": 24.3322,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -4.629,
+      "z": 21.3322,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 32.8322,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "rackDrop"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 8.871,
+      "z": 37.3322,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "rack",
+      "x": 13.7648,
+      "z": 37.3322,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "amr",
+      "x": 8.871,
+      "z": 30.3322,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "rack"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 19.7648,
+      "z": 32.8322,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "dockRole": "stage"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 21.4016,
+      "z": 32.8322,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 22.6223,
+      "z": 44.9585,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "ship",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "floor",
+      "x": 5,
+      "z": 10,
+      "yaw": 0,
+      "floor": {
+        "width": 40,
+        "depth": 100,
+        "wallHeight": 9.5
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "deliver",
+      "from": 8,
+      "to": 4
+    },
+    {
+      "type": "deliver",
+      "from": 11,
+      "to": 12
+    }
+  ]
+}

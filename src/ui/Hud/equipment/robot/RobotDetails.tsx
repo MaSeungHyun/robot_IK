@@ -94,6 +94,16 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
               { value: "defect", label: "불량품만" },
             ]}
           />
+  <EquipmentChoiceSetting
+          id={object.id}
+          field="robotRole"
+          label="작업"
+          fallback="palletize"
+          options={[
+            { value: "palletize", label: "적재 (컨베이어 → 팔레트)" },
+            { value: "depalletize", label: "하역 (하역 도크 팔레트 → 컨베이어)" },
+          ]}
+        />
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>
       }

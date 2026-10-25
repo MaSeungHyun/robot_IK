@@ -1,0 +1,352 @@
+{
+  "id": "inbound-scan-store",
+  "name": "입고 검사 · 적재 · 랙 보관 흐름",
+  "description": "입고 박스를 스캔해 불량은 별도 팔레트·도크로 분리하고, 정상품은 적재 후 지게차가 랙에 보관합니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 8.7717,
+      "yaw": 0,
+      "settings": {
+        "spawnInterval": 5,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": 1.7908,
+      "yaw": 0,
+      "settings": {
+        "defectRate": 0.2
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "pickFilter": "defect"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 3,
+        "grade": "defect"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "capacity": 3
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 18.8124,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 18.8124,
+      "yaw": 0,
+      "settings": {
+        "capacity": 3
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 21.501,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 21.501,
+      "yaw": 0,
+      "settings": {
+        "capacity": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -7.5596,
+      "z": 10.0909,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": -7.5596,
+      "z": 7.0909,
+      "yaw": 0
+    },
+    {
+      "kind": "dock",
+      "x": -7.5596,
+      "z": 24.898,
+      "yaw": 0,
+      "settings": {
+        "acceptGrade": "defect"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -4.871,
+      "z": 30.2752,
+      "yaw": 0,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -11.5258,
+      "z": 13.0479,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -11.5258,
+      "z": 20.3391,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -11.5258,
+      "z": 27.6303,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -16.4196,
+      "z": 13.0479,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -16.4196,
+      "z": 20.3391,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -16.4196,
+      "z": 27.6303,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "acceptGrade": "normal"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -20.4358,
+      "z": 9.4023,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
+      "kind": "floor",
+      "x": -10,
+      "z": 14,
+      "yaw": 0,
+      "floor": {
+        "width": 26,
+        "depth": 40,
+        "wallHeight": 9.5
+      }
+    },
+    {
+      "kind": "door",
+      "x": -23,
+      "z": 20.3391,
+      "yaw": 1.5707963267948966
+    }
+  ],
+  "links": [
+    {
+      "type": "pickup",
+      "from": 10,
+      "to": 3
+    },
+    {
+      "type": "pickup",
+      "from": 10,
+      "to": 5
+    },
+    {
+      "type": "pickup",
+      "from": 10,
+      "to": 7
+    },
+    {
+      "type": "pickup",
+      "from": 10,
+      "to": 9
+    },
+    {
+      "type": "pickup",
+      "from": 11,
+      "to": 3
+    },
+    {
+      "type": "pickup",
+      "from": 11,
+      "to": 5
+    },
+    {
+      "type": "pickup",
+      "from": 11,
+      "to": 7
+    },
+    {
+      "type": "pickup",
+      "from": 11,
+      "to": 9
+    },
+    {
+      "type": "deliver",
+      "from": 3,
+      "to": 12
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 13
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 14
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 15
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 16
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 17
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 18
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 19
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 13
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 14
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 15
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 16
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 17
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 18
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 19
+    },
+    {
+      "type": "deliver",
+      "from": 9,
+      "to": 13
+    },
+    {
+      "type": "deliver",
+      "from": 9,
+      "to": 14
+    },
+    {
+      "type": "deliver",
+      "from": 9,
+      "to": 15
+    },
+    {
+      "type": "deliver",
+      "from": 9,
+      "to": 16
+    },
+    {
+      "type": "deliver",
+      "from": 9,
+      "to": 17
+    },
+    {
+      "type": "deliver",
+      "from": 9,
+      "to": 18
+    },
+    {
+      "type": "deliver",
+      "from": 9,
+      "to": 19
+    }
+  ]
+}

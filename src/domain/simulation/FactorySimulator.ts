@@ -11,10 +11,10 @@ import type {
 import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
 import type { EquipmentSnapshot } from "@/types/simulation";
-import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING } from "@/constants/simulation";
+import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING, CONVEYOR_STOPPER_CONTACT } from "@/constants/simulation";
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
-import { amrSpeedFactor, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
+import { amrSpeedFactor, autoSpawns, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
 import { RACK_CONFIG, rackApproachPoint, rackFacePoint, rackHeading, rackSlotPoint, rackStandoff } from "@/constants/rack";
 import { LinkIndex, type SceneLink } from "@/types/links";
 import { TransportQueue } from "@/domain/amr/TransportQueue";
@@ -38,6 +38,11 @@ import { isForkliftRole } from "@/types/layout";
 import { FORKLIFT_CONFIG, forkliftStop } from "@/constants/forklift";
 import { DOOR_CONFIG } from "@/constants/door";
 import { wallSegments } from "@/domain/room/roomWalls";
+import { PALLET_CONVEYOR } from "@/constants/palletConveyor";
+import { PalletCycle, type PalletCycleHost } from "@/domain/cycle/PalletCycle";
+import { AMR_DECK, ROLLER_DECK } from "@/constants/cycle";
+import { isPalletInbound, palletFeeds } from "@/domain/cycle/palletFeed";
+import { createPalletModel } from "@/lib/three/palletModel";
 
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
 function mulberry32(seed: number) {
@@ -59,7 +64,7 @@ function sceneSeed(objects: readonly SceneEquipment[]) {
   return hash >>> 0;
 }
 
-type Cargo = {
+export type Cargo = {
   /** Registry id (B-0001...). */
   id: string;
   node: Group;
@@ -99,6 +104,14 @@ export type FactoryForkliftAgent = {
   /** Why the last assignment attempt failed (shown while idle). */
   waitingReason: string | null;
 };
+/** Pallet an AMR left on an unload dock; a depalletizing robot takes its boxes (top first) onto a belt. */
+/** `keep`: the emptied pallet stays (pallet cycle shuttle), `onEmpty` runs once it is empty. */
+type AgentRow = EquipmentSnapshot["agents"][number];
+type UnloadLoad = { dock: SceneEquipment; group: Group; boxes: Cargo[]; palletId?: string; top: number; keep?: boolean; onEmpty?: () => void };
+/** Pallet handed from an AMR's top roller onto an outbound (출하) belt; `distance` < 0 = still rolling off the AMR. */
+type RollingPallet = { belt: SceneEquipment; group: Group; boxes: Group[]; distance: number; fromY: number; palletId?: string };
+const isOutbound = (o: SceneEquipment, settings: Record<string, EquipmentSettings>) =>
+  o.kind === "conveyor" && settings[o.id]?.conveyorRole === "outbound";
 /** A pallet stored in a rack slot: its group and the box nodes registered for rendering. */
 type StoredPallet = { group: Group; boxes: Group[] };
 /** Seconds between rack-unload assignment checks (sim time). */
@@ -196,6 +209,7 @@ export class FactorySimulator {
   private queueScratch = new Map<string, Cargo[]>();
   private tailScratch = new Map<string, number>();
   private incoming = new Set<string>();
+  private haltedScratch = new Set<string>();
   private instances?: SimulationRenderer;
   private rendered = new Set<Group>();
   private renderingActive = false;
@@ -238,20 +252,34 @@ export class FactorySimulator {
     this.boxAsset = createUnitBox(box);
     // Boxes only receive shadows (hundreds of small casters); see SceneInstances.
     this.boxAsset.traverse((node) => { node.userData.noCastShadow = true; });
+    const owned = PalletCycle.owned(objects, this.settings());
+    // Roller-top shuttles fed by a pallet-unit inbound belt carry their pallet at the belt height.
+    const rollerShuttles = owned ? palletFeeds(objects, this.settings()) : new Map<string, SceneEquipment>();
     for (const object of objects) {
-      if (object.kind === "robot")
-        this.robots.push({
+      if (owned?.has(object.id)) continue;
+      if (object.kind === "robot") {
+        const unloading = this.settings()[object.id]?.robotRole === "depalletize";
+        const robot: FactoryRobot = {
           object,
           jobs: [],
           busy: false,
           completed: 0,
-          status: "범위 내 박스 대기",
+          status: unloading ? "하역 팔레트 대기" : "범위 내 박스 대기",
           count: 0,
           busySeconds: 0,
-        });
-      if (object.kind === "conveyor") this.belts.push({ object, elapsed: 0 });
+        };
+        this.robots.push(robot);
+        if (unloading) this.depalletizers.push(robot);
+      }
+      if (object.kind === "conveyor" && isOutbound(object, this.settings())) this.outboundBelts.push(object);
+      else if (object.kind === "conveyor") this.belts.push({ object, elapsed: 0 });
       if (object.kind === "pallet") {
-        const state = new PalletController(object, pallet, this.settings()[object.id].capacity);
+        // A pallet mounted on a pallet-cycle shuttle AMR sits on its deck (the cycle parents it to the carrier).
+        const mountedOn = this.settings()[object.id].mountedOn,
+          shuttle = mountedOn && owned?.has(mountedOn) ? objects.find((o) => o.id === mountedOn) : undefined;
+        const state = shuttle
+          ? new PalletController({ ...object, x: shuttle.x, z: shuttle.z }, pallet, this.settings()[object.id].capacity, rollerShuttles.has(shuttle.id) ? ROLLER_DECK : AMR_DECK)
+          : new PalletController(object, pallet, this.settings()[object.id].capacity);
         this.pallets.push(state);
         this.root.add(state.group);
         this.render(state.group);
@@ -295,12 +323,15 @@ export class FactorySimulator {
       speed: 1,
       enabled: true,
     }));
-    const connections = beltConnections(objects);
+    // Outbound pallet belts never join a box line.
+    const connections = beltConnections(objects.filter((o) => !isOutbound(o, this.settings())));
     this.connections = connections.next;
     this.incoming = connections.incoming;
     // Belts start empty; boxes only come from regular inlet spawning in advance().
-    this.docks = objects.filter((o) => o.kind === "dock");
-    this.racks = objects.filter((o) => o.kind === "rack");
+    const dockRole = (o: SceneEquipment) => this.settings()[o.id]?.dockRole;
+    this.docks = objects.filter((o) => o.kind === "dock" && (!dockRole(o) || dockRole(o) === "ship"));
+    this.unloadDocks = objects.filter((o) => o.kind === "dock" && (dockRole(o) === "unload" || dockRole(o) === "stage"));
+    this.racks = objects.filter((o) => o.kind === "rack" && !owned?.has(o.id));
     for (const rack of this.racks)
       this.rackStored.set(rack.id, RACK_CONFIG.slots.map(() => false));
     for (const rack of this.racks) this.rackPallets.set(rack.id, RACK_CONFIG.slots.map(() => undefined));
@@ -316,7 +347,8 @@ export class FactorySimulator {
       ...this.wallObstacles,
       ...this.robots.map((r) => ({ kind: r.object.kind, pose: r.object })),
       ...this.belts.map((b) => ({ kind: b.object.kind, pose: b.object })),
-      ...this.pallets.map((p) => ({ kind: p.object.kind, pose: p.object })),
+      ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
+      ...this.pallets.filter((p) => !p.baseY).map((p) => ({ kind: p.object.kind, pose: p.object })),
       ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
     ];
     for (const robot of this.robots) {
@@ -351,6 +383,92 @@ export class FactorySimulator {
         this.cargo.scanBox({ t: this.elapsed, boxId: node.userData.boxId, scannerId, result: result === "fault" ? "defect" : "normal" });
     };
     for (const pallet of this.pallets) this.startPalletRecord(pallet);
+    this.cycle = owned
+      ? new PalletCycle(objects, this.pallets, this.cycleHost(pallet), (id) => this.links.outgoing(id, "deliver"))
+      : null;
+  }
+  /** Pallet cycle (shuttle AMR / Rack_m / AGV scenes); null otherwise. */
+  readonly cycle: PalletCycle<Cargo> | null;
+  /** Boxes that left the factory at the end of a ship (출하) conveyor. */
+  shippedBoxes = 0;
+  private cycleHost(palletAsset: Group): PalletCycleHost<Cargo> {
+    return {
+      root: this.root,
+      cargo: this.cargo,
+      elapsed: () => this.elapsed,
+      settings: this.settings,
+      plan: (from, to, loaded, extra) =>
+        this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r }))),
+      render: (group) => this.render(group),
+      unrender: (group) => this.unrender(group),
+      newPallet: () => {
+        const group = new Group();
+        group.add(createPalletModel(palletAsset));
+        this.render(group);
+        return group;
+      },
+      loadedPallet: (beltId, pallet) => {
+        const group = new Group();
+        group.add(createPalletModel(palletAsset));
+        this.render(group);
+        // Boxes at the station's slot layout, in pallet-local coordinates (origin = pallet bottom centre).
+        const local = new Vector3(), base = new Vector3(pallet.object.x, pallet.baseY, pallet.object.z);
+        const belt = this.beltById(beltId)!;
+        const boxes = pallet.slots.map((slot) => {
+          const node = new Group();
+          node.add(this.boxAsset.clone(true));
+          node.userData.cargo = true;
+          const id = this.cargo.spawnBox({ t: this.elapsed, beltId });
+          node.userData.boxId = id;
+          local.copy(slot).sub(base).applyAxisAngle(new Vector3(0, 1, 0), -pallet.object.yaw);
+          node.position.copy(local);
+          group.add(node);
+          this.render(node);
+          this.spawned++;
+          const item: Cargo = { id, node, belt, distance: 0, state: "placed", pallet: pallet.object.id, attempted: new Set() };
+          return item;
+        });
+        return { group, boxes };
+      },
+      registerLoaded: (stationId, boxes) => {
+        for (const box of boxes) {
+          this.cargo.placeBox({ t: this.elapsed, robotId: box.belt.id, boxId: box.id, stationId });
+          this.placed++;
+        }
+      },
+      takePlaced: (stationId) => {
+        const taken = this.boxes.filter((b) => b.state === "placed" && b.pallet === stationId);
+        this.boxes = this.boxes.filter((b) => !taken.includes(b));
+        return taken;
+      },
+      unload: (dock, group, boxes, palletId, keep, onEmpty) =>
+        this.unloadLoads.push({ dock, group, boxes, palletId, top: 0, keep, onEmpty }),
+      unloadBusy: (dockId) => this.unloadLoads.some((l) => l.dock.id === dockId),
+      rackFree: (booked, accept) => {
+        for (const rack of this.racks) {
+          if (accept && !accept(rack)) continue;
+          const stored = this.rackStored.get(rack.id)!;
+          const slots = RACK_CONFIG.slots.map((_, i) => i).sort((a, b) => RACK_CONFIG.slots[a].y - RACK_CONFIG.slots[b].y);
+          for (const slot of slots)
+            if (!stored[slot] && !booked.has(`${rack.id}:${slot}`) && !this.slotBookings.has(`${rack.id}:${slot}`))
+              return { rack, slot };
+        }
+        return null;
+      },
+      rackStore: (rack, slot, group, boxes, palletId) => this.storeFromForklift({ boxes, palletId }, group, { rackId: rack.id, slot }),
+      rackOldest: (claimed, accept) => {
+        let best: { rack: SceneEquipment; slot: number; at: number } | null = null;
+        for (const rack of this.racks)
+          if (!accept || accept(rack)) this.rackPallets.get(rack.id)!.forEach((record, slot) => {
+            const key = `${rack.id}:${slot}`;
+            if (record && this.rackGroups.get(rack.id)![slot] && !claimed.has(key) && !this.unloadClaims.has(key) && (!best || record.storedAt < best.at))
+              best = { rack, slot, at: record.storedAt };
+          });
+        return best;
+      },
+      rackTake: (rack, slot) => this.takeFromRack(rack, slot),
+      log: (level, message, detail) => log(level, message, detail),
+    };
   }
   /** Linked subset of `items` when `linked` is non-empty, else all of them (fallback). */
   private linkedOrAll<T>(items: readonly T[], linked: readonly string[], id: (item: T) => string) {
@@ -367,6 +485,18 @@ export class FactorySimulator {
     this.cargo.startPallet({ t: this.elapsed, stationId: pallet.object.id, grade: palletGrade(this.settings()[pallet.object.id]) });
   }
   private docks: SceneEquipment[] = [];
+  /** Depalletizing robots (robotRole "depalletize", also in `robots`): unload-dock pallet -> belt. */
+  readonly depalletizers: FactoryRobot[] = [];
+  private unloadDocks: SceneEquipment[] = [];
+  private unloadLoads: UnloadLoad[] = [];
+  /** Belts with a depalletized box on its way (one drop at a time per belt). */
+  private dropBooked = new Set<string>();
+  readonly outboundBelts: SceneEquipment[] = [];
+  private rolling: RollingPallet[] = [];
+  /** Pallets that left through an outbound conveyor / boxes put on belts by depalletizers / emptied pallets. */
+  outboundShipped = 0;
+  depalletized = 0;
+  emptiedPallets = 0;
   private racks: SceneEquipment[] = [];
   /** Filled PalletPoints per rack; stored pallets stay for the rest of the run. */
   private rackStored = new Map<string, boolean[]>();
@@ -495,15 +625,53 @@ export class FactorySimulator {
     }
   }
 
+  /** Last open belt of the line `id` feeds into, or null for a closed loop (no stopper). */
+  private stopperBelt(id: string, settings: Record<string, EquipmentSettings>) {
+    const seen = new Set<string>([id]);
+    let current = id;
+    for (;;) {
+      const next = this.connections.get(current);
+      if (!next || !settings[next.id]?.enabled || !this.beltById(next.id)) return current;
+      if (seen.has(next.id)) return null;
+      seen.add(next.id);
+      current = next.id;
+    }
+  }
+  /**
+   * Belts whose whole line is stopped: a box touching the end stopper halts every connected
+   * segment upstream of it (belt travel and box production) until the box is picked off.
+   */
+  haltedBelts(settings: Record<string, EquipmentSettings> = this.settings()) {
+    const halted = this.haltedScratch;
+    halted.clear();
+    const blocked = new Set<string>();
+    for (const box of this.boxes) {
+      if (box.state !== "moving" && box.state !== "reserved") continue;
+      if (this.stopperBelt(box.belt.id, settings) !== box.belt.id) continue;
+      if (box.distance >= beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT)
+        blocked.add(box.belt.id);
+    }
+    if (!blocked.size) return halted;
+    for (const belt of this.belts) {
+      const end = this.stopperBelt(belt.object.id, settings);
+      if (end && blocked.has(end)) halted.add(belt.object.id);
+    }
+    return halted;
+  }
+
   advance(dt: number) {
     const settings = this.settings();
     this.elapsed += dt;
     for (const robot of this.robots)
       if (robot.busy && settings[robot.object.id].enabled)
         robot.busySeconds += dt;
+    const halted = this.haltedBelts(settings);
     for (const belt of this.belts) {
       const config = settings[belt.object.id];
-      if (!config.enabled || this.incoming.has(belt.object.id)) continue;
+      // Belts fed by a depalletizing robot never spawn boxes themselves.
+      if (!config.enabled || !autoSpawns(config) || this.incoming.has(belt.object.id) || config.conveyorRole === "fed" || config.conveyorRole === "ship" || isPalletInbound(settings, belt.object.id)) continue;
+      // A line stopped at its stopper produces nothing; the feed timer resumes once it is cleared.
+      if (halted.has(belt.object.id)) continue;
       // Real-time interval: independent of belt speed (a stopped belt simply blocks its inlet).
       const interval = spawnIntervalOf(config);
       belt.elapsed += dt;
@@ -555,7 +723,7 @@ export class FactorySimulator {
           const config = settings[box.belt.id];
           let scanStart = box.distance;
           const before = box.distance;
-          if (config.enabled)
+          if (config.enabled && !halted.has(box.belt.id))
             box.distance = Math.max(before, Math.min(before + dt * beltSpeedOf(config), limit));
           box.speed = dt > 0 ? (box.distance - before) / dt : 0;
           // Boxes cross segment joints into the next open segment.
@@ -586,8 +754,12 @@ export class FactorySimulator {
       tails.set(id, Math.min(tails.get(id) ?? Infinity, limit + gap));
     }
     for (const box of this.boxes) {
+      // Ship (출하) conveyor: a box reaching its end leaves the factory.
+      const shipped = box.state === "moving" && settings[box.belt.id]?.conveyorRole === "ship" &&
+        !this.connections.get(box.belt.id) && box.distance >= beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT - 1e-3;
+      if (shipped) this.shippedBoxes++;
       // Legacy safety net (should not trigger with the end stopper).
-      if (box.distance > beltLength(box.belt) + 1 && box.state === "moving") {
+      if (shipped || (box.distance > beltLength(box.belt) + 1 && box.state === "moving")) {
         box.state = "passed";
         this.cargo.passBox({ t: this.elapsed, boxId: box.id, beltId: box.belt.id });
         box.node.removeFromParent();
@@ -598,9 +770,11 @@ export class FactorySimulator {
     }
     if (removed)
       this.boxes = this.boxes.filter((box) => box.state !== "passed");
+    this.advanceDepalletizers(settings, halted);
+    this.advanceOutbound(dt, settings);
     for (const robot of this.robots) {
       const config = settings[robot.object.id];
-      if (robot.busy || !config.enabled) continue;
+      if (robot.busy || !config.enabled || this.depalletizers.includes(robot)) continue;
       const filter = config.pickFilter ?? "all";
       // Grades that have a pallet within this robot's reach. With the "all" filter a box
       // goes to a pallet of its own grade when one exists, otherwise to any pallet (legacy).
@@ -625,7 +799,7 @@ export class FactorySimulator {
           grade = palletGrade(settings[pallet.object.id]);
         if (distance(robot.object, target) > config.reach) continue;
         for (const box of this.boxes) {
-          if (box.state !== "moving") continue;
+          if (box.state !== "moving" || settings[box.belt.id]?.conveyorRole === "ship") continue;
           const feed = this.feedBelts.get(robot.object.id);
           if (feed && !feed.has(box.belt.id)) continue;
           const boxGrade = this.grade(box);
@@ -723,6 +897,7 @@ export class FactorySimulator {
     }, forkliftBodies);
     this.advanceBatteries(dt, settings);
     this.advanceForklifts(dt, settings);
+    this.cycle?.advance(dt);
     for (const shipment of this.shipments) {
       if (shipment.replaced || shipment.agent.dispatch.phase !== "dispatch")
         continue;
@@ -898,6 +1073,152 @@ export class FactorySimulator {
     robot.jobs.push(job);
     this.move(box);
   }
+  /** Unload docks: a depalletizing robot puts the delivered boxes (top first) one by one onto its nearest belt. */
+  private advanceDepalletizers(settings: Record<string, EquipmentSettings>, halted: Set<string>) {
+    for (let i = this.unloadLoads.length - 1; i >= 0; i--) {
+      const load = this.unloadLoads[i];
+      if (load.boxes.length || load.top > 0) continue;
+      // Empty pallet returned (removed) so the dock accepts the next delivery; kept ones ride back on their shuttle.
+      if (!load.keep) {
+        load.group.removeFromParent();
+        this.unrender(load.group);
+      }
+      if (load.palletId) this.cargo.emptyPallet({ t: this.elapsed, palletId: load.palletId });
+      this.emptiedPallets++;
+      this.unloadLoads.splice(i, 1);
+      load.onEmpty?.();
+    }
+    for (const robot of this.depalletizers) {
+      const config = settings[robot.object.id];
+      if (robot.busy || !config.enabled) continue;
+      const reach = config.reach - ROBOT_PICKING.pickReachMargin;
+      const load = this.unloadLoads
+        .filter((l) => l.boxes.length && distance(robot.object, l.boxes[0].node.getWorldPosition(this.point)) <= reach)
+        .sort((a, b) => distance(robot.object, a.dock) - distance(robot.object, b.dock))[0];
+      if (!load) {
+        robot.status = "하역 팔레트 대기";
+        continue;
+      }
+      let target: { belt: SceneEquipment; d: number } | null = null;
+      for (const { object: belt } of this.belts) {
+        if (!settings[belt.id].enabled || halted.has(belt.id) || this.dropBooked.has(belt.id)) continue;
+        const length = beltLength(belt);
+        let best = -1, bestGap = Infinity;
+        for (let d = BOX_SIZES[0].z; d <= length - BOX_SIZES[0].z; d += 0.25) {
+          const p = beltPoint(belt, d), gap = Math.hypot(p.x - robot.object.x, p.z - robot.object.z);
+          if (gap < bestGap) { bestGap = gap; best = d; }
+        }
+        if (best < 0 || bestGap > reach) continue;
+        if (!target || bestGap < distance(robot.object, beltPoint(target.belt, target.d))) target = { belt, d: best };
+      }
+      if (!target) {
+        robot.status = "투입 컨베이어 대기";
+        continue;
+      }
+      const { belt, d } = target;
+      const clear = (distanceOn: number) => !this.boxes.some((b) =>
+        (b.state === "moving" || b.state === "reserved") && b.belt.id === belt.id && Math.abs(b.distance - distanceOn) < BOX_SIZES[0].z + 0.1);
+      if (!clear(d)) {
+        robot.status = "투입 위치 대기";
+        continue;
+      }
+      const box = load.boxes.shift()!;
+      load.top++;
+      this.dropBooked.add(belt.id);
+      robot.busy = true;
+      robot.status = "하역 준비";
+      this.cargo.takeFromPallet({ t: this.elapsed, robotId: robot.object.id, boxId: box.id });
+      const point = beltPoint(belt, d);
+      const done = () => { this.dropBooked.delete(belt.id); load.top--; };
+      robot.jobs.push({
+        box: box.node,
+        pickup: box.node.getWorldPosition(new Vector3()),
+        destination: new Vector3(point.x, CONVEYOR_LAYOUT.height + BOX_SIZES[0].y, point.z),
+        clearanceY: CONVEYOR_LAYOUT.height + BOX_SIZES[0].y + PALLET_STACKING.clearance,
+        moving: false,
+        yaw: point.yaw,
+        velocity: new Vector3(),
+        available: () => true,
+        onPick: () => { box.state = "held"; },
+        onPlace: () => {
+          done();
+          this.root.attach(box.node);
+          box.node.position.set(point.x, CONVEYOR_LAYOUT.height + BOX_SIZES[0].y, point.z);
+          box.node.rotation.set(0, point.yaw, 0);
+          box.belt = belt;
+          box.distance = d;
+          box.state = "moving";
+          box.pallet = undefined;
+          box.attempted.clear();
+          box.job = undefined;
+          this.boxes.push(box);
+          this.cargo.unloadBox({ t: this.elapsed, robotId: robot.object.id, boxId: box.id, beltId: belt.id });
+          this.move(box);
+          this.depalletized++;
+          robot.count++;
+        },
+        onMiss: () => {
+          // Left on the pallet; retried later.
+          done();
+          box.state = "placed";
+          load.boxes.unshift(box);
+          robot.busy = false;
+        },
+      });
+    }
+  }
+  /** Transfer pose in front of an outbound belt start, where an AMR's top roller hands the pallet over. */
+  private outboundPose(belt: SceneEquipment) {
+    const start = beltPoint(belt, 0);
+    return {
+      x: start.x - Math.sin(start.yaw) * PALLET_CONVEYOR.transferOffset,
+      y: 0,
+      z: start.z - Math.cos(start.yaw) * PALLET_CONVEYOR.transferOffset,
+      yaw: start.yaw,
+    };
+  }
+  private outboundBusy(belt: SceneEquipment) {
+    const on = this.rolling.filter((r) => r.belt.id === belt.id);
+    return on.length >= PALLET_CONVEYOR.maxPallets || on.some((r) => r.distance < PALLET_CONVEYOR.palletGap);
+  }
+  /** Pallets roll off the AMR onto the outbound belt, queue with a gap and leave at its end (출하). */
+  private advanceOutbound(dt: number, settings: Record<string, EquipmentSettings>) {
+    const byBelt = new Map<string, RollingPallet[]>();
+    for (const item of this.rolling) {
+      const list = byBelt.get(item.belt.id) ?? [];
+      list.push(item);
+      byBelt.set(item.belt.id, list);
+    }
+    for (const list of byBelt.values()) {
+      list.sort((a, b) => b.distance - a.distance);
+      const belt = list[0].belt, length = beltLength(belt);
+      const config = settings[belt.id];
+      const speed = config?.enabled === false ? 0 : Math.min(PALLET_CONVEYOR.palletSpeed, beltSpeedOf(config));
+      let limit = Infinity;
+      for (const item of list) {
+        // Rolling off the AMR runs at the transfer speed even when the belt is slow.
+        const v = item.distance < 0 ? PALLET_CONVEYOR.transferOffset / PALLET_CONVEYOR.transferSeconds : speed;
+        item.distance = Math.min(item.distance + v * dt, limit);
+        limit = item.distance - PALLET_CONVEYOR.palletGap;
+        const along = Math.min(Math.max(item.distance, -PALLET_CONVEYOR.transferOffset), length);
+        const start = beltPoint(belt, 0), p = along < 0
+          ? { x: start.x + Math.sin(start.yaw) * along, z: start.z + Math.cos(start.yaw) * along, yaw: start.yaw }
+          : beltPoint(belt, along);
+        const lift = Math.min(1, (item.distance + PALLET_CONVEYOR.transferOffset) / PALLET_CONVEYOR.transferOffset);
+        item.group.position.set(p.x, item.fromY + (CONVEYOR_LAYOUT.height - item.fromY) * lift, p.z);
+        item.group.rotation.set(0, p.yaw, 0);
+      }
+      const head = list[0];
+      if (head.distance >= length - PALLET_CONVEYOR.dropBeforeEnd) {
+        head.group.removeFromParent();
+        this.unrender(head.group);
+        for (const node of head.boxes) this.unrender(node);
+        if (head.palletId) this.cargo.shipPallet({ t: this.elapsed, palletId: head.palletId, dockId: belt.id });
+        this.outboundShipped++;
+        this.rolling.splice(this.rolling.indexOf(head), 1);
+      }
+    }
+  }
   robotProgress(robot: FactoryRobot, count: number, status: string) {
     robot.status = status;
     if (status.startsWith("RETREAT 완료")) {
@@ -919,7 +1240,7 @@ export class FactorySimulator {
       grade = palletGrade(settings[pallet.object.id]);
     // Docks and racks are both outbound destinations.
     // Linked destinations only when the station has deliver links; the nearest free one is used.
-    const accepting = this.linkedOrAll([...this.docks, ...this.racks], this.links.outgoing(pallet.object.id, "deliver"), (d) => d.id).filter((dock) => {
+    const accepting = this.linkedOrAll([...this.docks, ...this.racks, ...this.unloadDocks, ...this.outboundBelts], this.links.outgoing(pallet.object.id, "deliver"), (d) => d.id).filter((dock) => {
       const config = settings[dock.id],
         accepts = config.acceptGrade ?? "any";
       return config.enabled && (accepts === "any" || accepts === grade);
@@ -929,7 +1250,9 @@ export class FactorySimulator {
       .filter((dock) =>
         dock.kind === "rack"
           ? this.freeSlot(dock) >= 0 && (!this.forkliftAgents.length || !this.handoffBusy(dock))
-          : !this.shipments.some((s) => s.dock.id === dock.id),
+          : !this.shipments.some((s) => s.dock.id === dock.id) &&
+            !(dock.kind === "conveyor" && this.outboundBusy(dock)) &&
+            !this.unloadLoads.some((l) => l.dock.id === dock.id),
       )
       .sort((a, b) => distance(a, pallet.object) - distance(b, pallet.object));
     if (robot && belt && accepting.length && !docks.length) {
@@ -968,6 +1291,7 @@ export class FactorySimulator {
         .filter((p) => p !== pallet && !p.shipping)
         .map((p) => ({ kind: p.object.kind, pose: p.object })),
       ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
+      ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
     ];
     const pickup = layoutPath(
       layout,
@@ -996,9 +1320,11 @@ export class FactorySimulator {
       // With forklifts the AMR only brings the pallet to the rack's floor hand-off point.
       const handoff = slot !== undefined && this.forkliftAgents.length > 0;
       const approach = slot === undefined ? null : handoff ? this.handoffPoint(destination) : rackApproachPoint(destination, slot);
-      const dock = approach
-        ? { ...destination, x: approach.x, z: approach.z }
-        : destination;
+      const dock = destination.kind === "conveyor"
+        ? { ...destination, ...this.outboundPose(destination) }
+        : approach
+          ? { ...destination, x: approach.x, z: approach.z }
+          : destination;
       layout.dock = dock;
       const outbound = layoutPath(layout, layout.pallet, dock, true, obstacles);
       if (!outbound) {
@@ -1091,7 +1417,23 @@ export class FactorySimulator {
         group.parent?.updateWorldMatrix(true, false);
         this.root.updateWorldMatrix(true, false);
         this.root.attach(group);
-        if (shipment.handoff && shipment.slot !== undefined) {
+        if (dock.kind === "conveyor") {
+          // AMR top roller -> outbound belt (rolls on in advanceOutbound).
+          const pose = this.outboundPose(dock);
+          group.position.set(pose.x, group.position.y, pose.z);
+          group.rotation.set(0, pose.yaw, 0);
+          this.rolling.push({ belt: dock, group, boxes: [...shipment.cargo].map((b) => b.node), distance: -PALLET_CONVEYOR.transferOffset, fromY: group.position.y, palletId: shipment.palletId });
+          shipment.stored = true;
+          log("info", `팔레트 ${shipment.palletId ?? "-"} ${dock.name} 출하 컨베이어로 이송`, agent.object.name);
+        } else if (this.unloadDocks.includes(dock)) {
+          group.position.y = 0;
+          group.rotation.set(0, dock.yaw, 0);
+          const boxes = [...shipment.cargo].sort((a, b) => b.node.getWorldPosition(new Vector3()).y - a.node.getWorldPosition(this.point).y);
+          for (const box of boxes) box.state = "placed";
+          this.unloadLoads.push({ dock, group, boxes, palletId: shipment.palletId, top: 0 });
+          if (shipment.palletId) this.cargo.arrivePallet({ t: this.elapsed, palletId: shipment.palletId, dockId: dock.id });
+          shipment.stored = true;
+        } else if (shipment.handoff && shipment.slot !== undefined) {
           group.position.y = 0;
           const key = `${dock.id}:${shipment.slot}`;
           this.slotBookings.add(key);
@@ -1127,12 +1469,12 @@ export class FactorySimulator {
         }
         // Read yaw in YXZ so headings past ±90° don't decompose into X/Z flips.
         const yaw = new Euler().setFromQuaternion(group.quaternion, "YXZ").y;
-        group.rotation.set(
+        if (dock.kind !== "conveyor") group.rotation.set(
           0,
           dock.yaw + (Math.PI / 2) * Math.round((yaw - dock.yaw) / (Math.PI / 2)),
           0,
         );
-        shipment.dropped = shipment.slot === undefined;
+        shipment.dropped = shipment.slot === undefined && !shipment.stored;
         this.transport.complete({ t: this.elapsed, stationId: shipment.pallet.object.id, agentId: agent.object.id });
         this.dispatched++;
         agent.completed++;
@@ -1398,7 +1740,7 @@ export class FactorySimulator {
     };
   }
   /** The forklift has lowered the pallet onto the shelf: it becomes a stored rack pallet. */
-  private storeFromForklift(handoff: Handoff, payload: Group, target: ForkliftTarget) {
+  private storeFromForklift(handoff: Pick<Handoff, "boxes" | "palletId">, payload: Group, target: Pick<ForkliftTarget, "rackId" | "slot">) {
     const rack = this.racks.find((r) => r.id === target.rackId)!;
     this.slotBookings.delete(`${rack.id}:${target.slot}`);
     payload.parent?.updateWorldMatrix(true, false);
@@ -1501,7 +1843,7 @@ export class FactorySimulator {
             : "idle",
         status: robot.busy ? robot.status : "범위 내 박스 대기",
       })),
-      agents: this.agents.map((agent) => ({
+      agents: [...this.agents.map((agent): AgentRow => ({
         id: agent.object.id,
         name: agent.object.name,
         state: !settings[agent.object.id].enabled
@@ -1522,7 +1864,7 @@ export class FactorySimulator {
         completed: agent.completed,
         battery: Math.round(agent.battery * 10) / 10,
       })),
-      ...this.forkliftAgents.map((agent) => {
+      ...this.forkliftAgents.map((agent): AgentRow => {
         const controller = agent.controller,
           enabled = settings[agent.object.id].enabled;
         return {
@@ -1538,7 +1880,8 @@ export class FactorySimulator {
           completed: controller.completed + controller.stored,
           battery: 100,
         };
-      }),
+      }), ...(this.cycle?.agentRows() ?? [])],
+      cycle: this.cycle?.snapshot,
       pallets: this.pallets.map((pallet) => ({
         id: pallet.object.id,
         name: pallet.object.name,

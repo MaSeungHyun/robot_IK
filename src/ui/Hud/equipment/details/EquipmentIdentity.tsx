@@ -4,7 +4,9 @@ import robotImage from "@/assets/images/robot.png";
 import amrImage from "@/assets/images/amr.png";
 import scannerImage from "@/assets/images/scanner.png";
 import palletImage from "@/assets/images/pallet.png";
-import { EQUIPMENT_NAMES } from "@/stores/useSceneStore";
+import { EQUIPMENT_NAMES, useSceneStore } from "@/stores/useSceneStore";
+import { useThumbnailStore } from "@/stores/useThumbnailStore";
+import { objectThumbnailKey } from "@/constants/assetPresets";
 import type { EquipmentKind, SceneEquipment } from "@/types/layout";
 import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 
@@ -30,6 +32,10 @@ export default function EquipmentIdentity({ object, status }: Props) {
   const visual = EQUIPMENT_VISUALS[object.kind];
   const metadata = object.metadata;
   const kindName = EQUIPMENT_NAMES[object.kind];
+  // Rendered model thumbnail (same as the asset card); the static images/icons are the fallback.
+  const key = useSceneStore((state) => objectThumbnailKey(object.kind, state.settings[object.id]));
+  const thumbnail = useThumbnailStore((state) => (key ? state.thumbnails[key] : undefined));
+  const image = thumbnail ?? visual.image;
 
   return (
     <header className="min-w-0">
@@ -41,9 +47,9 @@ export default function EquipmentIdentity({ object, status }: Props) {
       </h2>
 
       <div className="pointer-events-none mt-4 flex h-45  items-center overflow-hidden bg-transparent">
-        {visual.image ? (
+        {image ? (
           <img
-            src={visual.image}
+            src={image}
             alt={`${kindName} 이미지`}
             className="h-full w-full object-contain"
           />

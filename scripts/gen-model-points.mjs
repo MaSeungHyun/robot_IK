@@ -133,6 +133,17 @@ const sceneBounds = (file) => {
   return { min: min.map(round), max: max.map(round) };
 };
 const boxBounds = sceneBounds("box.glb"), amrBounds = sceneBounds("AMR.glb");
+// AMR.glb "AMR_point" empty = pallet seat (pallet bottom centre). AMR.tsx re-centres the model on its bounds
+// (xz centre, min y on the floor), so the seat is stored in that carrier-local frame.
+const amrDeck = (() => {
+  const gltf = read("AMR.glb");
+  const body = gltf.nodes[gltf.scenes[0].nodes[0]];
+  const point = find(gltf, body, (n) => n === "amr_point");
+  if (!point) throw new Error("AMR.glb: AMR_point not found");
+  assertPlain(point);
+  const [x, y, z] = t(point);
+  return [round(x - (amrBounds.min[0] + amrBounds.max[0]) / 2), round(y - amrBounds.min[1]), round(z - (amrBounds.min[2] + amrBounds.max[2]) / 2)];
+})();
 // RobotArm.glb base: the fixed base plus the turret (hand00) that yaws about +Y, so its floor footprint is the
 // circle swept by the turret/base bounds corners about the origin.
 const robotBaseRadius = (() => {
@@ -182,6 +193,8 @@ export const AMR_MODEL = {
   /** AMR scene bounds as authored (node transforms applied). */
   min: ${JSON.stringify(amrBounds.min)} as [number, number, number],
   max: ${JSON.stringify(amrBounds.max)} as [number, number, number],
+  /** Pallet seat (AMR_point) in the rendered AMR frame (bounds-centred, floor at y = 0): pallet bottom centre. */
+  deck: ${JSON.stringify(amrDeck)} as [number, number, number],
 };
 
 export const ROBOT_MODEL = {

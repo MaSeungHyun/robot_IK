@@ -203,7 +203,8 @@ type Slot = { segment: number; distance: number };
  * Conveyor chain for a pattern, in rail.glb segments, and robot slots by distance along it. Robots sit beside
  * straight rails, on the outside of turns. The first leg starts with the scan tunnel (boxes leave it at
  * SCAN_TUNNEL.exitDistance) plus `inlet` m of empty accumulation belt (R-BUFFER); later legs leave half a pitch
- * after the turn. Every leg ends half a pitch past its last robot, then runs to the end of its last rail.
+ * after the turn. Every leg ends half a pitch past its last robot, then runs to the end of its last rail; the last
+ * leg instead slides its robots downstream so the final one works the box held at the end stopper.
  */
 function chainFor(pattern: LayoutPattern, robots: number, inlet: number, pitch: number) {
   const first = pattern === "straight" ? robots : Math.ceil(robots / (pattern === "L" ? 2 : 3));
@@ -214,8 +215,10 @@ function chainFor(pattern: LayoutPattern, robots: number, inlet: number, pitch: 
     if (leg) turns.push("right");
     const lead = leg ? pitch / 2 : SCAN_TUNNEL.exitDistance + inlet;
     const start = turns.length, rails = Math.max(1, Math.ceil((lead + count * pitch) / BELT.length));
+    // Last leg: the line stops when a box reaches the stopper, so its last robot must sit at the stop point.
+    const shift = leg === legs.length - 1 ? Math.max(0, rails * BELT.length - BOX_SIZES[0].z / 2 - (lead + pitch * (count - 0.5))) : 0;
     for (let k = 0; k < count; k++) {
-      const along = lead + pitch * (k + 0.5), index = Math.min(rails - 1, Math.floor(along / BELT.length));
+      const along = lead + shift + pitch * (k + 0.5), index = Math.min(rails - 1, Math.floor(along / BELT.length));
       slots.push({ segment: start + index, distance: along - index * BELT.length });
     }
     for (let k = 0; k < rails; k++) turns.push("straight");

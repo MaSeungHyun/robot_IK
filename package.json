@@ -19,11 +19,13 @@
     "test:instances": "node scripts/verify-ik.mjs --instances",
     "test:rendering": "node scripts/verify-rendering.mjs",
     "test:flow-speed": "node scripts/verify-ik.mjs --flow-speed",
+    "test:stopper": "node scripts/verify-ik.mjs --stopper",
     "test:editor-history": "node scripts/verify-ik.mjs --editor-history",
     "test:templates": "node scripts/verify-ik.mjs --templates",
     "test:fleet": "node scripts/verify-ik.mjs --fleet",
     "preview": "vite preview",
-    "test:packing": "node scripts/verify-ik.mjs --packing-only"
+    "test:packing": "node scripts/verify-ik.mjs --packing-only",
+    "test:mount": "node scripts/mount-check.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

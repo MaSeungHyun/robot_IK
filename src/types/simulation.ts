@@ -1,7 +1,9 @@
 import type { EquipmentTelemetry } from "@/types/equipment";
 import type { ScannerSnapshot } from "@/types/scanner";
 
-export type EquipmentSnapshot={
+/** Pallet cycle actor state (domain/cycle) for detail panels. */
+export type CycleSnapshot={id:string;kind:"shuttle"|"forklift"|"agv"|"rackm";state:string;label:string;detail:string};
+export type EquipmentSnapshot={cycle?:CycleSnapshot[];
   elapsed:number;
   scanners?: ScannerSnapshot[];
   telemetry?: Record<string, EquipmentTelemetry>;

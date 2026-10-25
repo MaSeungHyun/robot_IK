@@ -6,6 +6,8 @@ import Badge from "@/components/Badge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
 import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
+import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
+import EquipmentToggleSetting from "@/ui/Hud/equipment/details/_components/EquipmentToggleSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
@@ -25,6 +27,7 @@ const TURN_LABELS: Record<ConveyorTurn, string> = { straight: "직선", left: "�
 export default function ConveyorDetails({ object }: EquipmentDetailProps) {
   const objects = useSceneStore((state) => state.objects);
   const enabled = useSceneStore((state) => state.settings[object.id]?.enabled);
+  const autoSpawn = useSceneStore((state) => state.settings[object.id]?.autoSpawn);
   const running = useSimulationStore((state) => state.running);
   const telemetry = useEquipmentTelemetry(object.id);
 
@@ -54,8 +57,36 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
     } settings={
       <DetailSection title="컨베이어 설정">
         <EquipmentNumberSetting id={object.id} field="beltSpeed" label="연결 컨베이어 속도" unit="m/min" {...SPEED_LIMITS.beltSpeed} />
+        <EquipmentChoiceSetting
+          id={object.id}
+          field="conveyorRole"
+          label="용도"
+          fallback="box"
+          options={[
+            { value: "box", label: "박스 투입" },
+            { value: "inbound", label: "입하 (박스 투입)" },
+            { value: "fed", label: "로봇 투입 (자동 투입 없음)" },
+            { value: "outbound", label: "출하 (AMR 팔레트 이송)" },
+            { value: "ship", label: "출하 (박스 반출, 로봇 투입)" },
+          ]}
+        />
+        <EquipmentChoiceSetting
+          id={object.id}
+          field="inboundUnit"
+          label="입하 단위"
+          fallback="box"
+          options={[
+            { value: "box", label: "박스" },
+            { value: "pallet", label: "팔레트 (롤러 AMR로 이송)" },
+          ]}
+        />
         {incoming ? <p>앞 구간에서 넘어오는 박스를 이송합니다.</p> : (
-          <EquipmentNumberSetting id={object.id} field="spawnInterval" label="박스 투입량" unit="개/h" {...SPEED_LIMITS.spawnInterval} />
+          <>
+            <EquipmentToggleSetting id={object.id} field="autoSpawn" label="자동 생성" fallback />
+            {autoSpawn !== false && (
+              <EquipmentNumberSetting id={object.id} field="spawnInterval" label="투입량" unit="개/h" {...SPEED_LIMITS.spawnInterval} />
+            )}
+          </>
         )}
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>

@@ -1,0 +1,1328 @@
+{
+  "id": "pallet-cycle-multi-line",
+  "name": "팔레트 순환 · 4라인 고처리량",
+  "description": "순환 라인 4개를 30m 간격으로 촘촘히 배치했습니다. 라인마다 입하 컨베이어 2개·입하 로봇 2대·입하 셔틀 AMR 2대가 각자의 하역 도크(하역 로봇 2대, 속도 3×)로 병렬 운반해 흐름이 끊기지 않고, 재적재 로봇·셔틀 2대, 서비스·랙 지게차, AGV, Rack_m 2대, 랙 2개, 출하 컨베이어가 독립된 셀로 동작합니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": -22.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 3.3945,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": -3.5864,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.8575,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -12.6305,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -11.4098,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -9.773,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -9.773,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-8"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -18.1493,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -16.9286,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -15.2918,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -15.2918,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-12"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.8575,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 1.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-17"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 1.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 2.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 2.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-20"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 9.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 22.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 4.871,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -1.629,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -4.629,
+      "z": 24.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "rackDrop"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 8.871,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "rack",
+      "x": 13.7648,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "amr",
+      "x": 8.871,
+      "z": 33.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "rack"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 19.7648,
+      "z": 35.5208,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "dockRole": "stage"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 21.4016,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 22.6223,
+      "z": 47.6471,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "ship",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 30,
+      "z": -22.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 30,
+      "z": 3.3945,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 30,
+      "z": -3.5864,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": 28.7793,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 27.1425,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 17.3695,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 18.5902,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 20.227,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 20.227,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-42"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 11.8507,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 13.0714,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 14.7082,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 14.7082,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-46"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 28.7793,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 27.1425,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 31.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 32.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 32.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-51"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 31.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 32.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 32.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-54"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 34.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 39.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 34.871,
+      "z": 22.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 34.871,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 28.371,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 25.371,
+      "z": 24.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 34.871,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "rackDrop"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 38.871,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "rack",
+      "x": 43.7648,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "amr",
+      "x": 38.871,
+      "z": 33.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "rack"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 49.7648,
+      "z": 35.5208,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "dockRole": "stage"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 51.4016,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 52.6223,
+      "z": 47.6471,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "ship",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 60,
+      "z": -22.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 60,
+      "z": 3.3945,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 60,
+      "z": -3.5864,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": 58.7793,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 57.1425,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 47.3695,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 48.5902,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 50.227,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 50.227,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-76"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 41.8507,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 43.0714,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 44.7082,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 44.7082,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-80"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 58.7793,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 57.1425,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 61.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 62.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 62.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-85"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 61.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 62.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 62.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-88"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 64.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 69.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 64.871,
+      "z": 22.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 64.871,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 58.371,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 55.371,
+      "z": 24.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 64.871,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "rackDrop"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 68.871,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "rack",
+      "x": 73.7648,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "amr",
+      "x": 68.871,
+      "z": 33.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "rack"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 79.7648,
+      "z": 35.5208,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "dockRole": "stage"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 81.4016,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 82.6223,
+      "z": 47.6471,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "ship",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 90,
+      "z": -22.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 90,
+      "z": 3.3945,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 90,
+      "z": -3.5864,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": 88.7793,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 87.1425,
+      "z": -13.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 77.3695,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 78.5902,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 80.227,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 80.227,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-110"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 71.8507,
+      "z": -24.8581,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "box",
+        "spawnInterval": 20,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 73.0714,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "speed": 3
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 74.7082,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 74.7082,
+      "z": -12.1288,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-114"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 88.7793,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize",
+        "speed": 3
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 87.1425,
+      "z": -17.7318,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 91.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 92.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 92.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-119"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 91.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 92.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 92.8575,
+      "z": 16.1238,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-122"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 94.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 99.871,
+      "z": 19.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 94.871,
+      "z": 22.5208,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 94.871,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 88.371,
+      "z": 27.0208,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 85.371,
+      "z": 24.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 94.871,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "rackDrop"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 98.871,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "rack",
+      "x": 103.7648,
+      "z": 40.0208,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "amr",
+      "x": 98.871,
+      "z": 33.0208,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "rack"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 109.7648,
+      "z": 35.5208,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "dockRole": "stage"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 111.4016,
+      "z": 35.5208,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 112.6223,
+      "z": 47.6471,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "ship",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "floor",
+      "x": 47,
+      "z": 12.5,
+      "yaw": 0,
+      "floor": {
+        "width": 136,
+        "depth": 99,
+        "wallHeight": 9.5
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "deliver",
+      "from": 8,
+      "to": 4
+    },
+    {
+      "type": "deliver",
+      "from": 12,
+      "to": 14
+    },
+    {
+      "type": "deliver",
+      "from": 17,
+      "to": 21
+    },
+    {
+      "type": "deliver",
+      "from": 20,
+      "to": 21
+    },
+    {
+      "type": "deliver",
+      "from": 42,
+      "to": 38
+    },
+    {
+      "type": "deliver",
+      "from": 46,
+      "to": 48
+    },
+    {
+      "type": "deliver",
+      "from": 51,
+      "to": 55
+    },
+    {
+      "type": "deliver",
+      "from": 54,
+      "to": 55
+    },
+    {
+      "type": "deliver",
+      "from": 76,
+      "to": 72
+    },
+    {
+      "type": "deliver",
+      "from": 80,
+      "to": 82
+    },
+    {
+      "type": "deliver",
+      "from": 85,
+      "to": 89
+    },
+    {
+      "type": "deliver",
+      "from": 88,
+      "to": 89
+    },
+    {
+      "type": "deliver",
+      "from": 110,
+      "to": 106
+    },
+    {
+      "type": "deliver",
+      "from": 114,
+      "to": 116
+    },
+    {
+      "type": "deliver",
+      "from": 119,
+      "to": 123
+    },
+    {
+      "type": "deliver",
+      "from": 122,
+      "to": 123
+    }
+  ]
+}

@@ -11,7 +11,7 @@ import { MODEL, MODEL_URLS } from "@/viewport/models/modelUrls";
 import type { ConveyorTurn } from "@/types/layout";
 
 const TURNS: ConveyorTurn[] = ["straight", "left", "right"];
-const GHOSTS: GhostModelKind[] = ["robot", "pallet", "amr", "scanner", "rack"];
+const GHOSTS: GhostModelKind[] = ["robot", "pallet", "amr", "scanner", "rack", "forklift"];
 /**
  * Ghost previews built at warm-up are kept alive (never disposed) so their compiled shader
  * programs stay cached; placement ghosts created later reuse them and show on the first drag.

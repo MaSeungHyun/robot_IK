@@ -1,0 +1,95 @@
+{
+  "id": "robot-amr",
+  "name": "듀얼 로봇 + AMR",
+  "description": "두 로봇이 적재하고 AMR이 2차선 통로로 완료된 팔레트를 출고합니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 3.3945,
+      "yaw": 0,
+      "settings": {
+        "spawnInterval": 5,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": -3.5864,
+      "yaw": 0,
+      "settings": {
+        "defectRate": 0
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "pallet",
+      "x": -2.8575,
+      "z": 16.1238,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": -7.5596,
+      "z": 10.0909,
+      "yaw": 0
+    },
+    {
+      "kind": "dock",
+      "x": -4.871,
+      "z": 19.5208,
+      "yaw": 0
+    },
+    {
+      "kind": "floor",
+      "x": -3.5,
+      "z": 9,
+      "yaw": 0,
+      "floor": {
+        "width": 13,
+        "depth": 40,
+        "wallHeight": 9.5
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "pickup",
+      "from": 6,
+      "to": 3
+    },
+    {
+      "type": "pickup",
+      "from": 6,
+      "to": 5
+    },
+    {
+      "type": "deliver",
+      "from": 3,
+      "to": 7
+    },
+    {
+      "type": "deliver",
+      "from": 5,
+      "to": 7
+    }
+  ]
+}

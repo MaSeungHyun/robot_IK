@@ -27,7 +27,8 @@ export type BoxEventType =
   | "dispatch"
   | "store"
   | "drop"
-  | "ship";
+  | "ship"
+  | "unload";
 
 export type BoxEvent = {
   /** Simulation time in seconds. */
@@ -326,6 +327,38 @@ export class CargoRegistry {
   dropPallet(e: { t: number; palletId: string; dockId: string }) {
     this.outbound(e.t, e.palletId, e.dockId);
     this.palletEvent(e.palletId, "dock", "dock", e.dockId, { t: e.t, type: "drop", equipmentId: e.dockId });
+  }
+  /** Pallet delivered to an unload (depalletizing) dock: not an outbound shipment. */
+  arrivePallet(e: { t: number; palletId: string; dockId: string }) {
+    this.palletEvent(e.palletId, "dock", "dock", e.dockId, { t: e.t, type: "drop", equipmentId: e.dockId });
+  }
+  /** Depalletizing robot takes a box off a delivered pallet. */
+  takeFromPallet(e: { t: number; robotId: string; boxId: string }) {
+    const box = this.boxes.get(e.boxId);
+    if (!box) return this.missing(e.t, e.robotId, e.boxId, "하역");
+    box.state = "robot";
+    box.holder = e.robotId;
+    this.push(box, { t: e.t, type: "pick", equipmentId: e.robotId, palletId: box.palletId ?? undefined });
+    return box.id;
+  }
+  /** The depalletized box is on a belt again (it leaves its old pallet). */
+  unloadBox(e: { t: number; robotId: string; boxId: string; beltId: string }) {
+    const box = this.boxes.get(e.boxId);
+    if (!box) return this.missing(e.t, e.robotId, e.boxId, "컨베이어 투입");
+    const pallet = this.pallet(box.palletId);
+    if (pallet) pallet.boxIds = pallet.boxIds.filter((id) => id !== box.id);
+    box.state = "conveyor";
+    box.holder = e.beltId;
+    box.palletId = null;
+    this.push(box, { t: e.t, type: "unload", equipmentId: e.robotId });
+  }
+  /** The emptied pallet left the unload dock. */
+  emptyPallet(e: { t: number; palletId: string }) {
+    const pallet = this.pallets.get(e.palletId);
+    if (!pallet) return;
+    pallet.state = "shipped";
+    this.finishPallet(pallet.id);
+    this.touch();
   }
   shipPallet(e: { t: number; palletId: string; dockId: string }) {
     this.palletEvent(e.palletId, "shipped", "shipped", null, { t: e.t, type: "ship", equipmentId: e.dockId });

@@ -15,7 +15,7 @@ export const LINK_RULES: Record<LinkType, { from: EquipmentKind; to: readonly Eq
   feed: { from: "conveyor", to: ["robot"], label: "공급" },
   load: { from: "robot", to: ["pallet"], label: "적재" },
   pickup: { from: "amr", to: ["pallet"], label: "픽업" },
-  deliver: { from: "pallet", to: ["dock", "rack"], label: "출고" },
+  deliver: { from: "pallet", to: ["dock", "rack", "conveyor"], label: "출고" },
 };
 
 export const LINKABLE_KINDS: ReadonlySet<EquipmentKind> = new Set(

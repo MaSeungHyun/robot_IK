@@ -12,6 +12,8 @@ import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { DOOR_CONFIG } from "@/constants/door";
 import { snapDoorToWall } from "@/domain/room/roomWalls";
+import { applyPalletMounts, canCarryPallet, releaseMounts } from "@/domain/layout/palletMount";
+import { arrayPoses, type ArrayOptions } from "@/domain/layout/arrayPlacement";
 
 /** select: pick only (no gizmo); translate/rotate: gizmo mode on the selection. */
 export type EditorTool="select"|"translate"|"rotate";
@@ -37,6 +39,12 @@ const DOOR_DEFAULTS:Partial<EquipmentSettings>={doorWidth:DOOR_CONFIG.width,door
 export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...(kind==="door"?DOOR_DEFAULTS:{}),...values});
 /** Doors snap flush to a nearby wall plane (see snapDoorToWall). */
 const snapDoor=(object:SceneEquipment,config:EquipmentSettings|undefined,objects:SceneEquipment[]):SceneEquipment=>object.kind==="door"?{...object,...snapDoorToWall(object,config?.doorWidth??DOOR_CONFIG.width,objects)}:object;
+/** An AMR whose role no longer carries a pallet (forklift / AGV) drops its mounted pallet (same undo step). */
+const dropInvalidMounts=(settings:Record<string,EquipmentSettings>,ids:readonly string[])=>{
+  let next=settings;
+  for(const id of ids)if(next[id]?.amrRole!==undefined&&!canCarryPallet(next[id]))next=releaseMounts(next,id);
+  return next;
+};
 interface SceneState{
   inspected:string|null;inspect:(id:string|null)=>void;
   past:SceneSnapshot[];future:SceneSnapshot[];undo:()=>void;redo:()=>void;
@@ -56,7 +64,11 @@ interface SceneState{
   extendConveyor:(id:string,turn:ConveyorTurn)=>void;
   /** Adds a copy (new id/name, same pose/props/settings) and selects it; returns its id. */
   duplicate:(object:SceneEquipment,settings:EquipmentSettings)=>string|null;
+  /** Array modifier: count-1 copies of id (same settings) stepped along its local axis; one undo step, copies selected. */
+  arrayCopies:(id:string,footprint:readonly [number,number],options:ArrayOptions)=>string[];
   updateSettings:(id:string,values:Partial<EquipmentSettings>)=>void;remove:(id:string)=>void;
+  /** Shuttle AMR '팔레트 포함': mounts a new pallet on its deck (on) or removes the mounted one (off); one undo step. */
+  setCarriedPallet:(amrId:string,on:boolean)=>void;
   edit:()=>void;complete:()=>void;clear:()=>void;example:()=>void;
   loadTemplate: (template: SceneTemplate) => boolean;
   /** Equipment relations (🔗); see docs/linking-design.md. */
@@ -83,7 +95,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   removeMany:ids=>{
     const state=get();if(!state.editing)return;
     const gone=new Set(ids.filter(id=>state.settings[id]));if(!gone.size)return;
-    const next={...state.settings};for(const id of gone)delete next[id];
+    let next={...state.settings};for(const id of gone){delete next[id];next=releaseMounts(next,id);}
     set({...history(state),objects:state.objects.filter(o=>!gone.has(o.id)),links:state.links.filter(l=>!gone.has(l.from)&&!gone.has(l.to)),settings:next,selected:state.selected&&gone.has(state.selected)?null:state.selected,selection:state.selection.filter(id=>!gone.has(id)),errors:[]});
   },
   updateSettingsMany:(ids,values)=>{
@@ -98,7 +110,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       next[id]={...config,...patch};count++;if(patch.capacity!==undefined)capacity=true;
     }
     if(!count)return 0;
-    set({...history(state),settings:next,errors:[]});
+    set({...history(state),settings:dropInvalidMounts(next,ids),errors:[]});
     const first=state.objects.find(o=>ids.includes(o.id));
     const warning=typeof values==="function"?null:unrealisticWarning(first?.kind,values);
     if(warning)log("warning",`${count}개 설비: 비현실적인 설정값`,warning);
@@ -115,16 +127,24 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       changed=true;const moved={...object,...pose};
       return object.kind==="conveyor"?snapBelt(moved,state.objects):object.kind==="door"?snapDoor(moved,state.settings[object.id],state.objects):snapFloor(moved);
     });
-    if(changed)set({...history(state),objects,errors:[]});
+    if(changed)set({...history(state),...applyPalletMounts({objects,settings:state.settings},changes.map(c=>c.id)),errors:[]});
   },setPending:(pending,preset=null)=>{const next=pending?preset:null;if(get().pending!==pending||get().pendingPreset!==next)set({pending,pendingPreset:next});},setTool:tool=>{if(get().tool!==tool)set({tool});},
   add:(kind,pose)=>{
     if(!get().editing)return;
     set(state=>{
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
-      const config=settingsFor(kind,state.pending===kind?state.pendingPreset:null);
+      const config=settingsFor(kind,{...(kind==="conveyor"?{autoSpawn:false}:{}),...(state.pending===kind?state.pendingPreset:null)});
       const object=kind==="conveyor"?snapBelt(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
-      return {...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:config},selected:id,pending:null,pendingPreset:null,nextId:state.nextId+1,errors:[]};
+      const scene=applyPalletMounts({objects:[...state.objects,object],settings:{...state.settings,[id]:config}},[id]);
+      // A new shuttle AMR comes with its pallet mounted on the deck (the cycle swaps it, it never starts empty).
+      if(kind==="amr"&&config.amrRole==="shuttle"){
+        const palletId=`pallet-${state.nextId+1}`;
+        scene.objects=[...scene.objects,{...DEFAULT_LAYOUT.pallet,x:object.x,z:object.z,yaw:object.yaw,id:palletId,kind:"pallet",name:`${EQUIPMENT_NAMES.pallet} ${state.nextId+1}`}];
+        scene.settings={...scene.settings,[palletId]:settingsFor("pallet",{mountedOn:id})};
+        return {...history(state),...scene,selected:id,pending:null,pendingPreset:null,nextId:state.nextId+2,errors:[]};
+      }
+      return {...history(state),...scene,selected:id,pending:null,pendingPreset:null,nextId:state.nextId+1,errors:[]};
     });
   },
   duplicate:(source,config)=>{
@@ -134,6 +154,18 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const object:SceneEquipment={...source,...(source.floor?{floor:{...source.floor}}:{}),id,name:`${EQUIPMENT_NAMES[source.kind]} ${state.nextId}`};
     set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[id]:migrateSettings(source.kind,{...config})},selected:id,pending:null,pendingPreset:null,nextId:state.nextId+1,errors:[]});
     return id;
+  },
+  arrayCopies:(id,footprint,options)=>{
+    const state=get(),source=state.objects.find(o=>o.id===id);
+    if(!state.editing||!source)return [];
+    const poses=arrayPoses(source,footprint,options);
+    if(!poses.length)return [];
+    const copies=poses.map((pose,i)=>({...source,...pose,id:`${source.kind}-${state.nextId+i}`,name:`${EQUIPMENT_NAMES[source.kind]} ${state.nextId+i}`}));
+    const settings={...state.settings};
+    for(const copy of copies)settings[copy.id]=migrateSettings(source.kind,{...state.settings[id]});
+    const ids=copies.map(c=>c.id);
+    set({...history(state),objects:[...state.objects,...copies],settings,selected:id,selection:[...ids,id],pending:null,pendingPreset:null,nextId:state.nextId+copies.length,errors:[]});
+    return ids;
   },
   extendConveyor:(id,turn)=>{
     const state=get(),source=state.objects.find(o=>o.id===id&&o.kind==="conveyor");
@@ -147,7 +179,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const object=get().objects.find(object=>object.id===id);
     if(!object||Object.entries(pose).every(([key,value])=>Math.abs(object[key as keyof EquipmentPose]-value)<1e-8))return;
     const changed={...object,...pose},next=object.kind==="conveyor"?snapBelt(changed,get().objects):object.kind==="door"?snapDoor(changed,get().settings[id],get().objects):snapFloor(changed);
-    set(state=>({...history(state),objects:state.objects.map(object=>object.id===id?next:object),errors:[]}));
+    set(state=>({...history(state),...applyPalletMounts({objects:state.objects.map(object=>object.id===id?next:object),settings:state.settings},[id]),errors:[]}));
   },
   updateFloor:(id,size)=>{
     const state=get(),object=state.objects.find(object=>object.id===id);
@@ -178,13 +210,29 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       changed = true;
     }
     if (!changed) return;
-    set({ ...history(state), settings: nextSettings, errors: [] });
+    set({ ...history(state), settings: dropInvalidMounts(nextSettings, [id]), errors: [] });
     const object = state.objects.find(entry => entry.id === id);
     const warning = unrealisticWarning(object?.kind, values);
     if (warning) log("warning", `${object?.name ?? id}: 비현실적인 설정값`, warning);
     if(!get().editing&&values.capacity!==undefined)useSimulationStore.getState().reset();
   },
-  remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const next={...state.settings};delete next[id];return {...history(state),objects:state.objects.filter(object=>object.id!==id),links:state.links.filter(link=>link.from!==id&&link.to!==id),settings:next,selected:state.selected===id?null:state.selected,errors:[]};});},
+  setCarriedPallet:(amrId,on)=>{
+    const state=get(),amr=state.objects.find(object=>object.id===amrId);
+    if(!state.editing||!amr||amr.kind!=="amr")return;
+    const mounted=state.objects.find(object=>object.kind==="pallet"&&state.settings[object.id]?.mountedOn===amrId);
+    if(on===Boolean(mounted))return;
+    set(current=>{
+      if(mounted){
+        const next={...current.settings};delete next[mounted.id];
+        return {...history(current),objects:current.objects.filter(object=>object.id!==mounted.id),links:current.links.filter(link=>link.from!==mounted.id&&link.to!==mounted.id),settings:next,errors:[]};
+      }
+      const palletId=`pallet-${current.nextId}`;
+      const objects=[...current.objects,{...DEFAULT_LAYOUT.pallet,x:amr.x,z:amr.z,yaw:amr.yaw,id:palletId,kind:"pallet" as const,name:`${EQUIPMENT_NAMES.pallet} ${current.nextId}`}];
+      const settings={...current.settings,[palletId]:settingsFor("pallet",{mountedOn:amrId}),[amrId]:{...current.settings[amrId],amrRole:"shuttle" as const}};
+      return {...history(current),objects,settings,nextId:current.nextId+1,errors:[]};
+    });
+  },
+  remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const next={...state.settings};delete next[id];return {...history(state),objects:state.objects.filter(object=>object.id!==id),links:state.links.filter(link=>link.from!==id&&link.to!==id),settings:releaseMounts(next,id),selected:state.selected===id?null:state.selected,errors:[]};});},
   edit:()=>{if(get().editing)return;useSimulationStore.getState().reset();set({editing:true,errors:[],inspected:null});},
   complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
   clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,editing:true,errors:[]});},

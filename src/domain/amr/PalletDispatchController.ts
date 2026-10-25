@@ -3,6 +3,7 @@ import type { FactoryLayout } from "@/types/layout";
 import { SIMULATOR_CONFIG, AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { layoutPath } from "@/domain/amr/navigation/layoutNavigation";
 import { RACK_CONFIG } from "@/constants/rack";
+import { AMR_DECK } from "@/constants/cycle";
 import type { NavigationObstacle } from "@/domain/amr/navigation/layoutNavigation";
 
 export type DispatchRoutes = {
@@ -250,7 +251,7 @@ export class PalletDispatchController {
       if (this.payload) {
         const lift = Math.min(1, this.elapsed / 0.6);
         this.payload.position.y =
-          (this.phase === "loading" ? lift : 1 - lift) * 0.27;
+          (this.phase === "loading" ? lift : 1 - lift) * AMR_DECK;
       }
       if (this.elapsed < 0.6) return;
       if (this.phase === "loading") {

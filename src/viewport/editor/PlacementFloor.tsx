@@ -11,6 +11,7 @@ import {
 } from "@/constants/simulatorLayout";
 import type { FloorSize } from "@/types/layout";
 import FloorRoom from "@/objects/room/FloorRoom";
+import { FACTORY_ROOM } from "@/constants/factoryRoom";
 import type { EquipmentKind } from "@/types/layout";
 import { snapBelt } from "@/domain/conveyor/conveyorLayout";
 import PlacementGhost from "@/viewport/editor/PlacementGhost";
@@ -19,6 +20,8 @@ import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { DOOR_CONFIG } from "@/constants/door";
 import { snapDoorToWall } from "@/domain/room/roomWalls";
+import { mountCarrierAt } from "@/domain/layout/palletMount";
+import { AMR_DECK } from "@/constants/cycle";
 
 const KINDS: readonly EquipmentKind[] = [
   "robot",
@@ -90,6 +93,9 @@ export default function PlacementFloor() {
         kind,
       };
       const state = useSceneStore.getState();
+      // A pallet hovered over a free shuttle / pallet AMR snaps onto its deck (mounted on placement).
+      const carrier = kind === "pallet" ? mountCarrierAt(state, x, z) : undefined;
+      if (carrier) return { ...object, x: carrier.x, z: carrier.z, yaw: carrier.yaw };
       if (kind === "door") {
         const width = (state.pending === "door" ? state.pendingPreset?.doorWidth : undefined) ?? DOOR_CONFIG.width;
         return { ...object, ...snapDoorToWall(object, width, state.objects) };
@@ -203,7 +209,8 @@ export default function PlacementFloor() {
       if (event.button !== 0) return;
       if (draw.phase === "drag") {
         draw.phase = "height";
-        draw.height = heightAt(event);
+        // Start at the default wall height (clears the tallest rack); moving the mouse adjusts it.
+        draw.height = FACTORY_ROOM.defaultWallHeight;
         updatePreview();
       } else if (draw.phase === "height") finishFloor(draw.height);
     };
@@ -225,7 +232,8 @@ export default function PlacementFloor() {
         kind === "floor"
           ? { x: (Math.floor(point.x) + 0.5) * FLOOR_CONFIG.cell, z: (Math.floor(point.z) + 0.5) * FLOOR_CONFIG.cell, yaw: 0 }
           : poseAt(kind, point.x, point.z);
-      ghost.current.position.set(pose.x, 0, pose.z);
+      const mounted = kind === "pallet" && Boolean(mountCarrierAt(useSceneStore.getState(), point.x, point.z));
+      ghost.current.position.set(pose.x, mounted ? AMR_DECK : 0, pose.z);
       ghost.current.rotation.y = pose.yaw;
       ghost.current.visible = true;
     };
@@ -315,7 +323,8 @@ export default function PlacementFloor() {
           if (!isSelectionClick(event)) return;
           if (state.pending && state.editing) {
             event.stopPropagation();
-            state.add(state.pending, {
+            const carrier = state.pending === "pallet" ? mountCarrierAt(state, event.point.x, event.point.z) : undefined;
+            state.add(state.pending, carrier ? { x: carrier.x, z: carrier.z, yaw: carrier.yaw } : {
               x: snap(event.point.x),
               z: snap(event.point.z),
             });

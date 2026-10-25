@@ -25,6 +25,20 @@ export default function DockDetails({ object }: EquipmentDetailProps) {
       <DetailSection title="출고 구역 설정">
         <EquipmentChoiceSetting
           id={object.id}
+          field="dockRole"
+          label="역할"
+          fallback="ship"
+          options={[
+            { value: "ship", label: "출고 (팔레트 반출)" },
+            { value: "unload", label: "하역 (로봇이 컨베이어에 투입)" },
+            { value: "service", label: "팔레트 순환 · 셔틀 교체 지점" },
+            { value: "palletSource", label: "팔레트 순환 · 빈 팔레트 적치장" },
+            { value: "rackDrop", label: "팔레트 순환 · Rack_m 하차 지점" },
+            { value: "stage", label: "팔레트 순환 · 출하 대기 (로봇 하역)" },
+          ]}
+        />
+        <EquipmentChoiceSetting
+          id={object.id}
           field="acceptGrade"
           label="수신 용도"
           fallback="any"

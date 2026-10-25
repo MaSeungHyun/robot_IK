@@ -16,6 +16,10 @@ import { useModelsSettled } from "@/stores/useModelStore";
 import { MODEL } from "@/viewport/models/modelUrls";
 import { createDoorModel } from "@/objects/door/doorModel";
 import { DOOR_CONFIG } from "@/constants/door";
+import { PALLET_CONVEYOR } from "@/constants/palletConveyor";
+import { CONVEYOR_LAYOUT } from "@/constants/conveyorLayoutConfig";
+import { AMR_DECK, CYCLE_ACCENT } from "@/constants/cycle";
+import { createAgvModel, createRackMobileModel } from "@/lib/three/cycleModels";
 
 const WIDTH = 192, HEIGHT = 144;
 let baked = false;
@@ -53,7 +57,7 @@ export default function ThumbnailBaker() {
       }
     };
     const robot = scenes[MODEL.robot], amr = scenes[MODEL.amr], pallet = scenes[MODEL.pallet],
-      scanner = scenes[MODEL.scanner], rack = scenes[MODEL.rack];
+      scanner = scenes[MODEL.scanner], rack = scenes[MODEL.rack], forklift = scenes[MODEL.forklift];
     build("robot", robot, () => poseRobotHome(robot!.clone(true)));
     build("amr", amr, () => amr!.clone(true));
     build("pallet", pallet, () => {
@@ -66,9 +70,39 @@ export default function ThumbnailBaker() {
       return scannerModel.model;
     });
     build("conveyor", undefined, () => conveyorTemplate("straight", scenes[MODEL.rail] ?? undefined).clone(true));
+    // Inbound / outbound conveyors: the same rail.glb with their #02dfef markings (outbound shows a pallet on it).
+    build("conveyor-inbound", undefined, () => conveyorTemplate("straight", scenes[MODEL.rail] ?? undefined, "inbound").clone(true));
+    build("conveyor-outbound", undefined, () => {
+      const group = new Group();
+      group.add(conveyorTemplate("straight", scenes[MODEL.rail] ?? undefined, "outbound").clone(true));
+      if (pallet) {
+        const load = createUnitPallet(pallet);
+        load.position.set(0, CONVEYOR_LAYOUT.height, 0);
+        group.add(load);
+      }
+      return group;
+    });
+    build("forklift", forklift, () => forklift!.clone(true));
     build("rack", rack, () => rack!.clone(true));
+    // Pallet-cycle assets: procedural AGV / Rack_m, and the shuttle AMR shown with a pallet on its AMR_point seat.
+    build("agv", undefined, () => createAgvModel().root);
+    build("rack-mobile", undefined, () => createRackMobileModel());
+    build("shuttle", amr, () => {
+      const group = new Group(), body = amr!.clone(true), bounds = new Box3().setFromObject(body);
+      const center = bounds.getCenter(new Vector3());
+      body.position.sub(new Vector3(center.x, bounds.min.y, center.z));
+      group.add(body);
+      if (pallet) {
+        const load = createUnitPallet(pallet);
+        load.position.set(0, AMR_DECK, 0);
+        group.add(load);
+      }
+      return group;
+    });
     models.dock = dockPlane("#075985");
     models["dock-defect"] = dockPlane("#f94258");
+    models["dock-unload"] = dockPlane(PALLET_CONVEYOR.accent);
+    for (const role of ["service", "palletSource", "rackDrop", "stage"]) models[`dock-${role}`] = dockPlane(CYCLE_ACCENT);
     build("door", undefined, () => {
       const door = createDoorModel(DOOR_CONFIG.width, DOOR_CONFIG.height);
       door.setOpen(0.35);

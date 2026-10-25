@@ -17,14 +17,19 @@ export class PalletController {
   count = 0;
   shipping = false;
   readyAt: number | null = null;
+  /** Driven by an owner other than the factory dispatch round (pallet cycle shuttle). */
+  managed = false;
+  /** Pallet bottom height (0 = floor, AMR_DECK when mounted on a shuttle AMR). */
+  readonly baseY: number;
   private asset: Group;
 
   /** Slots per layer and layer count actually used (capacity is capped to PALLET_STACKING.layers full layers). */
   readonly perLayer: number;
   readonly layers: number;
 
-  constructor(object: SceneEquipment, asset: Group, capacity: number) {
+  constructor(object: SceneEquipment, asset: Group, capacity: number, baseY = 0) {
     this.object = object;
+    this.baseY = baseY;
     this.asset = asset;
     const palletSize = new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
     this.perLayer = planStack(1, palletSize, BOX_SIZES[0], 0).capacity;
@@ -32,7 +37,7 @@ export class PalletController {
     this.layers = Math.ceil(total / this.perLayer);
     // Slot y = pallet top + (layer + 1) * box height: the top face of the box (suction contact).
     this.slots = planStack(total, new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth), BOX_SIZES[0], 0).slots.map(slot => slot.position.clone()
-      .add(new Vector3(0, STREAM_CONFIG.palletHeight + BOX_SIZES[0].y, 0))
+      .add(new Vector3(0, baseY + STREAM_CONFIG.palletHeight + BOX_SIZES[0].y, 0))
       .applyAxisAngle(Y, object.yaw).add(new Vector3(object.x, 0, object.z)));
     this.states = this.slots.map(() => "free");
     this.group = this.createGroup();
@@ -63,12 +68,12 @@ export class PalletController {
 
   /** Layer index (0 = bottom) of slot `slot`. */
   layerOf(slot: number) {
-    return Math.round((this.slots[slot].y - STREAM_CONFIG.palletHeight) / BOX_SIZES[0].y) - 1;
+    return Math.round((this.slots[slot].y - this.baseY - STREAM_CONFIG.palletHeight) / BOX_SIZES[0].y) - 1;
   }
 
   /** Top face (world y) of the tallest box on the pallet, or the pallet top when empty. */
   get stackTop() {
-    let top = STREAM_CONFIG.palletHeight;
+    let top = this.baseY + STREAM_CONFIG.palletHeight;
     this.states.forEach((state, i) => { if (state === "placed") top = Math.max(top, this.slots[i].y); });
     return top;
   }
@@ -83,7 +88,7 @@ export class PalletController {
   }
 
   place(slot: number, box: Group, elapsed: number) {
-    if (this.states[slot] !== "reserved" || this.shipping) throw new Error("Pallet slot is not reserved");
+    if (this.states[slot] !== "reserved" || this.shipping) throw new Error(`Pallet slot is not reserved (${this.object.id} slot ${slot}: ${this.states[slot]}${this.shipping ? ", shipping" : ""})`);
     this.group.attach(box);
     this.states[slot] = "placed";
     this.count++;
@@ -111,10 +116,27 @@ export class PalletController {
     return this.group;
   }
 
+  /** A pallet that arrived already loaded (pallet-unit inbound): every slot counts as placed. */
+  loadAll(elapsed: number) {
+    this.states.fill("placed");
+    this.count = this.slots.length;
+    this.readyAt = elapsed;
+  }
+
+  /** Starts a new empty load on `group` (already placed at the station; pallet cycle). */
+  mount(group: Group) {
+    this.group = group;
+    group.userData.sceneId = this.object.id;
+    this.states.fill("free");
+    this.count = 0;
+    this.shipping = false;
+    this.readyAt = null;
+  }
+
   private createGroup() {
     const group = new Group();
     group.add(createPalletModel(this.asset));
-    group.position.set(this.object.x, 0, this.object.z);
+    group.position.set(this.object.x, this.baseY, this.object.z);
     group.rotation.y = this.object.yaw;
     group.userData.sceneId = this.object.id;
     return group;

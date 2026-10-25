@@ -52,6 +52,9 @@ export function unrealisticWarning(kind: EquipmentKind | undefined, values: Part
 }
 
 /** Real seconds between inlet boxes. Legacy settings counted belt-scaled time (interval / multiplier). */
+/** Conveyor 자동 생성 (absent = legacy on). */
+export const autoSpawns = (config: Pick<EquipmentSettings, "autoSpawn"> | undefined) => config?.autoSpawn !== false;
+
 export function spawnIntervalOf(config: Config) {
   const interval = config.beltSpeed === undefined ? config.spawnInterval / (config.speed || 1) : config.spawnInterval;
   return Number.isFinite(interval) ? Math.max(MIN_INTERVAL, interval) : MIN_INTERVAL;

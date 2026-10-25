@@ -1,5 +1,5 @@
 // DevTools console snippet (Vite dev server): dumps the current editor layout as a SceneTemplate
-// JSON for src/constants/sceneTemplates.ts. Paste into the console of the running dev page.
+// JSON for src/constants/templates/*.json. Paste into the console of the running dev page.
 // Round trip: export -> add to SCENE_TEMPLATES -> load reproduces kinds, poses, conveyor turns,
 // floor/wall sizes and every non-default setting (defect rate, pick filter, pallet grade, dock/rack
 // accept grade, belt/AMR speed, interval, capacity, reach, enabled, ...) and links (🔗), in internal units

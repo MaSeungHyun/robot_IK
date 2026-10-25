@@ -204,3 +204,6 @@ export const CLOSED_CHAIN_IK = {
   coneSearchIterations: 12,
   coneCorrectionMargin: 0.001,
 };
+
+/** Distance (m) from the end stopper within which a box counts as touching it and halts its line. */
+export const CONVEYOR_STOPPER_CONTACT = 1e-3;

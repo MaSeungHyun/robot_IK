@@ -36,7 +36,7 @@ export const EDITOR_HISTORY_LIMIT = 100;
 export const FLOOR_CONFIG = {
   cell: 1,
   wallStep: 0.5,
-  maxWallHeight: 10,
+  maxWallHeight: 15,
   maxSize: 100,
   floorColor: "#1b2a3a",
   wallColor: "#8ea9cf",

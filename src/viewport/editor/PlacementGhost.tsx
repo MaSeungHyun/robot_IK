@@ -1,9 +1,17 @@
 import type { EquipmentKind } from "@/types/layout";
 import ConveyorGhost from "@/viewport/editor/ConveyorGhost";
 import ModelGhost from "@/viewport/editor/ModelGhost";
+import ProceduralGhost from "@/viewport/editor/ProceduralGhost";
 import { DOOR_CONFIG } from "@/constants/door";
+import { useSceneStore } from "@/stores/useSceneStore";
+import { isForkliftRole } from "@/types/layout";
 
 export default function PlacementGhost({ kind }: { kind: EquipmentKind }) {
+  // The forklift asset is an AMR with amrRole "forklift": preview its own model, not the AMR.
+  const forklift = useSceneStore((state) => kind === "amr" && isForkliftRole(state.pendingPreset?.amrRole));
+  // AGV (amrRole "agv") and Rack_m (rackType "mobile") are procedural models, not AMR.glb / Rack.glb.
+  const procedural = useSceneStore((state) =>
+    kind === "amr" && state.pendingPreset?.amrRole === "agv" ? "agv" : kind === "rack" && state.pendingPreset?.rackType === "mobile" ? "rack-mobile" : null);
   return (
     <group>
       {kind === "conveyor" ? (
@@ -41,8 +49,10 @@ export default function PlacementGhost({ kind }: { kind: EquipmentKind }) {
             depthWrite={false}
           />
         </mesh>
+      ) : procedural ? (
+        <ProceduralGhost kind={procedural} />
       ) : (
-        <ModelGhost kind={kind} />
+        <ModelGhost kind={forklift ? "forklift" : kind} />
       )}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}

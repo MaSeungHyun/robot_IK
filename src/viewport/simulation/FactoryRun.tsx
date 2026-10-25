@@ -15,6 +15,7 @@ import Dock from "@/objects/dock/Dock";
 import Rack from "@/objects/rack/Rack";
 import Door from "@/objects/door/Door";
 import Forklift from "@/objects/forklift/Forklift";
+import CycleVehicleView from "@/viewport/simulation/CycleVehicleView";
 
 // Play mode: a click opens the object's Details (see clickEquipment).
 const handleEquipmentSelect = clickEquipment;
@@ -35,7 +36,9 @@ function handleCargoSelect(event: ThreeEvent<MouseEvent>, inspect = false) {
 export default function FactoryRun(props: SimulatorRunProps) {
   const { world, objects, settings } = useFactoryRuntime(props);
   useEffect(() => resetCursor, []);
-  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || object.kind === "rack" || object.kind === "scanner" || object.kind === "floor" || object.kind === "door");
+  // Rack_m is owned by the pallet cycle (drawn below with its own id), never as a Rack.glb static rack.
+  const cycleRacks = new Set(world.cycle?.rackViews.map((view) => view.id) ?? []);
+  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || (object.kind === "rack" && !cycleRacks.has(object.id)) || object.kind === "scanner" || object.kind === "floor" || object.kind === "door");
 
   return (
     <>
@@ -59,6 +62,18 @@ export default function FactoryRun(props: SimulatorRunProps) {
       ))}
 
       {world.forkliftAgents.map((agent) => <Forklift key={agent.object.id} id={agent.object.id} controller={agent.controller} />)}
+
+      {/* Pallet-cycle vehicles (shuttle AMR, AGV, cycle forklift) are owned by world.cycle, not agents/forkliftAgents. */}
+      {world.cycle?.views.map((view) => <CycleVehicleView key={view.id} {...view} />)}
+      {world.cycle?.rackViews.map((view) => (
+        <primitive
+          key={view.id}
+          object={view.group}
+          {...playHover}
+          onClick={(event: ThreeEvent<MouseEvent>) => handleEquipmentSelect(event, view.id)}
+          onDoubleClick={(event: ThreeEvent<MouseEvent>) => inspectEquipment(event, view.id)}
+        />
+      ))}
 
       {staticObjects.map((object) => object.kind === "floor" ? (
         // Floors/walls are scenery while simulating: not selectable, hoverable or trackable.

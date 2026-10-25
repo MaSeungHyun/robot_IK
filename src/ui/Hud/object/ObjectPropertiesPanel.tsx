@@ -1,33 +1,16 @@
-import ScannerSettings from "@/ui/Hud/equipment/scanner/ScannerSettings";
-import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
 import { useShallow } from "zustand/react/shallow";
 import {
   EQUIPMENT_NAMES,
   selectedIds,
   useSceneStore,
 } from "@/stores/useSceneStore";
-import { ApplyAllButton, BulkNumber } from "@/ui/Hud/object/BulkField";
 import { applyToIds } from "@/stores/actions/applyEquipmentSettings";
 import Select from "@/components/Select";
 import { FLOOR_CONFIG } from "@/constants/simulatorLayout";
-import {
-  beltConnections,
-  connectedBeltIds,
-} from "@/domain/conveyor/conveyorLayout";
 import Panel from "@/ui/Hud/_components/Panel";
+import EquipmentDetails from "@/ui/Hud/equipment/details/EquipmentDetails";
+import { SettingsOnlyContext } from "@/ui/Hud/equipment/details/_components/playLockState";
 import LinkSection from "@/ui/Hud/equipment/details/_components/LinkSection";
-import DoorSettings from "@/ui/Hud/equipment/door/DoorSettings";
-import {
-  SPEED_LIMITS,
-  amrSpeedOf,
-  beltSpeedOf,
-  fromBoxesPerHour,
-  fromMetersPerMinute,
-  spawnIntervalOf,
-  speedPatch,
-  toBoxesPerHour,
-  toMetersPerMinute,
-} from "@/domain/simulation/equipmentSpeeds";
 
 export default function ObjectPropertiesPanel({
   embedded = false,
@@ -67,26 +50,10 @@ export default function ObjectPropertiesPanel({
     ids.map((id) => state.objects.find((o) => o.id === id)?.kind),
   );
   const mixedKinds = kinds.size > 1;
-  const targets = mixedKinds ? [object.id] : ids;
-  const incoming = beltConnections(state.objects).incoming;
-  // Belt speed is shared along a connected line: multi-edit expands to every connected segment.
-  const beltTargets =
-    object.kind === "conveyor"
-      ? [
-          ...new Set(
-            targets.flatMap((id) => [...connectedBeltIds(state.objects, id)]),
-          ),
-        ]
-          .filter((id) => id !== object.id)
-          .concat(object.id)
-      : targets;
   const enabledValues = ids.map((id) => state.settings[id]?.enabled);
   const enabledMixed = enabledValues.some(
     (value) => value !== settings.enabled,
   );
-  const connectedInput =
-    object.kind === "conveyor" &&
-    beltConnections(state.objects).incoming.has(object.id);
   // Same look as the shared Select trigger (flat compact field).
   const input =
     "h-6 w-full min-w-0 rounded-[3px] border border-[#2c2e33] bg-[#1b1c1f] px-2 text-xs tabular-nums text-text-primary outline-none hover:border-[#3a3d43] focus:border-brand-primary disabled:opacity-40 disabled:hover:border-[#2c2e33] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
@@ -267,10 +234,12 @@ export default function ObjectPropertiesPanel({
             </p>
           </section>
         )}
-        {!mixedKinds && object.kind === "door" && (
+        {!mixedKinds && (
           <section className="mt-5 border-t border-white/10 pt-4">
-            <h3 className="mb-1 text-xs text-text-primary">문</h3>
-            <DoorSettings id={object.id} ids={targets} inputClassName={input} />
+            {/* Same settings components as the Play details panel (live vs. "정지 후 변경 가능"). */}
+            <SettingsOnlyContext.Provider value>
+              <EquipmentDetails object={object} />
+            </SettingsOnlyContext.Provider>
           </section>
         )}
         {mixedKinds && (
@@ -294,169 +263,6 @@ export default function ObjectPropertiesPanel({
             </label>
           </section>
         )}
-        {!mixedKinds &&
-          object.kind !== "dock" &&
-          object.kind !== "rack" &&
-          object.kind !== "floor" &&
-          object.kind !== "door" && (
-            <section className="mt-5 border-t border-white/10 pt-4">
-              <h3 className="mb-3 text-xs text-text-primary">
-                시뮬레이션 설정
-              </h3>
-              {object.kind === "robot" && (
-                <>
-                  <BulkNumber
-                    ids={targets}
-                    kind="robot"
-                    label="작동 속도"
-                    unit="×"
-                    min={0}
-                    exclusiveMin
-                    inputClassName={input}
-                    read={(c) => c.speed}
-                    write={(value) => ({ speed: value })}
-                  />
-                </>
-              )}
-              {object.kind === "amr" && (
-                <BulkNumber
-                  ids={targets}
-                  kind="amr"
-                  label="최대 주행 속도"
-                  unit="m/s"
-                  {...SPEED_LIMITS.amrSpeed}
-                  inputClassName={input}
-                  read={amrSpeedOf}
-                  write={(value, c) => speedPatch("amrSpeed", value, c)}
-                />
-              )}
-              {object.kind === "conveyor" && (
-                <BulkNumber
-                  ids={beltTargets}
-                  kind="conveyor"
-                  label="연결 컨베이어 속도"
-                  unit="m/min"
-                  decimals={2}
-                  {...SPEED_LIMITS.beltSpeed}
-                  inputClassName={input}
-                  read={(c) => toMetersPerMinute(beltSpeedOf(c))}
-                  write={(value, c) =>
-                    speedPatch("beltSpeed", fromMetersPerMinute(value), c)
-                  }
-                />
-              )}
-              {object.kind === "scanner" && (
-                <ScannerSettings
-                  id={object.id}
-                  ids={targets}
-                  inputClassName={input}
-                />
-              )}
-
-              {object.kind === "robot" && (
-                <BulkNumber
-                  className="mt-3"
-                  ids={targets}
-                  kind="robot"
-                  label="집기 범위"
-                  unit="m"
-                  min={0}
-                  exclusiveMin
-                  inputClassName={input}
-                  read={(c) => c.reach}
-                  write={(value) => ({ reach: value })}
-                />
-              )}
-              {object.kind === "robot" && (
-                <EquipmentChoiceSetting
-                  id={object.id}
-                  field="pickFilter"
-                  label="집기 대상"
-                  fallback="all"
-                  options={[
-                    { value: "all", label: "전체" },
-                    { value: "normal", label: "정상품만" },
-                    { value: "defect", label: "불량품만" },
-                  ]}
-                />
-              )}
-              {object.kind === "pallet" && (
-                <BulkNumber
-                  ids={targets}
-                  kind="pallet"
-                  label="적재 개수"
-                  unit="개"
-                  integer
-                  min={1}
-                  inputClassName={input}
-                  read={(c) => c.capacity}
-                  write={(value) => ({ capacity: value })}
-                />
-              )}
-              {object.kind === "pallet" && (
-                <EquipmentChoiceSetting
-                  id={object.id}
-                  field="grade"
-                  label="적재 용도"
-                  fallback="normal"
-                  options={[
-                    { value: "normal", label: "정상품 적재" },
-                    { value: "defect", label: "불량품 적재" },
-                  ]}
-                />
-              )}
-              {object.kind === "conveyor" &&
-                (connectedInput ? (
-                  <p className="mt-3 text-xs text-text-secondary">
-                    앞 구간에서 넘어오는 박스를 이송합니다.
-                  </p>
-                ) : (
-                  <BulkNumber
-                    className="mt-3"
-                    ids={targets.filter((id) => !incoming.has(id))}
-                    kind="conveyor"
-                    applyFilter={(id) =>
-                      !beltConnections(
-                        useSceneStore.getState().objects,
-                      ).incoming.has(id)
-                    }
-                    label="박스 투입량"
-                    unit="개/h"
-                    decimals={2}
-                    {...SPEED_LIMITS.spawnInterval}
-                    inputClassName={input}
-                    read={(c) => toBoxesPerHour(spawnIntervalOf(c))}
-                    write={(value, c) =>
-                      speedPatch("spawnInterval", fromBoxesPerHour(value), c)
-                    }
-                  />
-                ))}
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <label className="flex items-center gap-2 text-xs text-text-primary">
-                  <input
-                    type="checkbox"
-                    checked={settings.enabled}
-                    ref={(el) => {
-                      if (el) el.indeterminate = enabledMixed;
-                    }}
-                    onChange={(e) =>
-                      applyToIds(targets, () => ({
-                        enabled: e.currentTarget.checked,
-                      }))
-                    }
-                  />
-                  작동 활성화
-                  {enabledMixed && (
-                    <span className="text-text-secondary">(혼합)</span>
-                  )}
-                </label>
-                <ApplyAllButton
-                  kind={object.kind}
-                  patch={() => ({ enabled: settings.enabled })}
-                />
-              </div>
-            </section>
-          )}
         {/* {state.editing && object.kind === "conveyor" && (
           <p className="mt-4 text-[11px] leading-relaxed text-sky-300/80">
             끝점의 +를 눌러 좌회전 · 직진 · 우회전 구간을 연결하세요. 끝점끼리

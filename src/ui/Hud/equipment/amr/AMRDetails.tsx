@@ -10,6 +10,10 @@ import { SPEED_LIMITS } from "@/domain/simulation/equipmentSpeeds";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useSceneStore } from "@/stores/useSceneStore";
+import { isForkliftRole } from "@/types/layout";
+import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
+import ShuttlePalletSetting from "@/ui/Hud/equipment/amr/ShuttlePalletSetting";
 import AMRLivePose from "@/ui/Hud/equipment/amr/AMRLivePose";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
@@ -28,6 +32,8 @@ const formatDuration = (seconds: number) => {
 export default function AMRDetails({ object }: EquipmentDetailProps) {
   const agent = useSimulationStore((state) => state.equipment?.agents.find((agent) => agent.id === object.id));
   const telemetry = useEquipmentTelemetry(object.id);
+  const role = useSceneStore((state) => state.settings[object.id]?.amrRole);
+  const forklift = isForkliftRole(role);
   const history = useDerivedMetricsStore((state) => state.agents[object.id]);
   const charging = agent?.state === "charging";
   const chargeSeconds = charging && history?.chargeRate ? Math.max(0, 100 - history.battery) / history.chargeRate : undefined;
@@ -53,11 +59,36 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
       ]} />
     } settings={
       <DetailSection title="AMR 설정">
+        <EquipmentChoiceSetting
+          id={object.id}
+          field="amrRole"
+          label="역할"
+          fallback="pallet"
+          options={[
+            { value: "pallet", label: "팔레트 AMR (출고 운반)" },
+            { value: "shuttle", label: "셔틀 AMR (팔레트 순환)" },
+            { value: "forklift", label: "지게차" },
+            ...(role === "rack" ? [{ value: "rack" as const, label: "지게차 (구버전 값)" }] : []),
+            { value: "agv", label: "AGV (Rack_m 운반)" },
+          ]}
+        />
+        {forklift && (
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="forkliftTask"
+            label="지게차 작업 (팔레트 순환)"
+            fallback="rack"
+            options={[
+              { value: "service", label: "AMR 교체 (만재 → Rack_m, 빈 팔레트 → AMR)" },
+              { value: "rack", label: "랙 (Rack_m → 랙 → 출하)" },
+            ]}
+          />
+        )}
         <EquipmentNumberSetting id={object.id} field="amrSpeed" label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} />
+        <ShuttlePalletSetting id={object.id} />
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
     }>
-
     </EquipmentDetailLayout>
   );
 }

@@ -9,12 +9,17 @@ import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/Equip
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useSceneStore } from "@/stores/useSceneStore";
 import PalletCargo from "@/ui/Hud/cargo/PalletCargo";
 
 export default function PalletDetails({ object }: EquipmentDetailProps) {
   const pallet = useSimulationStore((state) =>
     state.equipment?.pallets.find((pallet) => pallet.id === object.id),
   );
+  const carrier = useSceneStore((state) => {
+    const on = state.settings[object.id]?.mountedOn;
+    return on ? state.objects.find((o) => o.id === on)?.name ?? on : null;
+  });
   const fill =
     pallet && pallet.capacity > 0
       ? (pallet.count / pallet.capacity) * 100
@@ -43,6 +48,7 @@ export default function PalletDetails({ object }: EquipmentDetailProps) {
               value: formatMetric(pallet?.capacity, "개", 0),
             },
             { label: "적재율", value: formatMetric(fill, "%"), progress: fill },
+            { label: "탑재 AMR", value: carrier ?? "없음 (바닥)" },
             {
               label: "운반 상태",
               value: pallet
@@ -75,6 +81,7 @@ export default function PalletDetails({ object }: EquipmentDetailProps) {
               { value: "defect", label: "불량품 적재" },
             ]}
           />
+          {carrier && <p className="text-xs">AMR에서 떼려면 팔레트를 0.8 m 밖으로 옮기세요.</p>}
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>
       }

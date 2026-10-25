@@ -1,0 +1,243 @@
+{
+  "id": "pallet-cycle-pallet-inbound",
+  "name": "팔레트 순환 · 팔레트 단위 입하 (롤러 AMR)",
+  "description": "입하 컨베이어가 박스 대신 적재된 팔레트를 내보내고, 컨베이어와 같은 높이의 롤러 상단 AMR로 팔레트가 바로 이송됩니다. 이후 스캐너 하역 → 재적재 → Rack_m → AGV → 랙 → 출하 흐름은 동일합니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": -25.5467,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 0.7059,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": -6.275,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.2207,
+      "z": -16.4204,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.8575,
+      "z": -16.4204,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -9.773,
+      "z": -28.8937,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "pallet",
+        "spawnInterval": 60,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -9.773,
+      "z": -14.8174,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -9.773,
+      "z": -14.8174,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-7"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 1.2207,
+      "z": 13.4352,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 2.8575,
+      "z": 13.4352,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-10"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 16.8322,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 9.871,
+      "z": 16.8322,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 19.8322,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 4.871,
+      "z": 24.3322,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -1.629,
+      "z": 24.3322,
+      "yaw": 0,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -4.629,
+      "z": 21.3322,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.871,
+      "z": 32.8322,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "rackDrop"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 8.871,
+      "z": 37.3322,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "rack",
+      "x": 13.7648,
+      "z": 37.3322,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "kind": "amr",
+      "x": 8.871,
+      "z": 30.3322,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "rack"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 19.7648,
+      "z": 32.8322,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "dockRole": "stage"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 21.4016,
+      "z": 32.8322,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 22.6223,
+      "z": 44.9585,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "ship",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "floor",
+      "x": 5,
+      "z": 10,
+      "yaw": 0,
+      "floor": {
+        "width": 40,
+        "depth": 100,
+        "wallHeight": 9.5
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 4
+    },
+    {
+      "type": "deliver",
+      "from": 10,
+      "to": 11
+    }
+  ]
+}

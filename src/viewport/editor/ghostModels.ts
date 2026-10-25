@@ -7,7 +7,7 @@ import { poseRobotHome } from "@/domain/robot/ik/joints";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
 import type { ConveyorTurn } from "@/types/layout";
 
-export type GhostModelKind = "robot" | "pallet" | "amr" | "scanner" | "rack";
+export type GhostModelKind = "robot" | "pallet" | "amr" | "scanner" | "rack" | "forklift";
 
 /** Translucent placement preview of a GLB-based asset. */
 export function buildModelGhost(kind: GhostModelKind, scene: Group) {
@@ -24,7 +24,8 @@ export function buildModelGhost(kind: GhostModelKind, scene: Group) {
   } else {
     model = scene.clone(true);
     if (kind === "robot") return translucentClone(poseRobotHome(model));
-    else if (kind === "rack") return translucentClone(model);
+    // Rack.glb / Forklift.glb are placed as authored (ForkliftModel adds no centering either).
+    else if (kind === "rack" || kind === "forklift") return translucentClone(model);
     else {
       const bounds = new Box3().setFromObject(model);
       const center = bounds.getCenter(new Vector3());

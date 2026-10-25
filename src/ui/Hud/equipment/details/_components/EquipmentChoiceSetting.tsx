@@ -4,8 +4,13 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useShallow } from "zustand/react/shallow";
 import { ApplyAllButton } from "@/ui/Hud/object/BulkField";
 import type { EquipmentSettings } from "@/types/layout";
+import PlayLockHint from "@/ui/Hud/equipment/details/_components/PlayLockHint";
+import { usePlayLocked } from "@/ui/Hud/equipment/details/_components/playLockState";
 
-type ChoiceField = "pickFilter" | "grade" | "acceptGrade";
+type ChoiceField = "pickFilter" | "grade" | "acceptGrade" | "conveyorRole" | "dockRole" | "robotRole" | "inboundUnit" | "amrRole" | "forkliftTask" | "rackType";
+
+/** Read when Play starts (simulator construction): changing them mid-run would desync the run. */
+const PLAY_LOCKED: ReadonlySet<ChoiceField> = new Set(["conveyorRole", "dockRole", "robotRole", "inboundUnit", "amrRole", "forkliftTask", "rackType"]);
 
 type Props<F extends ChoiceField> = {
   id: string;
@@ -29,13 +34,15 @@ export default function EquipmentChoiceSetting<F extends ChoiceField>({
   const values = useSceneStore(useShallow((state) => ids.map((target) => String(state.settings[target]?.[field] ?? fallback))));
   const value = (useSceneStore((state) => state.settings[id]?.[field]) ?? fallback) as NonNullable<EquipmentSettings[F]>;
 
+  const playLocked = usePlayLocked();
   if (!kind) return null;
+  const locked = playLocked && PLAY_LOCKED.has(field);
   const mixed = values.some((entry) => entry !== String(value));
 
   return (
-    <div className="mt-2 block text-xs text-text-secondary">
+    <fieldset disabled={locked} className="mt-2 block min-w-0 text-xs text-text-secondary">
       <p className="mb-1">{label}{mixed && " (혼합)"}</p>
-      <div className="flex items-center gap-1">
+      <div className={`flex items-center gap-1${locked ? " opacity-40" : ""}`}>
         <div className="min-w-0 flex-1">
           <Select
             label={label}
@@ -48,6 +55,7 @@ export default function EquipmentChoiceSetting<F extends ChoiceField>({
         </div>
         <ApplyAllButton kind={kind} patch={() => ({ [field]: value }) as Partial<EquipmentSettings>} />
       </div>
-    </div>
+      {locked && <PlayLockHint />}
+    </fieldset>
   );
 }

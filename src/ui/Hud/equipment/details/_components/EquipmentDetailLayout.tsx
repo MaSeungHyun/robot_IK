@@ -8,6 +8,8 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useHudStore } from "@/stores/useHudStore";
 import Icon from "@/components/Icon";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
+import CycleStateSection from "@/ui/Hud/equipment/cycle/CycleStateSection";
+import { useSettingsOnly } from "@/ui/Hud/equipment/details/_components/playLockState";
 
 type Props = EquipmentDetailProps & {
   status: ReactNode;
@@ -27,6 +29,21 @@ export default function EquipmentDetailLayout({
   const selectTab = useHudStore((state) => state.selectInspectorTab);
   const tracking = useCameraTrackingStore((state) => state.trackedId === object.id);
   const toggleTracking = useCameraTrackingStore((state) => state.toggle);
+  const settingsOnly = useSettingsOnly();
+  const settingsBlock = settings && (
+    <fieldset aria-label={`${object.name} 설정`} className="min-w-0">
+      {settings}
+    </fieldset>
+  );
+
+  // Editor properties panel: the very same settings (and cycle state) as Play, without telemetry/links.
+  if (settingsOnly)
+    return (
+      <div className="min-w-0">
+        {settingsBlock}
+        <CycleStateSection id={object.id} />
+      </div>
+    );
 
   return (
     <div className="min-w-0 pb-2">
@@ -57,16 +74,8 @@ export default function EquipmentDetailLayout({
       </div>
 
       <EquipmentIdentity object={object} status={status} />
-      {settings && (
-        <>
-          <fieldset
-            aria-label={`${object.name} 설정`}
-            className="min-w-0"
-          >
-            {settings}
-          </fieldset>
-        </>
-      )}
+      {settingsBlock}
+      <CycleStateSection id={object.id} />
       <DetailSection title="실시간 지표">{summary}</DetailSection>
       <LinkSection object={object} />
       {children}

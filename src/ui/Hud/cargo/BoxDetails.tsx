@@ -27,6 +27,7 @@ const EVENT_LABEL: Record<BoxEventType, string> = {
   store: "랙 보관",
   drop: "출고 구역 하차",
   ship: "출하",
+  unload: "하역 (컨베이어 투입)",
 };
 
 const PALLET_STATE_LABEL: Record<PalletRecord["state"], string> = {
