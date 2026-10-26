@@ -227,6 +227,16 @@ export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{
   const result=findPathBetween({columns,rows,blocked,canTraverse},connectors(start),connectors(goal));
   if(!result)return null;
   const points=[new Vector3(start.x,0,start.z),...result.map(([x,z])=>new Vector3(x*C.grid+minX,0,z*C.grid+minZ)),new Vector3(goal.x,0,goal.z)];
+  // Line-of-sight smoothing (string pulling): from each kept point jump to the farthest later point whose straight
+  // segment is clearance-checked clear, so grid staircases become straight (diagonal) runs. Deterministic.
+  const smoothed:Vector3[]=[points[0]];
+  for(let i=0;i<points.length-1;){
+    // Forward greedy (stop at the first blocked shortcut) keeps the cost linear in path length.
+    let j=i+1;
+    while(j+1<points.length&&segmentClear(points[i],points[j+1]))j++;
+    smoothed.push(points[j]);i=j;
+  }
+  points.length=0;points.push(...smoothed);
   for(let i=1;i<points.length;i++){
     const length=points[i].distanceTo(points[i-1]),steps=Math.max(1,Math.ceil(length/.025));
     for(let n=0;n<=steps;n++){
