@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LinearSRGBColorSpace, NoColorSpace, RepeatWrapping, SRGBColorSpace, TextureLoader } from "three";
 import type { Texture } from "three";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
@@ -27,11 +27,23 @@ export type RoomMaps = Record<Slot, Texture>;
 
 const loader = new TextureLoader();
 const base = new Map<string, Texture>();
+const pending = new Map<string, Promise<void>>();
+/** Resolves once every map of the set has its image (a clone made earlier has a null image, which WebGPU rejects). */
+function loadSet(kind: Kind) {
+  return Promise.all((["map", "normalMap", "roughnessMap"] as const).map((slot) => {
+    const url = SETS[kind][slot];
+    source(url, slot);
+    return pending.get(url);
+  }));
+}
 /** One loaded image per file; per-mesh clones share its Source, so the GPU upload happens once. */
 function source(url: string, slot: Slot) {
   let texture = base.get(url);
   if (!texture) {
-    texture = loader.load(url);
+    let resolve!: () => void;
+    pending.set(url, new Promise<void>((done) => (resolve = done)));
+    // An error still resolves so the surface falls back to the flat look instead of waiting forever.
+    texture = loader.load(url, () => resolve(), undefined, () => resolve());
     texture.wrapS = texture.wrapT = RepeatWrapping;
     texture.colorSpace = slot === "map" ? SRGBColorSpace : slot === "normalMap" ? NoColorSpace : LinearSRGBColorSpace;
     texture.anisotropy = 4;
@@ -46,8 +58,16 @@ function source(url: string, slot: Slot) {
  */
 export function useRoomMaps(kind: Kind, width: number, height: number): RoomMaps | null {
   const lowQuality = useViewportSettingsStore((state) => state.renderQuality === "performance");
+  const [loaded, setLoaded] = useState<ReadonlySet<Kind>>(() => new Set());
+  const ready = loaded.has(kind);
+  useEffect(() => {
+    if (lowQuality || ready) return;
+    let live = true;
+    void loadSet(kind).then(() => { if (live) setLoaded((prev) => new Set(prev).add(kind)); });
+    return () => { live = false; };
+  }, [kind, lowQuality, ready]);
   const maps = useMemo(() => {
-    if (lowQuality) return null;
+    if (lowQuality || !ready) return null;
     const set = SETS[kind];
     const make = (slot: Slot) => {
       const texture = source(set[slot], slot).clone();
@@ -55,7 +75,7 @@ export function useRoomMaps(kind: Kind, width: number, height: number): RoomMaps
       return texture;
     };
     return { map: make("map"), normalMap: make("normalMap"), roughnessMap: make("roughnessMap") };
-  }, [kind, width, height, lowQuality]);
+  }, [kind, width, height, lowQuality, ready]);
   useEffect(() => () => {
     if (maps) for (const texture of Object.values(maps)) texture.dispose();
   }, [maps]);
