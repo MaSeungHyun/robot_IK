@@ -20,7 +20,11 @@ interface ViewportSettings {
   minimap: boolean;
   /** Steel deck ceiling with trusses and LED panels inside rooms. */
   ceiling: boolean;
+  /** Use three's WebGPURenderer (falls back to WebGL when unavailable). Off = WebGL. */
+  webgpu: boolean;
 }
+
+export type ActiveRenderer = "webgl" | "webgpu";
 
 interface ViewportSettingsState extends ViewportSettings {
   /**
@@ -28,6 +32,15 @@ interface ViewportSettingsState extends ViewportSettings {
    * performance mode without shadows/bloom. User prefs stay untouched; read via the select* helpers.
    */
   minimapFullscreen: boolean;
+  /** Transient: the renderer the Canvas actually created (null until it exists). */
+  activeRenderer: ActiveRenderer | null;
+  /** Transient: why WebGPU was requested but WebGL runs (null = no notice). */
+  rendererNotice: string | null;
+  /** Transient: WebGPU init failed this session; the Canvas remounts as WebGL until the option is toggled. */
+  webgpuFailed: boolean;
+  setActiveRenderer: (renderer: ActiveRenderer, notice: string | null) => void;
+  setWebGPUFailed: (failed: boolean) => void;
+  setWebGPU: (enabled: boolean) => void;
   setMinimapFullscreen: (open: boolean) => void;
   setRenderQuality: (quality: RenderQuality) => void;
   setBloomEnabled: (enabled: boolean) => void;
@@ -46,6 +59,7 @@ const DEFAULT_SETTINGS: ViewportSettings = {
   perfExpanded: false,
   minimap: false,
   ceiling: true,
+  webgpu: false,
 };
 
 export const SETTINGS_COOKIE = "sf_settings";
@@ -70,6 +84,7 @@ function sanitize(raw: unknown): ViewportSettings {
       typeof value.perfExpanded === "boolean" ? value.perfExpanded : DEFAULT_SETTINGS.perfExpanded,
     minimap: typeof value.minimap === "boolean" ? value.minimap : DEFAULT_SETTINGS.minimap,
     ceiling: typeof value.ceiling === "boolean" ? value.ceiling : DEFAULT_SETTINGS.ceiling,
+    webgpu: typeof value.webgpu === "boolean" ? value.webgpu : DEFAULT_SETTINGS.webgpu,
   };
 }
 
@@ -78,6 +93,12 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
     (set) => ({
       ...DEFAULT_SETTINGS,
       minimapFullscreen: false,
+      activeRenderer: null,
+      rendererNotice: null,
+      webgpuFailed: false,
+      setActiveRenderer: (activeRenderer, rendererNotice) => set({ activeRenderer, rendererNotice }),
+      setWebGPUFailed: (webgpuFailed) => set({ webgpuFailed }),
+      setWebGPU: (webgpu) => set({ webgpu, webgpuFailed: false, rendererNotice: null }),
       setMinimapFullscreen: (minimapFullscreen) => set({ minimapFullscreen }),
       setRenderQuality: (renderQuality) => set({ renderQuality }),
       setBloomEnabled: (bloomEnabled) => set({ bloomEnabled }),
@@ -93,7 +114,7 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
       version: SETTINGS_VERSION,
       // A corrupt cookie throws inside persist's hydrate, which is caught, so defaults stay.
       storage: createJSONStorage(() => createCookieStorage()),
-      partialize: ({ renderQuality, bloomEnabled, shadowQuality, perfOverlay, perfExpanded, minimap, ceiling }) => ({
+      partialize: ({ renderQuality, bloomEnabled, shadowQuality, perfOverlay, perfExpanded, minimap, ceiling, webgpu }) => ({
         renderQuality,
         bloomEnabled,
         shadowQuality,
@@ -101,6 +122,7 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
         perfExpanded,
         minimap,
         ceiling,
+        webgpu,
       }),
       // Future schema changes: transform `persisted` by `version` here; sanitize() covers the rest.
       migrate: (persisted) => sanitize(persisted),

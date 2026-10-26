@@ -16,6 +16,8 @@ const H = DROP_IN.hologram;
  * with `uniformsNeedUpdate`, so staggered objects share one program and no material is cloned or recompiled.
  */
 export const dropInMaterial = new ShaderMaterial({
+  // WebGPU: renders through the TSL port in viewport/renderer/nodeFallbacks.ts.
+  userData: { webgpuNode: "dropIn" },
   uniforms: {
     uColor: { value: new Color(H.color) },
     uMinY: { value: 0 },

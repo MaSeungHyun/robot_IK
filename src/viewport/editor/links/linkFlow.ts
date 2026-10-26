@@ -10,6 +10,8 @@ export const LINK_FLOW_TIME = { value: 0 };
  */
 export function createLinkFlowMaterial(color: string) {
   return new ShaderMaterial({
+    // WebGPU: renders through the TSL port in viewport/renderer/nodeFallbacks.ts.
+    userData: { webgpuNode: "linkFlow" },
     transparent: true,
     depthWrite: false,
     side: DoubleSide,

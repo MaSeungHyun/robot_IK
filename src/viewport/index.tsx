@@ -17,6 +17,9 @@ import CameraRig from "@/viewport/camera/CameraRig";
 import ShadowLight from "@/viewport/shadows/ShadowLight";
 import WorldAxes from "@/viewport/WorldAxes";
 import PostProcessing from "./PostProcessing";
+import WebGPUFrame from "@/viewport/renderer/WebGPUFrame";
+import { createRenderer, isWebGPURenderer } from "@/viewport/renderer/createRenderer";
+import { configureKTX2 } from "@/lib/three/gltfLoader";
 import { RENDER_QUALITY } from "@/constants/viewport";
 import {
   selectRenderQuality,
@@ -31,6 +34,9 @@ const CAMERA = { position: [5, 4.5, 6] as [number, number, number], fov: 45 };
 
 export default function Viewport() {
   const renderQuality = useViewportSettingsStore(selectRenderQuality);
+  // Requested renderer; a failed WebGPU init remounts as WebGL until the option is toggled again.
+  const wantWebGPU = useViewportSettingsStore((s) => s.webgpu && !s.webgpuFailed);
+  const webgpu = useViewportSettingsStore((s) => s.activeRenderer === "webgpu");
   const ambientLight = useRef<AmbientLight>(null);
   const bloomLights = useMemo(() => [ambientLight], []);
   const { transferMode, run, running, setStats, setProgress } =
@@ -53,14 +59,18 @@ export default function Viewport() {
     <div className="relative h-full w-full bg-[#101820]">
       <SceneBoundary resetKey={run}>
         <Canvas
+          // Switching renderer needs a fresh canvas and root; R3F disposes the old renderer on unmount.
+          key={wantWebGPU ? "webgpu" : "webgl"}
           camera={CAMERA}
-          // No canvas MSAA: the EffectComposer renders the frame with its own multisampling.
-          gl={{ antialias: false, stencil: true }}
+          // WebGL: no canvas MSAA (the EffectComposer multisamples), stencil for the outline. See createRenderer.
+          gl={(props) => createRenderer(props, wantWebGPU)}
           shadows="percentage"
           dpr={[1, RENDER_QUALITY[renderQuality].maxDpr]}
           onCreated={({ gl }) => {
+            // KTX2 textures (optimized GLBs): pick transcode targets for this renderer.
+            configureKTX2(gl);
             // Synchronous shader error checks block on every compile; keep them for development.
-            if (import.meta.env.PROD) gl.debug.checkShaderErrors = false;
+            if (import.meta.env.PROD && !isWebGPURenderer(gl)) gl.debug.checkShaderErrors = false;
           }}
           onPointerMissed={(event) => {
             if (
@@ -71,6 +81,10 @@ export default function Viewport() {
               useSceneStore.getState().select(null);
           }}
         >
+          {webgpu ? (
+            // drei Grid is a GLSL ShaderMaterial (WebGL only): a finite line grid, same cell/section colours.
+            <gridHelper args={[200, 800, "#555555", "#666666"]} position={[0, -0.01, 0]} />
+          ) : (
           <Grid
             infiniteGrid
             followCamera
@@ -83,6 +97,7 @@ export default function Viewport() {
             fadeDistance={1000}
             position={[0, -0.01, 0]}
           />
+          )}
           <WorldAxes />
 
           <CameraRig />
@@ -108,7 +123,7 @@ export default function Viewport() {
                 onProgress={onProgress}
               />
             </Suspense>
-            <PostProcessing lights={bloomLights} />
+            {webgpu ? <WebGPUFrame /> : <PostProcessing lights={bloomLights} />}
           </Selection>
         </Canvas>
       </SceneBoundary>

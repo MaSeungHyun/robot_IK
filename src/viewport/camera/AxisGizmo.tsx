@@ -19,6 +19,11 @@ const AXES = [
   { dir: [0, 0, -1], color: "#2080ff" },
 ] as const;
 
+/** WebGLRenderer exposes capabilities; WebGPURenderer has getMaxAnisotropy() on the renderer itself. */
+const maxAnisotropy = (gl: unknown) => {
+  const renderer = gl as { capabilities?: { getMaxAnisotropy?(): number }; getMaxAnisotropy?(): number };
+  return (renderer.capabilities?.getMaxAnisotropy?.() ?? renderer.getMaxAnisotropy?.()) || 1;
+};
 const stop = (event: ThreeEvent<PointerEvent | MouseEvent>) => event.stopPropagation();
 
 function AxisHead({ dir, color, label, onSelect, onPress }: {
@@ -64,7 +69,7 @@ function AxisHead({ dir, color, label, onSelect, onPress }: {
     >
       <spriteMaterial
         map={texture}
-        map-anisotropy={gl.capabilities.getMaxAnisotropy() || 1}
+        map-anisotropy={maxAnisotropy(gl)}
         alphaTest={0.3}
         opacity={label ? 1 : 0.75}
         toneMapped={false}

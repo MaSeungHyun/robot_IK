@@ -2,8 +2,9 @@ import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import {
   AmbientLight, Box3, Color, DirectionalLight, Group, Mesh, MeshBasicMaterial, PerspectiveCamera,
-  PlaneGeometry, Scene, Sphere, SRGBColorSpace, Vector3, WebGLRenderTarget,
+  PlaneGeometry, Scene, Sphere, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from "three";
+import { isWebGPURenderer } from "@/viewport/renderer/createRenderer";
 import type { Object3D } from "three";
 import { createUnitPallet } from "@/lib/three/modelNormalization";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
@@ -38,7 +39,7 @@ function dockPlane(color: string) {
  */
 export default function ThumbnailBaker() {
   const settled = useModelsSettled();
-  const gl = useThree((state) => state.gl);
+  const canvasGl = useThree((state) => state.gl);
   const setThumbnails = useThumbnailStore((state) => state.setThumbnails);
 
   useEffect(() => {
@@ -153,6 +154,9 @@ export default function ThumbnailBaker() {
         return null;
       }
     };
+    // WebGPURenderer has no synchronous readRenderTargetPixels: bake on a private WebGL renderer instead.
+    const ownRenderer = isWebGPURenderer(canvasGl) ? new WebGLRenderer({ alpha: true }) : null;
+    const gl = ownRenderer ?? canvasGl;
     const previousTarget = gl.getRenderTarget(),
       previousColor = gl.getClearColor(new Color()),
       previousAlpha = gl.getClearAlpha();
@@ -185,10 +189,14 @@ export default function ThumbnailBaker() {
       gl.setRenderTarget(previousTarget);
       gl.setClearColor(previousColor, previousAlpha);
       target.dispose();
+      if (ownRenderer) {
+        ownRenderer.dispose();
+        ownRenderer.forceContextLoss();
+      }
       for (const dispose of disposers) dispose();
       setThumbnails(result);
     }
-  }, [settled, gl, setThumbnails]);
+  }, [settled, canvasGl, setThumbnails]);
 
   return null;
 }

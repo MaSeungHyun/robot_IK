@@ -8,6 +8,7 @@ type Props<T extends string> = {
   onValueChange: (value: T) => void;
   /** Trigger width class. Defaults to full width. */
   widthClassName?: string;
+  disabled?: boolean;
 };
 
 /** Flat compact select shared across the app (playback speed style). */
@@ -17,11 +18,13 @@ export default function Select<T extends string>({
   options,
   onValueChange,
   widthClassName = "w-full",
+  disabled = false,
 }: Props<T>) {
   const current = options.find((option) => option.value === value)?.label;
   return (
     <RadixSelect.Root
       value={value}
+      disabled={disabled}
       onValueChange={(value) => {
         const option = options.find((option) => option.value === value);
         if (option) onValueChange(option.value);
@@ -30,7 +33,7 @@ export default function Select<T extends string>({
       <RadixSelect.Trigger
         aria-label={label}
         title={current}
-        className={`flex h-6 ${widthClassName} items-center justify-between gap-2 rounded-[3px] border border-[#2c2e33] bg-[#1b1c1f] px-2 text-xs tabular-nums text-text-primary outline-none hover:border-[#3a3d43] focus-visible:border-brand-primary data-[state=open]:border-brand-primary`}
+        className={`flex h-6 ${widthClassName} items-center justify-between gap-2 rounded-[3px] border border-[#2c2e33] bg-[#1b1c1f] px-2 text-xs tabular-nums text-text-primary outline-none hover:border-[#3a3d43] focus-visible:border-brand-primary data-[state=open]:border-brand-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[#2c2e33]`}
       >
         <span className="min-w-0 flex-1 truncate text-left">
           <RadixSelect.Value />

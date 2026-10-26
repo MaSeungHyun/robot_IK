@@ -64,6 +64,8 @@ export class SelectionOutline {
     toneMapped: false,
   });
   private material = new ShaderMaterial({
+    // WebGPU: renders through the TSL port in viewport/renderer/nodeFallbacks.ts.
+    userData: { webgpuNode: "outlineHull" },
     side: BackSide,
     depthWrite: false,
     depthTest: false,
