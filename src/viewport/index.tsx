@@ -30,9 +30,7 @@ import WalkControls from "@/viewport/walk/WalkControls";
 const CAMERA = { position: [5, 4.5, 6] as [number, number, number], fov: 45 };
 
 export default function Viewport() {
-  const renderQuality = useViewportSettingsStore(
-    selectRenderQuality,
-  );
+  const renderQuality = useViewportSettingsStore(selectRenderQuality);
   const ambientLight = useRef<AmbientLight>(null);
   const bloomLights = useMemo(() => [ambientLight], []);
   const { transferMode, run, running, setStats, setProgress } =

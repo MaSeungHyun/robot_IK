@@ -90,8 +90,11 @@ export default function Minimap() {
   const running = useSimulationStore((state) => state.running);
 
   const isPlaying = running;
-  const fullscreen = useViewportSettingsStore((state) => state.minimapFullscreen);
-  const setFullscreen = useViewportSettingsStore.getState().setMinimapFullscreen;
+  const fullscreen = useViewportSettingsStore(
+    (state) => state.minimapFullscreen,
+  );
+  const setFullscreen =
+    useViewportSettingsStore.getState().setMinimapFullscreen;
   const view = useRef({ scale: 1, ox: 0, oz: 0 });
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 220, height: 124 });
@@ -115,9 +118,17 @@ export default function Minimap() {
       if (fullscreen) {
         // Start below the app header (its height varies with wrapping), then fill the rest minus
         // the overlay inset (12 px each side + p-1 + border = 34 px).
-        const header = document.querySelector("header[aria-label='애플리케이션 헤더']");
+        const header = document.querySelector(
+          "header[aria-label='애플리케이션 헤더']",
+        );
         const top = header
-          ? Math.max(0, Math.round(header.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top))
+          ? Math.max(
+              0,
+              Math.round(
+                header.getBoundingClientRect().bottom -
+                  viewport.getBoundingClientRect().top,
+              ),
+            )
           : 0;
         setHeaderOffset(top);
         const width = Math.max(1, Math.round(vw - 34)),
@@ -241,7 +252,15 @@ export default function Minimap() {
         if (o.kind === "door") {
           // Door: a gap in the wall line plus a thin marker across it.
           const width = useSceneStore.getState().settings[o.id]?.doorWidth ?? 4;
-          rect(o.x, o.z, o.yaw, width, 0.5, "rgba(0,0,0,0.55)", CATEGORY.door.color);
+          rect(
+            o.x,
+            o.z,
+            o.yaw,
+            width,
+            0.5,
+            "rgba(0,0,0,0.55)",
+            CATEGORY.door.color,
+          );
           continue;
         }
         const live = minimapLive.get(o.id);
@@ -267,7 +286,9 @@ export default function Minimap() {
           o.yaw,
           w,
           d,
-          o.kind in CATEGORY ? CATEGORY[o.kind as Category].color : colors.equipment,
+          o.kind in CATEGORY
+            ? CATEGORY[o.kind as Category].color
+            : colors.equipment,
         );
       }
       // Forklifts: live carriers without an "amr" scene object of their own.
@@ -336,7 +357,7 @@ export default function Minimap() {
         "absolute z-50 rounded-md border border-white/10 bg-bg-primary/80 p-1 backdrop-blur-sm",
         fullscreen
           ? "inset-3 z-[60]"
-          : cn("bottom-3", isPlaying ? "left-3" : "left-16"),
+          : cn("bottom-3", isPlaying ? "left-3" : "left-14"),
       )}
       style={fullscreen ? { top: headerOffset + 12 } : undefined}
     >
@@ -355,15 +376,22 @@ export default function Minimap() {
           aria-label="미니맵 범례"
           className="pointer-events-none absolute left-3 top-3 z-10 flex flex-col gap-1 rounded-sm border border-white/10 bg-bg-primary/80 px-2 py-1.5 text-xs text-text-secondary"
         >
-          {CATEGORY_ORDER.filter(
-            (c) =>
-              (c === "forklift" ? hasForklift : presentKey.split(",").includes(c)),
+          {CATEGORY_ORDER.filter((c) =>
+            c === "forklift" ? hasForklift : presentKey.split(",").includes(c),
           ).map((c) => (
             <li key={c} className="flex items-center gap-2">
               <span
                 aria-hidden
-                className={cn("size-2.5 shrink-0", c === "amr" ? "rounded-full" : "rounded-[2px]")}
-                style={{ background: c === "amr" ? "var(--color-brand-primary, #2dd4bf)" : CATEGORY[c].color }}
+                className={cn(
+                  "size-2.5 shrink-0",
+                  c === "amr" ? "rounded-full" : "rounded-[2px]",
+                )}
+                style={{
+                  background:
+                    c === "amr"
+                      ? "var(--color-brand-primary, #2dd4bf)"
+                      : CATEGORY[c].color,
+                }}
               />
               {CATEGORY[c].label}
             </li>
