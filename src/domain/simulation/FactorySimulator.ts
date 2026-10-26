@@ -39,6 +39,8 @@ import { log } from "@/stores/useLogStore";
 import { ForkliftController, type ForkliftJob, type ForkliftTarget } from "@/domain/amr/ForkliftController";
 import { isForkliftRole } from "@/types/layout";
 import { FORKLIFT_CONFIG, forkliftStop } from "@/constants/forklift";
+
+const ROUTE_CACHE_SIZE = 256;
 import { DOOR_CONFIG } from "@/constants/door";
 import { wallSegments } from "@/domain/room/roomWalls";
 import { PALLET_CONVEYOR } from "@/constants/palletConveyor";
@@ -292,6 +294,10 @@ export class FactorySimulator {
   private fullReported = new Set<PalletController>();
   /** Per-step scratch (advance runs every fixed step; avoid allocations). */
   private readonly reachableScratch = new Set<CargoGrade>();
+  private readonly pickBoxes: Cargo[] = [];
+  private readonly pickGrades: CargoGrade[] = [];
+  private readonly nearBoxes: Cargo[] = [];
+  private readonly nearGrades: CargoGrade[] = [];
   private readonly shipmentScratch: Shipment[] = [];
   constructor(
     objects: SceneEquipment[],
@@ -696,7 +702,8 @@ export class FactorySimulator {
     // No scan-start robot: the AMR drives to a scanner line's belt start and rolls the boxes off its own deck.
     const selfFeed = starts.length ? [] : this.selfFeedDocks(settings);
     if (!starts.length && !selfFeed.length) {
-      this.holdWarn(hold, "scanner", "스캐너 시작 로봇·스캐너 라인 없음 · 입하 팔레트 대기", "스캐너 앞 컨베이어에 하역 로봇을 두거나, 스캐너로 이어지는 컨베이어 시작점을 비워 AMR이 직접 투입하게 하세요");
+      // Partial layout: the receive step still runs; the AMR keeps the pallet on its deck at home (next stage missing).
+      this.parkFeed(hold, held, candidates, "스캐너 시작 로봇·스캐너 라인 없음");
       return;
     }
     const served = (d: SceneEquipment) => starts.some((r) => distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5);
@@ -706,11 +713,12 @@ export class FactorySimulator {
     // One AMR at the dock (booked until it has unloaded and driven clear) plus one waiting at the staging distance.
     const docks = (preferred.length ? preferred : scanDocks).filter((d) => settings[d.id]?.enabled !== false && !this.shipments.some((sh) => sh.dock.id === d.id) && (this.feedDockQueue.get(d.id)?.length ?? 0) < FEED_DOCK_BOOKINGS);
     if (!scanDocks.length) {
-      this.holdWarn(hold, "scanner", "스캐너 시작 로봇 옆에 하역 위치(dock)가 없습니다", "스캐너 시작 로봇 작업 범위 안에 하역 dock을 두세요");
+      this.parkFeed(hold, held, candidates, "스캐너 시작 로봇 옆 하역 위치(dock) 없음");
       return;
     }
     if (!docks.length) {
-      this.holdWarn(hold, "dock", this.unloadDocks.length ? "하역 위치가 비기를 대기" : "입하 팔레트를 내려놓을 하역 위치(dock: 하역)가 없습니다");
+      if (this.unloadDocks.length) this.holdWarn(hold, "dock", "하역 위치가 비기를 대기");
+      else this.parkFeed(hold, held, candidates, "하역 위치(dock: 하역) 없음");
       return;
     }
     const receive = this.receivePoint(hold.belt);
@@ -786,6 +794,60 @@ export class FactorySimulator {
       agent.completed++;
       agent.target = null;
       log("info", `${agent.object.name}: 입하 팔레트 ${dock.name} 도착 · AMR 위에서 로봇이 하역`, `박스 ${boxes.length}`);
+    }, routes);
+  }
+  /**
+   * Next stage missing (no scanner line / unload dock): an AMR still receives the pallet at the belt end and carries
+   * it back to its home, where it holds it on its deck (never set down, never unloaded) until the run is reset.
+   * Deterministic: candidates keep scene order, ties keep the first.
+   */
+  private parkFeed(hold: PalletHold, held: HeldPallet, candidates: FactoryAgent[], missing: string) {
+    const receive = this.receivePoint(hold.belt);
+    const obstacles: NavigationObstacle[] = [
+      ...this.wallObstacles,
+      ...this.robots.map((r) => ({ kind: r.object.kind, pose: r.object })),
+      ...this.belts.filter((b) => b.object.id !== hold.belt.id).map((b) => ({ kind: b.object.kind, pose: b.object })),
+      ...this.pallets.filter((p) => !p.shipping).map((p) => ({ kind: p.object.kind, pose: p.object })),
+      ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
+      ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
+    ];
+    const fwd = { x: Math.sin(receive.yaw), z: Math.cos(receive.yaw) };
+    let best: { agent: FactoryAgent; layout: FactoryLayout; routes: DispatchRoutes; park: SceneEquipment; cost: number } | null = null;
+    for (const agent of candidates) {
+      const home = agent.dispatch.home;
+      const park = { ...agent.object, id: `park:${agent.object.id}`, kind: "dock", name: `${agent.object.name} 보관 위치`, x: home.x, z: home.z } as SceneEquipment;
+      const from = agent.dispatch.carrier.position;
+      const layout: FactoryLayout = { robot: { x: 1e4, z: 1e4, yaw: 0 }, conveyor: hold.belt, pallet: { x: receive.x, z: receive.z, yaw: receive.yaw }, amr: { x: from.x, z: from.z, yaw: 0 }, dock: park };
+      let pickup: Vector3[] | null = null, approach = receive.v;
+      for (const back of [0, 0.5, 1, 1.5, 2, 2.5]) {
+        approach = new Vector3(receive.x + fwd.x * back, 0, receive.z + fwd.z * back);
+        const path = layoutPath(layout, layout.amr, { x: approach.x, z: approach.z }, false, obstacles);
+        if (path) { pickup = back ? [...path, receive.v.clone()] : path; break; }
+      }
+      if (!pickup) continue;
+      const leave = layoutPath(layout, approach, park, true, obstacles);
+      if (!leave) continue;
+      const dispatch = approach.equals(receive.v) ? leave : [receive.v.clone(), ...leave];
+      const cost = pickup.reduce((sum, p, i) => sum + (i ? p.distanceTo(pickup![i - 1]) : 0), 0);
+      if (best && cost >= best.cost) continue;
+      best = { agent, layout, park, cost, routes: { pickup, dispatch, returning: [home.clone()], feed: { heading: receive.yaw, lane: approach }, hold: { busy: () => true, emptyHome: () => {} } } };
+    }
+    if (!best) {
+      this.holdWarn(hold, "route", `${missing} · AMR가 받는 위치로 갈 경로가 없습니다`, "컨베이어 끝 앞(0.95 m)을 비워 주세요");
+      return;
+    }
+    const { agent, layout, routes, park } = best;
+    held.agent = agent;
+    hold.warned = null;
+    agent.waiting = false;
+    agent.waitingReason = null;
+    agent.target = hold.belt.name;
+    agent.dispatch.configure(layout, obstacles);
+    this.navigation.set(agent.object.id, { layout, obstacles });
+    log("warning", `${hold.belt.name}: 다음 단계 없음 (${missing}) · ${agent.object.name}이(가) 팔레트를 받아 보관 위치에서 대기`, "스캐너 라인·하역 로봇·하역 dock을 추가하면 이어서 진행됩니다");
+    agent.dispatch.request(held.group, () => {
+      agent.target = `${park.name} (보관)`;
+      log("info", `${agent.object.name}: 입하 팔레트 보관 중 · 다음 단계 없음`, missing);
     }, routes);
   }
   /** The previous receiver has driven clear of the receive pose (two footprints + margin). */
@@ -1263,22 +1325,38 @@ export class FactorySimulator {
     this.advanceOutbound(dt, settings);
     // Pickable boxes (moving, not on a ship belt) with their grade, computed once per step instead of once per
     // robot × pallet; this loop dominated the step at high speed with many robots.
-    let pickable: { box: Cargo; grade: CargoGrade }[] | null = null;
+    // Scratch arrays are reused across steps (no per-step filter/map/closure allocations); same order, same boxes.
+    let pickable = false;
+    const pickBoxes = this.pickBoxes, pickGrades = this.pickGrades, nearBoxes = this.nearBoxes, nearGrades = this.nearGrades;
     for (const robot of this.robots) {
       const config = settings[robot.object.id];
       if (robot.busy || !config.enabled || this.depalletizers.includes(robot)) continue;
-      pickable ??= this.boxes
-        .filter((box) => box.state === "moving" && settings[box.belt.id]?.conveyorRole !== "ship")
-        .map((box) => ({ box, grade: this.grade(box) }));
+      if (!pickable) {
+        pickable = true;
+        pickBoxes.length = 0;
+        pickGrades.length = 0;
+        for (const box of this.boxes)
+          if (box.state === "moving" && settings[box.belt.id]?.conveyorRole !== "ship") {
+            pickBoxes.push(box);
+            pickGrades.push(this.grade(box));
+          }
+      }
       // Boxes this robot could take regardless of pallet (feed belt, reach, not yet attempted), in box order.
       const feed = this.feedBelts.get(robot.object.id);
-      const near = pickable.filter(
-        ({ box }) =>
+      nearBoxes.length = 0;
+      nearGrades.length = 0;
+      for (let i = 0; i < pickBoxes.length; i++) {
+        const box = pickBoxes[i];
+        if (
           (!feed || feed.has(box.belt.id)) &&
           !box.attempted.has(robot.object.id) &&
-          distance(robot.object, box.node.position) <= config.reach - 0.05,
-      );
-      if (!near.length) continue;
+          distance(robot.object, box.node.position) <= config.reach - 0.05
+        ) {
+          nearBoxes.push(box);
+          nearGrades.push(pickGrades[i]);
+        }
+      }
+      if (!nearBoxes.length) continue;
       const filter = config.pickFilter ?? "all";
       // Grades that have a pallet within this robot's reach. With the "all" filter a box
       // goes to a pallet of its own grade when one exists, otherwise to any pallet (legacy).
@@ -1302,7 +1380,8 @@ export class FactorySimulator {
           target = pallet.slots[slot],
           grade = palletGrade(settings[pallet.object.id]);
         if (distance(robot.object, target) > config.reach) continue;
-        for (const { box, grade: boxGrade } of near) {
+        for (let n = 0; n < nearBoxes.length; n++) {
+          const box = nearBoxes[n], boxGrade = nearGrades[n];
           // Non-matching boxes are left on the belt and continue downstream.
           if (filter !== "all" && boxGrade !== filter) continue;
           if (
@@ -2288,8 +2367,25 @@ export class FactorySimulator {
   }
   /** Forklift floor route around fixed equipment (other AMRs are not considered). */
   private forkliftRoute(from: Vector3, to: Vector3, loaded: boolean, extra: NavigationObstacle[] = []) {
-    return layoutPath(this.rackLayout, from, to, loaded, extra.length ? [...this.rackObstacles, ...extra] : this.rackObstacles);
+    // layoutPath is a pure function of its inputs and rackLayout / rackObstacles are fixed for the run, so a route
+    // with exactly the same start, goal, load and extra obstacles is the same route. Held forklifts retry the same
+    // (often unreachable, whole-grid) search every second while nothing around them moves; those become lookups.
+    let key = `${from.x},${from.z}>${to.x},${to.z}:${loaded ? 1 : 0}`;
+    for (const o of extra) {
+      key += `|${o.kind},${o.pose.x},${o.pose.z},${o.pose.yaw},${o.radius ?? ""}`;
+      if (o.path) for (const p of o.path) key += `;${p.x},${p.z}`;
+    }
+    let path = this.routeCache.get(key);
+    if (path === undefined) {
+      path = layoutPath(this.rackLayout, from, to, loaded, extra.length ? [...this.rackObstacles, ...extra] : this.rackObstacles);
+      if (this.routeCache.size >= ROUTE_CACHE_SIZE) this.routeCache.delete(this.routeCache.keys().next().value!);
+      this.routeCache.set(key, path);
+    }
+    // Callers own (and may advance through) the returned points.
+    return path && path.map((point) => point.clone());
   }
+  /** Exact-input forklift route results (null = no route); oldest dropped first. */
+  private routeCache = new Map<string, Vector3[] | null>();
   /** Forklift traffic: wait seconds per forklift while held, and the next detour attempt. */
   private forkliftTraffic = new Map<string, { wait: number; retry: number }>();
   private forkliftAhead = new Vector3();
