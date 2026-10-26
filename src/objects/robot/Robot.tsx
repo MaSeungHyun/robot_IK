@@ -9,6 +9,8 @@ import type {
 } from "../../types/robot";
 import type { RobotController } from "@/domain/robot/RobotController";
 import { SuctionRobotController } from "@/domain/robot/SuctionRobotController";
+import { conveyorKeepOut } from "@/domain/robot/ik/keepOut";
+import { useSceneStore } from "@/stores/useSceneStore";
 import { robotArmUrl as robot } from "@/constants/modelAssets";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { simulationClock } from "@/domain/simulation/simulationClock";
@@ -56,6 +58,7 @@ export default function Robot({
       pickupRadius,
       transferMode,
       getJobs: () => inputs.current.jobs.current,
+      getKeepOut: () => conveyorKeepOut(useSceneStore.getState().objects),
       onProgress: (count, status) => inputs.current.onProgress(count, status),
     });
     controller.current = instance;

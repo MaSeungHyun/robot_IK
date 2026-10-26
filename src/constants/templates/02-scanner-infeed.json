@@ -1,0 +1,124 @@
+{
+  "id": "scanner-infeed",
+  "name": "스캐너 투입 (AMR 도킹 → 로봇 하역)",
+  "description": "입고 컨베이어가 적재 팔레트를 롤러 AMR에 넘기고, AMR이 스캐너 쪽 컨베이어 옆 도크에 붙으면 로봇이 AMR 위 박스를 하나씩 스캐너 컨베이어에 올립니다. 빈 팔레트는 지게차가 빈 팔레트 적치장으로 옮깁니다.",
+  "equipment": [
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": -25.5467,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "fed",
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 0,
+      "z": 0.7059,
+      "yaw": 0,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "scanner",
+      "x": 0,
+      "z": -6.275,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": -1.3707,
+      "z": -16.4204,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -3.0075,
+      "z": -16.4204,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "unload"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -9.923,
+      "z": -28.8937,
+      "yaw": 0,
+      "settings": {
+        "conveyorRole": "inbound",
+        "inboundUnit": "pallet",
+        "spawnInterval": 60,
+        "autoSpawn": true
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -12.923,
+      "z": -14.8174,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle",
+        "emptyPallet": "forklift"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -12.923,
+      "z": -14.8174,
+      "yaw": 0,
+      "settings": {
+        "capacity": 4,
+        "mountedOn": "amr-7"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -7.7096,
+      "z": -9.0432,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -7.7096,
+      "z": -4.0432,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "floor",
+      "x": -2.7317,
+      "z": -11.6704,
+      "yaw": 0,
+      "floor": {
+        "width": 40,
+        "depth": 60,
+        "wallHeight": 10
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "feed",
+      "from": 5,
+      "to": 6
+    },
+    {
+      "type": "deliver",
+      "from": 7,
+      "to": 4
+    }
+  ]
+}

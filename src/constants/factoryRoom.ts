@@ -14,6 +14,8 @@ export const FACTORY_ROOM = {
    * (Rack.glb 7.55 m -> 9.5 m), raised to at least 10 m for rack headroom. Used by templates and as the starting height when drawing a floor.
    */
   defaultWallHeight: Math.max(10, Math.ceil((RACK_MODEL.max[1] + GIRDER_DEPTH + 0.06 + RACK_OVERHEAD) / WALL_STEP) * WALL_STEP),
+  /** Scene template floor (m): x width, z depth (the line flow runs along z). */
+  templateFloor: { width: 40, depth: 60 },
   baySpacing: 4,
   trussSpacing: 4,
   panelWidth: 1.2,

@@ -1,5 +1,6 @@
 import { Vector3 } from "three";
 import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
+import { AMR_STALL_REPLAN } from "@/constants/amr";
 import type { PalletDispatchController } from "@/domain/amr/PalletDispatchController";
 
 type Vehicle = {
@@ -17,11 +18,18 @@ type Motion = {
   /** Vehicle this one stepped aside for; it holds at the side cell until that one has passed. */
   yieldFrom: string | null;
   hold: number;
+  /** Stall detection: position at the start of the progress window, time in it, replan cooldown, speed ramp (0..1). */
+  anchor: Vector3;
+  still: number;
+  cooldown: number;
+  pace: number;
 };
 /** Plans from the vehicle to `target` (default: its goal), treating the other AMRs as temporary obstacles. */
 export type TrafficPlanner = (
   vehicle: Vehicle,
   target?: Vector3,
+  /** Extra clearance (m) added around other AMRs / forklifts (stall replans). */
+  inflate?: number,
 ) => Vector3[] | null;
 
 /** AMR body diameter (AMR.glb); traffic distances below scale with it. */
@@ -173,7 +181,7 @@ export class AMRTrafficController {
     // dozens of grid searches in one step (60 ms frame spikes). Over budget a search reports "no path" and the
     // vehicle simply keeps waiting/retries on a later step.
     let searches = 0;
-    const replan: TrafficPlanner = (vehicle, target) => (++searches > TRAFFIC_RESOLUTION.searchesPerStep ? null : plan(vehicle, target));
+    const replan: TrafficPlanner = (vehicle, target, inflate) => (++searches > TRAFFIC_RESOLUTION.searchesPerStep ? null : plan(vehicle, target, inflate));
     const steps = Math.max(1, Math.ceil(delta / (1 / 30))),
       dt = delta / steps;
     for (const vehicle of vehicles)
@@ -186,6 +194,10 @@ export class AMRTrafficController {
           retry: 0,
           yieldFrom: null,
           hold: 0,
+          anchor: vehicle.dispatch.carrier.position.clone(),
+          still: 0,
+          cooldown: 0,
+          pace: 1,
         });
     for (let step = 0; step < steps; step++) {
       for (const vehicle of vehicles) {
@@ -325,6 +337,7 @@ export class AMRTrafficController {
       }
       // Round robin: the vehicle that starts the search budget rotates, so the per-step cap never starves the same AMRs.
       const start = vehicles.length ? this.round++ % vehicles.length : 0;
+      let stallReplans = 0;
       for (let n = 0; n < vehicles.length; n++) {
         const vehicle = vehicles[(start + n) % vehicles.length];
         const motion = this.motions.get(vehicle.id)!,
@@ -335,7 +348,18 @@ export class AMRTrafficController {
           continue;
         }
         if (motion.allowed) {
-          dispatch.advance(dt * vehicle.speed * (dispatch.reversing ? TRAFFIC_RESOLUTION.reverseSpeed : 1));
+          if (this.stalled(vehicle, motion, dt) && stallReplans < AMR_STALL_REPLAN.perStep && motion.cooldown <= 0) {
+            // Stopped without progress: replan to the goal around the stationary bodies (inflated); keep waiting if none.
+            stallReplans++;
+            motion.cooldown = AMR_STALL_REPLAN.cooldown;
+            const path = replan(vehicle, undefined, AMR_STALL_REPLAN.inflate);
+            if (path) {
+              dispatch.reroute(path);
+              motion.anchor.copy(dispatch.carrier.position);
+              motion.still = 0;
+            }
+          }
+          if (motion.pace > 0) dispatch.advance(dt * vehicle.speed * motion.pace * (dispatch.reversing ? TRAFFIC_RESOLUTION.reverseSpeed : 1));
           motion.wait = 0;
         } else if (dispatch.moving) {
           dispatch.yielding = true;
@@ -353,6 +377,28 @@ export class AMRTrafficController {
         }
       }
     }
+  }
+  /**
+   * Progress watchdog (sim time, so identical at any speed multiplier). After `window` s with less than `progress` m
+   * covered the vehicle brakes (pace ramps to 0) and reports a stall; progress or a new route restores full pace.
+   */
+  private stalled(vehicle: Vehicle, motion: Motion, dt: number) {
+    const c = AMR_STALL_REPLAN,
+      position = vehicle.dispatch.carrier.position;
+    motion.cooldown -= dt;
+    if (!vehicle.dispatch.moving || Math.hypot(position.x - motion.anchor.x, position.z - motion.anchor.z) >= c.progress) {
+      motion.anchor.copy(position);
+      motion.still = 0;
+      motion.pace = Math.min(1, motion.pace + dt / c.brake);
+      return false;
+    }
+    motion.still += dt;
+    if (motion.still < c.window) {
+      motion.pace = Math.min(1, motion.pace + dt / c.brake);
+      return false;
+    }
+    motion.pace = Math.max(0, motion.pace - dt / c.brake);
+    return motion.pace <= 0;
   }
   /** Nearest other vehicle whose body keeps `vehicle` from moving. */
   private blocker(vehicle: Vehicle, vehicles: Vehicle[]) {

@@ -133,7 +133,8 @@ const AMR_PITCH = 2 * (AMR_TRAFFIC.emptyRadius + AMR_TRAFFIC.safetyMargin);
 const DOCK_EDGE = F.amr[1] / 2 + 0.2;
 export const LAYOUT_RULES = {
   /** Belt centre -> robot base: rail half width + robot half footprint + 5 cm. */
-  beltToRobot: BELT.width / 2 + ROBOT_FOOTPRINT / 2 + 0.05,
+  /** Base footprint + 0.2 m: the shoulder joint sits off the base axis and must not swing over the belt side rail. */
+  beltToRobot: BELT.width / 2 + ROBOT_FOOTPRINT / 2 + 0.2,
   /** Robot base -> pallet centre: robot half footprint + pallet half width + 12.5 cm (old 1.0 with a 1.1 m pallet). */
   robotToPallet: ROBOT_FOOTPRINT / 2 + AMR_TRAFFIC.loadedRadius + 0.05,
   /**

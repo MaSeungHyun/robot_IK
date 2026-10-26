@@ -39,6 +39,7 @@ try {
   const { useSceneStore } = await load("/src/stores/useSceneStore.ts");
   const { FactorySimulator } = await load("/src/domain/simulation/FactorySimulator.ts");
   const { SuctionRobotController } = await load("/src/domain/robot/SuctionRobotController.ts");
+const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
   const { SimulationClock } = await load("/src/domain/simulation/simulationClock.ts");
   const { SIMULATOR_CONFIG } = await load("/src/constants/simulatorLayout.ts");
   const { createScannerModel } = await load("/src/objects/scanner/scannerModel.ts");
@@ -73,7 +74,7 @@ try {
       const model = robotGltf.scene.clone(true);
       const holder = new THREE.Group(); holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw;
       holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
-      const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach,
+      const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach, getKeepOut: () => conveyorKeepOut(useSceneStore.getState().objects),
         getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status) });
       controller.start();
       clock.register({ beginFrame: () => controller.start(), step: (dt) => { let r = dt * (getSettings()[robot.object.id]?.speed ?? 1); // mirrors Robot.tsx simulationSpeed

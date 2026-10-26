@@ -1425,7 +1425,7 @@ export class FactorySimulator {
       // Capsule footprint as a row of circles (body + tines), so clearance matches the model.
       .flatMap((agent) => agent.controller.bodies.map((position) => ({ position, radius: agent.controller.radius })));
     this.trafficTick++;
-    this.traffic.advance(this.trafficVehicles, dt, (vehicle, target) => {
+    this.traffic.advance(this.trafficVehicles, dt, (vehicle, target, inflate = 0) => {
       const navigation = this.navigation.get(vehicle.id);
       if (!navigation) return null;
       const dispatch = vehicle.dispatch,
@@ -1443,7 +1443,7 @@ export class FactorySimulator {
           radius = Math.max(
             0,
             Math.min(
-              other.dispatch.radius + AMR_TRAFFIC.safetyMargin,
+              other.dispatch.radius + AMR_TRAFFIC.safetyMargin + inflate,
               Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3,
             ),
           );
@@ -1461,7 +1461,7 @@ export class FactorySimulator {
       // Forklifts are moving obstacles too (shrunk like the AMRs above when already touching).
       for (const body of forkliftBodies) {
         const at = body.position,
-          radius = Math.max(0, Math.min(body.radius + AMR_TRAFFIC.safetyMargin, Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3));
+          radius = Math.max(0, Math.min(body.radius + AMR_TRAFFIC.safetyMargin + inflate, Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3));
         if (!target && Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)) continue;
         obstacles.push({ kind: "amr", pose: { x: at.x, z: at.z, yaw: 0 }, radius });
       }

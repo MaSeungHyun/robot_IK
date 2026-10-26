@@ -1,7 +1,7 @@
 {
-  "id": "robot-amr",
-  "name": "듀얼 로봇 + AMR",
-  "description": "두 로봇이 적재하고 AMR이 2차선 통로로 완료된 팔레트를 출고합니다.",
+  "id": "amr-conveyor-transfer",
+  "name": "AMR → 컨베이어 이송",
+  "description": "박스 라인에서 스캔한 박스를 로봇이 팔레트에 적재하고, 지게차가 완성 팔레트를 AMR에 올리면 AMR이 롤러로 출고 컨베이어에 넘깁니다.",
   "equipment": [
     {
       "kind": "conveyor",
@@ -9,7 +9,7 @@
       "z": 3.3945,
       "yaw": 0,
       "settings": {
-        "spawnInterval": 5,
+        "spawnInterval": 6,
         "autoSpawn": true
       }
     },
@@ -17,44 +17,47 @@
       "kind": "scanner",
       "x": 0,
       "z": -3.5864,
+      "yaw": 0
+    },
+    {
+      "kind": "robot",
+      "x": 1.3707,
+      "z": 13.4352,
+      "yaw": -3.1416
+    },
+    {
+      "kind": "pallet",
+      "x": 3.0075,
+      "z": 13.4352,
       "yaw": 0,
       "settings": {
-        "defectRate": 0
+        "capacity": 2
       }
     },
     {
       "kind": "robot",
-      "x": -1.2207,
-      "z": 13.4352,
-      "yaw": 0
+      "x": 1.3707,
+      "z": 16.1238,
+      "yaw": -3.1416
     },
     {
       "kind": "pallet",
-      "x": -2.8575,
-      "z": 13.4352,
-      "yaw": 0
-    },
-    {
-      "kind": "robot",
-      "x": -1.2207,
+      "x": 3.0075,
       "z": 16.1238,
-      "yaw": 0
-    },
-    {
-      "kind": "pallet",
-      "x": -2.8575,
-      "z": 16.1238,
-      "yaw": 0
+      "yaw": 0,
+      "settings": {
+        "capacity": 2
+      }
     },
     {
       "kind": "amr",
-      "x": -7.5596,
+      "x": 7.7096,
       "z": 10.0909,
       "yaw": 0
     },
     {
       "kind": "amr",
-      "x": -4.871,
+      "x": 5.021,
       "z": 7.0909,
       "yaw": 0,
       "settings": {
@@ -62,19 +65,23 @@
       }
     },
     {
-      "kind": "dock",
-      "x": -4.871,
-      "z": 19.5208,
-      "yaw": 0
+      "kind": "conveyor",
+      "x": 10.3321,
+      "z": 4.3945,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "conveyorRole": "outbound",
+        "autoSpawn": false
+      }
     },
     {
       "kind": "floor",
-      "x": -3.5,
-      "z": 9,
+      "x": 4.9217,
+      "z": 5.2388,
       "yaw": 0,
       "floor": {
-        "width": 13,
-        "depth": 40,
+        "width": 40,
+        "depth": 60,
         "wallHeight": 10
       }
     }
@@ -86,14 +93,14 @@
       "to": 3
     },
     {
-      "type": "pickup",
-      "from": 6,
-      "to": 5
-    },
-    {
       "type": "deliver",
       "from": 3,
       "to": 8
+    },
+    {
+      "type": "pickup",
+      "from": 6,
+      "to": 5
     },
     {
       "type": "deliver",

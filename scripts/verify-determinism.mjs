@@ -1,4 +1,4 @@
-// Determinism check: node scripts/verify-determinism.mjs [seconds] [--templates=0,5,11] [--speeds=1,10]
+// Determinism check: node scripts/verify-determinism.mjs [seconds] [--templates=0,1,2] [--speeds=1,10,100]
 // Runs each template headless at every speed for the same simulated time and compares a state hash
 // (every node pose under the world root and robot models, plus counters) and the KPI report hash. Exit 1 on mismatch.
 import { createHash } from "node:crypto";
@@ -6,7 +6,7 @@ import { openHarness } from "./lib/headlessSim.mjs";
 const args = process.argv.slice(2);
 const seconds = Number(args.find(a => !a.startsWith("--")) ?? 300);
 const list = (name, fallback) => (args.find(a => a.startsWith(`--${name}=`))?.split("=")[1] ?? fallback).split(",").map(Number);
-const templates = list("templates", "0,5,11"), speeds = list("speeds", "1,10");
+const templates = list("templates", "0,1,2"), speeds = list("speeds", "1,10,100");
 const harness = await openHarness();
 const digest = (text) => createHash("sha256").update(text).digest("hex").slice(0, 16);
 let failed = false;

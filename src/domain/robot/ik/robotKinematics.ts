@@ -14,13 +14,15 @@ export function createKinematics(controls: JointControl[], tip: Object3D, wrist:
   }));
   const matrix = new Matrix4(), local = new Matrix4(), rotation = new Quaternion();
   const wristPosition = new Vector3(), wristRotation = new Quaternion(), scale = new Vector3();
-  function forward(angles: number[]): ToolPose {
+  /** joints (optional, indexed like controls) receives each joint's world origin. */
+  function forward(angles: number[], joints?: Vector3[]): ToolPose {
     matrix.identity();
     for (const link of links) {
       const control = controls[link.index];
       rotation.copy(link.rotation);
       if (control) rotation.copy(control.rest).multiply(new Quaternion().setFromAxisAngle(control.axis, angles[link.index] - control.initialX));
       matrix.multiply(local.compose(link.position, rotation, link.scale));
+      if (joints && control) joints[link.index].setFromMatrixPosition(matrix);
       if (link.wrist) { wristPosition.setFromMatrixPosition(matrix); matrix.decompose(new Vector3(),wristRotation,scale); }
     }
     const position = new Vector3(), quaternion = new Quaternion();

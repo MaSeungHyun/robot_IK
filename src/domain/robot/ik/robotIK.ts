@@ -7,6 +7,7 @@ import { createKinematics as createForwardKinematics, type NumericResult } from 
 import { createHeldBoxCollision } from "@/domain/robot/ik/heldBoxCollision";
 import { synchronizedTrapezoid, trapezoid } from "@/domain/robot/ik/motionTiming";
 import { createAnalyticIK } from "@/domain/robot/ik/analyticIK";
+import { insideKeepOut, type KeepOutBox } from "@/domain/robot/ik/keepOut";
 
 type IKStep = { angles: number[]; baseYaw: number };
 export type IKPose = IKStep & { error: number; reachable: boolean; reason?: "timeout"; blockedBy?: string; route?: IKStep[]; step?: number; target?: Vector3; alignment?: IKPose; transit?: IKPose };
@@ -18,7 +19,7 @@ type IKConstraints = { baseYaw?: number; wristAbovePoint?: boolean; descentTarge
  * small tool pitch tolerance, numeric = seeded numeric IK, rrt = joint-space detour, failed = no plan.
  * cartesianAnalytic / cartesianNumeric count individual straight-line (MoveL) waypoints.
  */
-export const ikSolveStats = { analytic: 0, tilt: 0, numeric: 0, rrt: 0, failed: 0, cartesianAnalytic: 0, cartesianNumeric: 0, line: 0, lineNoSolution: 0, lineBlocked: 0 };
+export const ikSolveStats = { beltClipRejected: 0, analytic: 0, tilt: 0, numeric: 0, rrt: 0, failed: 0, cartesianAnalytic: 0, cartesianNumeric: 0, line: 0, lineNoSolution: 0, lineBlocked: 0 };
 export function resetIKSolveStats() { for (const key of Object.keys(ikSolveStats) as (keyof typeof ikSolveStats)[]) ikSolveStats[key] = 0; }
 /** Analytic tool pitch sweep (degrees off vertical), strict first. */
 const ANALYTIC_TILT_DEGREES = [0, 3, -3, 6, -6, 9, -9, 12, -12, 15, -15, 18, -18, 20, -20];
@@ -177,6 +178,9 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     }
     samples = Math.max(samples, Math.ceil(duration * IK_CONFIG.pathSamplesPerSecond));
     const values = new Array<number>(from.length);
+    // Belt keep-out only when the move starts clear: a pose already through a conveyor may always move out.
+    const beltCheck = !clipsBelt(from);
+    if (beltCheck && clipsBelt(to)) { ikSolveStats.beltClipRejected++; return BELT_CLIP; }
     try {
       for (let sample = 0; sample <= samples; sample++) {
         for (let i = 0; i < from.length; i++) values[i] = MathUtils.lerp(from[i], to[i], sample / samples);
@@ -185,6 +189,7 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
           && (value < limits[i][0]-1e-8 || value > limits[i][1]+1e-8))) return "단계별 관절 고정 범위 초과";
         const hit = violation(values,true);
         if (hit) return hit;
+        if (beltCheck && clipsBeltNow()) return BELT_CLIP;
         // Yield by accumulated work, not per edge: chains of short or early-failing edges also get sliced.
         if (++sampleWork >= IK_CONFIG.collisionSamplesPerSlice) { sampleWork = 0; apply(saved); yield; }
       }
@@ -209,6 +214,9 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     ]);
   }
   const nearest = (value: number, reference: number) => reference + Math.atan2(Math.sin(value-reference), Math.cos(value-reference));
+  /** Suction cone (rad): tool pitch off vertical (world -Y) allowed at contact; hard limit, outside it the IK refuses. */
+  const SUCTION_TILT = MathUtils.degToRad(IK_CONFIG.suctionMaxTiltDegrees);
+  const offVertical = (pitch: number) => Math.abs(nearest(pitch, -Math.PI / 2) + Math.PI / 2);
   /** Time-weighted joint travel (s): hand00 is slower, so its turns cost more. */
   const travelCost = (from: number[], to: number[]) => to.reduce((sum, value, i) =>
     sum + Math.abs(value - from[i]) / (i === 0 ? MOTION.baseAngularSpeed : MOTION.angularSpeed), 0);
@@ -264,7 +272,8 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
         if (found.some(other => other.angles.every((v, i) => Math.abs(v - angles[i]) < 1e-3))) continue;
         const tilt = tiltOf(pitch);
         const cost = travelCost(start, angles) + ANALYTIC_TILT_COST * tilt + postureCost(angles)
-          + (solution.front !== branch.front ? ANALYTIC_BRANCH_COST : 0) + (solution.elbow !== branch.elbow ? ANALYTIC_BRANCH_COST / 2 : 0);
+          + (solution.front !== branch.front ? ANALYTIC_BRANCH_COST : 0) + (solution.elbow !== branch.elbow ? ANALYTIC_BRANCH_COST / 2 : 0)
+          + (clipsBelt(angles) ? IK_CONFIG.beltClipCost : 0);
         found.push({ angles, tilt, cost });
       }
       if (mode === "plan") yield;
@@ -381,6 +390,28 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
   const kinematicsPool: ReturnType<typeof createKinematics>[] = [];
   /** Forward kinematics only (pure, synchronous): for searches that never run the closed-chain solver. */
   const forwardOnly = createForwardKinematics(all, grip, wrist).forward;
+  /** Conveyors the arm links must stay out of (world, static); empty = no check. */
+  let keepOut: readonly KeepOutBox[] = [];
+  const jointPoints = all.map(() => new Vector3()), linkPoint = new Vector3();
+  /** Links hand01-hand02 and hand02-hand04 (all[1..3]) sampled as spheres against the conveyor keep-out. */
+  function linksClip(points: Vector3[]) {
+    for (let link = 1; link <= 2; link++) for (let s = link === 1 ? 0 : 1; s <= 4; s++)
+      if (insideKeepOut(linkPoint.copy(points[link]).lerp(points[link + 1], s / 4), keepOut)) return true;
+    return false;
+  }
+  /** Would `angles` put an arm link through a conveyor (pure FK, no model change). */
+  function clipsBelt(angles: number[]) {
+    if (!keepOut.length) return false;
+    forwardOnly(angles, jointPoints);
+    return linksClip(jointPoints);
+  }
+  /** Same check on the currently applied (sampled) pose, from the joint nodes' world matrices. */
+  function clipsBeltNow() {
+    if (!keepOut.length) return false;
+    for (let i = 1; i <= 3; i++) jointPoints[i].setFromMatrixPosition(all[i].node.matrixWorld);
+    return linksClip(jointPoints);
+  }
+  const BELT_CLIP = "팔 링크가 컨베이어를 통과 · 반대쪽 팔꿈치 자세 필요";
   type PlanArgs = Parameters<typeof planWith> extends [unknown, ...infer Rest] ? Rest : never;
   function* startPlan(...args: PlanArgs): Generator<void, IKPose, void> {
     // Creating the generator does no work; acquiring/building the chain is a slice of its own.
@@ -784,15 +815,18 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     // Near full reach the tool turns continuously (wrist held on the reach limit) instead of in steps, and only
     // the locked branch is accepted: crossing the straight-elbow boundary mid-lift is what made hand02 jerk.
     let best: number[] | null = null, bestPitch = lock.pitch, bestJump = Infinity;
+    // Suction: only solutions facing the floor (hard cone); none -> null, the planner replans.
     for (const solution of analytic.solve(target, start, { pitch: lock.origin, keepElbow: false, maxReachRatio: lock.maxReach, adjustPitch: true, softReachStart: lock.softReach })) {
       if (solution.front !== lock.front || solution.elbow !== lock.elbow) continue;
       if (Math.abs(solution.pitch - lock.origin) > MathUtils.degToRad(IK_CONFIG.analyticMaxTiltDegrees)) continue;
+      if (offVertical(solution.pitch) > SUCTION_TILT) continue;
       const angles = solution.angles;
       if (Math.abs(angles[0] - lock.baseYaw) > 2e-3) continue;
       angles[0] = lock.baseYaw;
       if (all[4].locked) angles[4] = start[4];
       const jump = Math.max(...angles.map((value, i) => Math.abs(value - start[i])));
       if (jump > ANALYTIC_STEP_CONTINUITY || jump >= bestJump) continue;
+      if (clipsBelt(angles) && !clipsBelt(start)) continue;
       best = angles; bestPitch = solution.pitch; bestJump = jump;
     }
     if (best) { lock.pitch = bestPitch; return { ...pack(best), error: 0, reachable: true, target: target.clone() }; }
@@ -810,14 +844,16 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     if (!analytic) return null;
     const start = read(), limits = limitsAround(start), branch = analytic.branchOf(start);
     let best: number[] | null = null, bestCost = Infinity;
-    for (const tilt of [0, 10, -10]) {
+    const cone = IK_CONFIG.suctionMaxTiltDegrees;
+    for (const tilt of [0, cone, -cone]) {
       for (const solution of analytic.solve(target, start, { pitch: -Math.PI / 2 + MathUtils.degToRad(tilt), keepElbow: false, maxReachRatio: LINE_MAX_REACH })) {
         const angles = solution.angles;
         if (all[4].locked) angles[4] = start[4];
         if (angles.some((value, i) => value < limits[i][0] - 1e-8 || value > limits[i][1] + 1e-8)) continue;
         if (forwardOnly(angles).wristPosition.y < target.y + MOTION.contactTolerance) continue;
         const cost = travelCost(start, angles) + postureCost(angles) + ANALYTIC_TILT_COST * Math.abs(tilt)
-          + (solution.front !== branch.front ? ANALYTIC_BRANCH_COST : 0) + (solution.elbow !== branch.elbow ? ANALYTIC_BRANCH_COST / 2 : 0);
+          + (solution.front !== branch.front ? ANALYTIC_BRANCH_COST : 0) + (solution.elbow !== branch.elbow ? ANALYTIC_BRANCH_COST / 2 : 0)
+          + (clipsBelt(angles) ? IK_CONFIG.beltClipCost : 0);
         if (cost < bestCost) { best = angles; bestCost = cost; }
       }
       if (best) break;
@@ -836,6 +872,7 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     for (const solution of analytic.solve(target, start, { pitch: lock.origin, keepElbow: false, maxReachRatio: lock.maxReach, adjustPitch: true, softReachStart: lock.softReach })) {
       solutions++;
       if (Math.abs(solution.pitch - lock.origin) > MathUtils.degToRad(IK_CONFIG.analyticMaxTiltDegrees)) continue;
+      if (offVertical(solution.pitch) > SUCTION_TILT) continue;
       if (solution.front !== lock.front || solution.elbow !== lock.elbow) continue;
       onBranch++;
       const angles = solution.angles;
@@ -844,6 +881,7 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
       for (let i = 0; i < angles.length; i++) jump = Math.max(jump, Math.abs(angles[i] - start[i]));
       smallestJump = Math.min(smallestJump, jump);
       if (jump > TRACK_STEP_CONTINUITY || jump >= bestJump) continue;
+      if (clipsBelt(angles) && !clipsBelt(start)) continue;
       best = angles; bestJump = jump; bestPitch = solution.pitch;
     }
     if (!best) {
@@ -857,5 +895,5 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
   const effector={updateMatrixWorld:()=>model.updateWorldMatrix(true,true),getWorldPosition:(out:number[])=>grip.getWorldPosition(new Vector3()).toArray(out)};
   return {lineLock,solveTrack,solveApproach,solveLine:(t:Vector3,l:LineLock)=>{const r=solveLine(t,l);if(r)ikSolveStats.line++;else ikSolveStats.lineNoSolution++;return r;},plan,startPlan,startConstrainedPlan,startCartesianPlan,startBaseAlignment,startBaseTransfer,startShoulderTransfer,prepareShoulderTransfer,startPickupPlan,advancePlan,advancePlanSteps,animate,animateEased,isSettled,isEasedSettled,isCartesianSettled,startCollisionRecovery,
     get lastMotionBlock(){return lastMotionBlock;},get lastTrackMiss(){return lastTrackMiss;},
-    setMinimumToolHeight:(height:number|null)=>{minimumToolHeight=height;},setContactMode:(on:boolean)=>{contactMode=on;},collisions,carryRotation,grip,controls,baseControl,effector};
+    setMinimumToolHeight:(height:number|null)=>{minimumToolHeight=height;},setContactMode:(on:boolean)=>{contactMode=on;},setKeepOut:(boxes:readonly KeepOutBox[])=>{keepOut=boxes;},collisions,carryRotation,grip,controls,baseControl,effector};
 }

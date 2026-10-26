@@ -1,6 +1,7 @@
 import type { Group } from "three";
 import type { JointAngleReading, RobotPhase, RobotTransferMode, Transfer } from "@/types/robot";
 import type { PlanningBudget } from "@/domain/robot/ik/planningScheduler";
+import type { KeepOutBox } from "@/domain/robot/ik/keepOut";
 
 /** Runtime control shared by robot models. Angles are expressed in degrees. */
 export interface RobotController {
@@ -35,4 +36,6 @@ export interface RobotControllerOptions {
   transferMode?: RobotTransferMode;
   getJobs: () => readonly Transfer[];
   onProgress?: (completed: number, status: string) => void;
+  /** Conveyors the arm links keep out of (read on start); absent = no keep-out. */
+  getKeepOut?: () => readonly KeepOutBox[];
 }

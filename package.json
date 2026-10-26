@@ -28,7 +28,6 @@
     "preview": "vite preview",
     "test:packing": "node scripts/verify-ik.mjs --packing-only",
     "test:mount": "node scripts/mount-check.mjs",
-    "test:pallet-modes": "node scripts/verify-pallet-modes.mjs",
     "test:forklift-split": "node scripts/compare-forklifts.mjs",
     "test:dock-yaw": "node scripts/flow-check.mjs --file=scripts/fixtures/pallet-feed-dock.json --at=1200"
   },

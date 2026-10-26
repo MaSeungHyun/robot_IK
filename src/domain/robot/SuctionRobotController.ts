@@ -98,7 +98,11 @@ export class SuctionRobotController implements RobotController {
 
   get running() { return this.active; }
   get phase() { return this.runtime.phase; }
-  start(): void { if (!this.disposed) this.active = true; }
+  start(): void {
+    if (this.disposed) return;
+    this.ik.setKeepOut(this.options.getKeepOut?.() ?? []);
+    this.active = true;
+  }
   pause(): void { this.active = false; }
 
   private rememberCargo(box: Group): void {

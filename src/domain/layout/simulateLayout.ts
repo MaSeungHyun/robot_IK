@@ -8,6 +8,7 @@ import { Group, Scene } from "three";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { FactorySimulator } from "@/domain/simulation/FactorySimulator";
 import { SuctionRobotController } from "@/domain/robot/SuctionRobotController";
+import { conveyorKeepOut } from "@/domain/robot/ik/keepOut";
 import { SimulationClock } from "@/domain/simulation/simulationClock";
 import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import type { SceneTemplate } from "@/types/sceneTemplate";
@@ -36,7 +37,7 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
     const holder = new Group();
     holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw;
     holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
-    const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach,
+    const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach, getKeepOut: () => conveyorKeepOut(objects),
       getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status) });
     controller.start();
     controllers.push(controller);
