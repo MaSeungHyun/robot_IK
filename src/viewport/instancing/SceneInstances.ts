@@ -9,6 +9,12 @@ type Entry={node:Mesh;owner:Object3D;visible:boolean;raycast:Mesh["raycast"];pre
 type Batch={geometry:BufferGeometry;material:Material|Material[];entries:Set<Entry>;mesh:InstancedMesh|null;capacity:number;ordered:Entry[];castShadow:boolean;dirty:boolean};
 /** Per-owner frame state: static owners whose world matrix and visibility did not change are skipped. */
 type OwnerFrame={visible:boolean;skip:boolean;previous:Matrix4;seen:boolean};
+/** nested: cargo nodes (userData.cargo) found inside this owner at register time, registered as their own owners. */
+type Registration={entries:Entry[];references:number;frame:OwnerFrame;lowPoly:boolean;nested:Object3D[]};
+const isDescendant=(node:Object3D,ancestor:Object3D)=>{
+  for(let n:Object3D|null=node.parent;n;n=n.parent)if(n===ancestor)return true;
+  return false;
+};
 const noRaycast:Mesh["raycast"]=()=>{};
 const hiddenScale = new Vector3(0, 0, 0);
 
@@ -17,7 +23,7 @@ export class SceneInstances {
   readonly root=new Group();
   private batches=new Map<string,Batch>();
   /** lowPoly: entries already moved to their low-poly stand-ins (static owners only, one-way). */
-  private owners=new Map<Object3D,{entries:Entry[];references:number;frame:OwnerFrame;lowPoly:boolean}>();
+  private owners=new Map<Object3D,Registration>();
   private sources=new Map<Object3D,Entry>();
   private roots=new WeakSet<Object3D>();
   private inverse=new Matrix4();
@@ -47,9 +53,12 @@ export class SceneInstances {
     const sector = isStatic
       ? `${Math.floor(owner.matrixWorld.elements[12] / INSTANCE_SECTOR_SIZE)},${Math.floor(owner.matrixWorld.elements[14] / INSTANCE_SECTOR_SIZE)}`
       : "dynamic";
-    const entries:Entry[]=[];
+    const entries:Entry[]=[],nested:Object3D[]=[];
     const visit=(node:Object3D)=>{
       if(node!==owner&&this.roots.has(node))return;
+      // A box born inside a pallet group (inbound pallets) is its own owner: a robot reparents it to its gripper, and
+      // the pallet owner's static skip / visibility / unregister must not freeze, hide or drop it there.
+      if(node!==owner&&node.userData.cargo){nested.push(node);this.register(node);return;}
       if(!(node instanceof Mesh)||node.userData.excludeFromInstancing||"isSkinnedMesh" in node||node instanceof InstancedMesh||!node.visible||this.sources.has(node)){
         for(const child of node.children)visit(child);return;
       }
@@ -59,7 +68,7 @@ export class SceneInstances {
       for(const child of node.children)visit(child);
     };
     visit(owner);
-    this.owners.set(owner,{entries,references:1,frame:{visible:true,skip:false,previous:new Matrix4(),seen:false},lowPoly:false});this.dirty=true;
+    this.owners.set(owner,{entries,references:1,frame:{visible:true,skip:false,previous:new Matrix4(),seen:false},lowPoly:false,nested});this.dirty=true;
     return()=>this.unregister(owner);
   }
   private batchFor(node:Mesh,geometry:BufferGeometry,sector:string){
@@ -81,15 +90,29 @@ export class SceneInstances {
       entry.batch.entries.add(entry);entry.batch.dirty=true;this.dirty=true;
     }
   }
-  unregister(owner:Object3D){
+  /** Nested cargo owners left registered after their parent went (box taken off the pallet first). */
+  private orphans=new Set<Object3D>();
+  /** deep: also drop every nested cargo owner, wherever it is now (run teardown). */
+  unregister(owner:Object3D,deep=false){
     const registration=this.owners.get(owner);if(!registration)return;
-    if(--registration.references>0)return;
+    if(--registration.references>0&&!deep)return;
+    this.orphans.delete(owner);
     for(const entry of registration.entries){
       entry.node.visible=entry.visible;entry.node.raycast=entry.raycast;
       this.sources.delete(entry.node);
       entry.batch.entries.delete(entry);entry.batch.dirty=true;
     }
     this.owners.delete(owner);this.dirty=true;
+    // Boxes still riding on this owner leave with it; ones already taken off (gripper, belt) stay registered.
+    for(const child of registration.nested){
+      if(deep||isDescendant(child,owner)){const r=this.owners.get(child);if(r)r.references=1;this.unregister(child,deep);}
+      else if(this.owners.has(child))this.orphans.add(child);
+    }
+  }
+  /** Run teardown: drop nested cargo owners whose pallet was unregistered earlier (boxes still on belts / grippers). */
+  releaseOrphans(){
+    for(const owner of [...this.orphans])this.unregister(owner,true);
+    this.orphans.clear();
   }
   sync(){
     // LOD pre-pass (before batches are rebuilt): owners that turned static switch to low-poly stand-ins.
@@ -163,7 +186,7 @@ export class SceneInstances {
     }
   }
   dispose(){
-    for(const owner of [...this.owners.keys()]){this.owners.get(owner)!.references=1;this.unregister(owner);}
+    for(const owner of [...this.owners.keys()]){const r=this.owners.get(owner);if(!r)continue;r.references=1;this.unregister(owner);}
     for(const batch of this.batches.values())batch.mesh?.dispose();
     this.root.clear();this.batches.clear();
   }
