@@ -2,6 +2,8 @@ import { applyToIds, bulkTargets } from "@/stores/actions/applyEquipmentSettings
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useShallow } from "zustand/react/shallow";
 import { ApplyAllButton } from "@/ui/Hud/object/BulkField";
+import InfoTip from "@/components/InfoTip";
+import { TOGGLE_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
 
 /** 작동 활성화: edits the same-kind multi-selection (indeterminate when mixed) and offers "일괄 적용". */
 export default function EquipmentEnabledSetting({ id }: { id: string }) {
@@ -24,7 +26,7 @@ export default function EquipmentEnabledSetting({ id }: { id: string }) {
             applyToIds(ids, () => ({ enabled: checked }));
           }}
         />
-        작동 활성화{mixed && " (혼합)"}
+        작동 활성화{mixed && " (혼합)"}<InfoTip text={TOGGLE_INFO.enabled} label="작동 활성화 설명" />
       </label>
       <ApplyAllButton kind={kind} patch={() => ({ enabled })} />
     </div>

@@ -1,6 +1,7 @@
 import { SCANNER_CONFIG } from "@/constants/scanner";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { BulkNumber } from "@/ui/Hud/object/BulkField";
+import { NUMBER_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
 import { formatDefectRate, scannerResults } from "@/ui/Hud/equipment/scanner/scannerResults";
 
 /** `ids`: multi-edit targets (default just `id`; the primary should be last). */
@@ -22,6 +23,7 @@ export default function ScannerSettings({
         ids={ids ?? [id]}
         kind="scanner"
         label="불량률"
+        info={NUMBER_INFO.defectRate}
         unit="%"
         inputClassName={inputClassName}
         min={0}

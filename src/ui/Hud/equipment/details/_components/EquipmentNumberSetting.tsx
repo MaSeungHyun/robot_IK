@@ -12,6 +12,8 @@ import type { EquipmentSettings } from "@/types/layout";
 import { deckFeedIntervalOf, stackCapacityOf } from "@/constants/emptyPallet";
 
 type Field = "speed" | "reach" | "capacity" | "spawnInterval" | "beltSpeed" | "amrSpeed" | "stackCapacity" | "deckFeedInterval";
+import { NUMBER_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
+
 type Props = {
   id: string;
   field: Field;
@@ -23,6 +25,7 @@ type Props = {
   integer?: boolean;
   /** Kept for call-site compatibility; free typing ignores steps. */
   step?: number;
+  info?: React.ReactNode;
 };
 
 function read(field: Field, config: EquipmentSettings) {
@@ -43,7 +46,7 @@ function write(field: Field, value: number, config: EquipmentSettings): Partial<
 }
 
 /** Number setting with "혼합" multi-edit (same-kind selection) and a per-field "일괄 적용" button. */
-export default function EquipmentNumberSetting({ id, field, label, unit, min, max, exclusiveMin, integer = false }: Props) {
+export default function EquipmentNumberSetting({ id, field, label, unit, min, max, exclusiveMin, integer = false, info }: Props) {
   const ids = useSceneStore(useShallow((state) => bulkTargets(state, id)));
   const kind = useSceneStore((state) => state.objects.find((o) => o.id === id)?.kind);
   if (!kind) return null;
@@ -52,6 +55,7 @@ export default function EquipmentNumberSetting({ id, field, label, unit, min, ma
       ids={ids}
       kind={kind}
       label={label}
+      info={info ?? NUMBER_INFO[field]}
       unit={unit}
       min={min}
       max={max}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/style";
+import InfoTip from "@/components/InfoTip";
 
 type Props = {
   label: string;
@@ -21,6 +22,8 @@ type Props = {
   mixed?: boolean;
   /** Always show exactly `decimals` digits (e.g. "30.0"); default trims trailing zeros. */
   fixedDecimals?: boolean;
+  /** Explanation behind an (i) icon after the label. */
+  info?: React.ReactNode;
 };
 
 const DRAFT = /^\d*\.?\d*$/;
@@ -47,6 +50,7 @@ export default function NumberField({
   decimals = 4,
   mixed = false,
   fixedDecimals = false,
+  info,
 }: Props) {
   const shown = format(value, decimals, fixedDecimals);
   const [draft, setDraft] = useState<string | null>(null);
@@ -76,7 +80,7 @@ export default function NumberField({
       )}
     >
       <div className="min-w-24 overflow-hidden text-ellipsis whitespace-nowrap flex items-center">
-        {label}
+        <span className="overflow-hidden text-ellipsis">{label}</span>{info && <InfoTip text={info} label={`${label} 설명`} />}
       </div>
       <span className="relative block">
         <input
