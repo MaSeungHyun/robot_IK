@@ -4,7 +4,7 @@ import type { EquipmentKind } from "@/types/layout";
  * Equipment relation (🔗). Direction follows the material flow, except `pickup` (AMR -> the
  * pallet station it serves). Equipment without links of a type keeps the distance-based fallback.
  */
-export type LinkType = "feed" | "load" | "pickup" | "deliver";
+export type LinkType = "feed" | "load" | "pickup" | "deliver" | "emptyReturn";
 
 export type SceneLink = { id: string; type: LinkType; from: string; to: string };
 
@@ -16,6 +16,8 @@ export const LINK_RULES: Record<LinkType, { from: EquipmentKind; to: readonly Eq
   load: { from: "robot", to: ["pallet"], label: "적재" },
   pickup: { from: "amr", to: ["pallet"], label: "픽업" },
   deliver: { from: "pallet", to: ["dock", "rack", "conveyor"], label: "출고" },
+  /** AMR → forklift that lifts its emptied pallet off / palletSource dock it is stacked on (else nearest). */
+  emptyReturn: { from: "amr", to: ["amr", "dock"], label: "빈 팔레트 회수" },
 };
 
 export const LINKABLE_KINDS: ReadonlySet<EquipmentKind> = new Set(

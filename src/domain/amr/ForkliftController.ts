@@ -25,7 +25,9 @@ export type ForkliftTarget = {
 };
 
 export type ForkliftJob = {
-  kind: "store" | "retrieve";
+  /** "takeEmptyFromAmr": like store, but the pickup is an emptied pallet on an AMR deck (pickup.point.y = deck height) and the
+   *  target the empty-pallet stack. */
+  kind: "store" | "retrieve" | "takeEmptyFromAmr";
   /** Candidate slot targets in preference order (recomputed on every choice). */
   targets: () => ForkliftTarget[];
   /** Books `target` (releasing `previous`); false skips it. Optional (retrieve targets need no booking). */
@@ -117,6 +119,8 @@ export class ForkliftController {
   private backAt = new Vector3();
   private pickBack = new Vector3();
   private pickHeading = 0;
+  /** Fork lift at the pickup (0 = floor pallet; deck pallet for takeEmptyFromAmr). */
+  private pickLift = 0;
   private tried = new Set<string>();
   private tries = 0;
   private timer = 0;
@@ -211,8 +215,9 @@ export class ForkliftController {
     if (this.job) return false;
     this.tried.clear();
     this.tries = 0;
-    if (job.kind === "store") {
+    if (job.kind !== "retrieve") {
       const pickup = job.pickup!;
+      this.pickLift = job.kind === "takeEmptyFromAmr" ? Math.max(0, forkLiftFor(pickup.point.y)) : 0;
       // Pallets are four-way: try the delivery heading, the flipped one, then both sideways (narrow aisles).
       for (const heading of [pickup.heading, pickup.heading + Math.PI, pickup.heading + Math.PI / 2, pickup.heading - Math.PI / 2]) {
         const standoff = forkliftStop(pickup.point, heading, FORKLIFT_CONFIG.forkLength),
@@ -382,7 +387,7 @@ export class ForkliftController {
         return;
       case "alignPick":
         // Fork to the floor (pallet holes) before driving in.
-        if (this.turn(delta) && this.raise(0, delta)) this.stage = "insertPick";
+        if (this.turn(delta) && this.raise(this.pickLift, delta)) this.stage = "insertPick";
         return;
       case "insertPick":
         if (!this.creep(this.insertAt, delta)) return;
@@ -390,7 +395,7 @@ export class ForkliftController {
         this.stage = "liftPick";
         return;
       case "liftPick":
-        if (this.raise(FORKLIFT_CONFIG.carryLift, delta)) this.stage = "retreatPick";
+        if (this.raise(Math.max(FORKLIFT_CONFIG.carryLift, this.pickLift + FORKLIFT_CONFIG.clearance * (this.pickLift > 0 ? 1 : 0)), delta)) this.stage = "retreatPick";
         return;
       case "retreatPick":
         if (!this.creep(this.pickBack, delta)) return;
@@ -423,7 +428,7 @@ export class ForkliftController {
         return;
       case "insert":
         if (!this.creep(this.insertAt, delta)) return;
-        if (job.kind === "store") {
+        if (job.kind !== "retrieve") {
           this.stage = "place";
           return;
         }
@@ -458,7 +463,7 @@ export class ForkliftController {
         if (this.raise(this.shelfLift + FORKLIFT_CONFIG.clearance, delta)) this.stage = "retreat";
         return;
       case "retreat":
-        if (this.creep(this.target!.approach, delta)) this.stage = job.kind === "store" ? "reset" : "lower";
+        if (this.creep(this.target!.approach, delta)) this.stage = job.kind !== "retrieve" ? "reset" : "lower";
         return;
       case "reset":
         if (!this.raise(0, delta)) return;

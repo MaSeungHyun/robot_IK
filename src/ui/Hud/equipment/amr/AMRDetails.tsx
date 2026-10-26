@@ -18,6 +18,7 @@ import AMRLivePose from "@/ui/Hud/equipment/amr/AMRLivePose";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
 import { useDerivedMetricsStore } from "@/stores/useDerivedMetricsStore";
+import { CATEGORY_LABEL, OPERATION_LABEL } from "@/domain/state/equipmentState";
 
 const metric = (value: number | undefined, unit: string) => (
   <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
@@ -34,7 +35,6 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
   const telemetry = useEquipmentTelemetry(object.id);
   const role = useSceneStore((state) => state.settings[object.id]?.amrRole);
   const forklift = isForkliftRole(role);
-  const forkliftTask = useSceneStore((state) => state.settings[object.id]?.forkliftTask);
   const history = useDerivedMetricsStore((state) => state.agents[object.id]);
   const charging = agent?.state === "charging";
   const chargeSeconds = charging && history?.chargeRate ? Math.max(0, 100 - history.battery) / history.chargeRate : undefined;
@@ -46,6 +46,7 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
   return (
     <EquipmentDetailLayout object={object} status={status} summary={
       <DetailRows rows={[
+        { label: "장비 상태", value: agent?.operation ? `${agent.category ? `${CATEGORY_LABEL[agent.category]} · ` : ""}${OPERATION_LABEL[agent.operation]}` : undefined },
         { label: "운반 상태", value: agent?.status },
         { label: "운반 대상", value: agent ? agent.target ?? "없음" : undefined },
         { label: "현재 위치", value: <AMRLivePose id={object.id} field="position" /> },
@@ -86,28 +87,31 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
             ]}
           />
         )}
-        {forklift && forkliftTask === "service" && (
+        {forklift && (
           <EquipmentChoiceSetting
             id={object.id}
             field="forkliftRole"
-            label="지게차 분담 (같은 셀에 여러 대일 때)"
+            label="지게차 작업 분담"
             fallback="auto"
+            info="빈 팔레트 회수: 로봇이 다 내린 AMR 위 빈 팔레트를 들어 적치장에 쌓습니다. 🔗 빈 팔레트 회수 연결이 있으면 연결된 지게차가 우선입니다."
             options={[
-              { value: "auto", label: "자동 (하역·공급 모두)" },
+              { value: "auto", label: "자동 (모든 작업)" },
               { value: "unload", label: "하역 전담 (만재 팔레트 → Rack_m)" },
-              { value: "supply", label: "빈 팔레트 공급 전담" },
+              { value: "supply", label: "빈 팔레트 공급·회수 전담" },
+              { value: "emptyReturn", label: "빈 팔레트 회수 전담 (AMR → 적치장)" },
             ]}
           />
         )}
-        {role === "shuttle" && (
+        {!forklift && role !== "agv" && (
           <EquipmentChoiceSetting
             id={object.id}
             field="emptyPallet"
-            label="빈 팔레트 처리 (팔레트 단위 입하)"
-            fallback="return"
+            label="빈 팔레트 처리 (하역 후)"
+            fallback="forklift"
+            info="지게차 회수: 지게차가 AMR 위 빈 팔레트를 적치장에 쌓고, AMR은 빈 상태로 다음 팔레트를 받으러 갑니다. 지게차가 없으면 AMR이 대기합니다."
             options={[
-              { value: "return", label: "반송 라인" },
               { value: "forklift", label: "지게차 회수 → 빈 팔레트 적치장" },
+              { value: "return", label: "반송 라인" },
             ]}
           />
         )}

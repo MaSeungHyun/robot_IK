@@ -29,6 +29,7 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
   const objects = useSceneStore((state) => state.objects);
   const enabled = useSceneStore((state) => state.settings[object.id]?.enabled);
   const autoSpawn = useSceneStore((state) => state.settings[object.id]?.autoSpawn);
+  const selfUnload = useSceneStore((state) => state.settings[object.id]?.selfUnload);
   const inbound = useSceneStore((state) => state.settings[object.id]?.conveyorRole === "inbound");
   const palletUnit = useSceneStore((state) => state.settings[object.id]?.inboundUnit === "pallet");
   const settings = useSceneStore((state) => state.settings);
@@ -111,6 +112,14 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
             <EquipmentToggleSetting id={object.id} field="autoSpawn" label="자동 생성" fallback />
             {autoSpawn !== false && (
               <EquipmentNumberSetting id={object.id} field="spawnInterval" label={inbound && palletUnit ? "팔레트 투입 간격" : "투입량"} unit={inbound && palletUnit ? "초" : "개/h"} {...SPEED_LIMITS.spawnInterval} />
+            )}
+            {!palletUnit && (
+              <>
+                <EquipmentToggleSetting id={object.id} field="selfUnload" label="AMR 자가 하역 (스캐너로 이어진 구간)" fallback />
+                {selfUnload !== false && (
+                  <EquipmentNumberSetting id={object.id} field="deckFeedInterval" label="자가 하역 박스 간격" unit="초" min={0.2} max={30} />
+                )}
+              </>
             )}
           </>
         )}

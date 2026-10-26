@@ -15,6 +15,7 @@ import { createAgvModel, createRackMobileModel, createRollerTopModel } from "@/l
 import { palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
 import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
 import { autoSpawns, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
+import { doesGeneralJobs, emptyByForkliftOf, stackCapacityOf, takesEmptyPallets } from "@/constants/emptyPallet";
 
 /**
  * Pallet cycle orchestrator (scenes with shuttle AMRs / AGVs):
@@ -158,8 +159,6 @@ const FORK_BACK = FORKLIFT_CONFIG.forkLength + CYCLE_CONFIG.standoffGap;
 const VEHICLE_APPROACH = 1.9;
 /** Carrier forklift: max distance (m) from its Forklift_point to the pallet it holds. */
 const CARRIER_REACH = 1.0;
-/** Pallet source: stacked empty pallets above this count leave the scene (taken away, counted). */
-const SOURCE_STACK_MAX = CYCLE_CONFIG.sourceStack * 2;
 
 export class PalletCycle<C extends CycleCargo> {
   readonly shuttles: Shuttle<C>[] = [];
@@ -298,7 +297,7 @@ export class PalletCycle<C extends CycleCargo> {
         const atReceive = !receive || Math.hypot(object.x - receive.x, object.z - receive.z) <= CYCLE_CONFIG.feedReach;
         const home = receive && !atReceive ? new Vector3(receive.x, 0, receive.z) : new Vector3(object.x, 0, object.z);
         const homeYaw = receive && !atReceive ? receive.yaw : object.yaw;
-        const shuttle: Shuttle<C> = { object, vehicle, pallet, mode: role(dock) === "service" ? "service" : "scan", dock, state: feed ? (atReceive ? "waitPallet" : "toReceive") : "loading", home, homeYaw, load: null, trips: 0, feed, emptyByForklift: !!feed && config.emptyPallet === "forklift" };
+        const shuttle: Shuttle<C> = { object, vehicle, pallet, mode: role(dock) === "service" ? "service" : "scan", dock, state: feed ? (atReceive ? "waitPallet" : "toReceive") : "loading", home, homeYaw, load: null, trips: 0, feed, emptyByForklift: !!feed && emptyByForkliftOf(settings[object.id]) };
         this.shuttles.push(shuttle);
         if (feed && !atReceive)
           vehicle.goTo(home).turn(homeYaw).then(() => {
@@ -388,6 +387,41 @@ export class PalletCycle<C extends CycleCargo> {
     vehicle.loaded = true;
     f.carrier = { pallet, heading, dock };
     this.setForklift(f, "holdLoading");
+  }
+  /**
+   * Empty pallet handed back by the simulator (unload-dock AMR hold) or a roller-top feed shuttle: stacked on the nearest
+   * pallet source (empty-pallet stack) so the service forklift recirculates it. false: no source in the layout.
+   */
+  stackEmpty(group: Group, at: Vector3): boolean {
+    const free = this.sources.filter((s) => !s.busy);
+    const pool = free.length ? free : this.sources;
+    if (!pool.length) return false;
+    const gap = (s: Source) => Math.hypot(s.dock.x - at.x, s.dock.z - at.z);
+    const source = pool.reduce((best, s) => (gap(s) < gap(best) ? s : best));
+    group.removeFromParent();
+    this.stats.emptyStacked++;
+    if (source.stack.length + 2 > this.stackMax(source)) {
+      // Stack full: taken away (infinite store), the stack keeps its height.
+      this.host.unrender(group);
+      return true;
+    }
+    this.placeStatic(group, source.dock, source.top.position.y + STREAM_CONFIG.palletHeight);
+    source.stack.push(source.top);
+    source.top = group;
+    return true;
+  }
+  /** Nearest empty-pallet stack's next drop point (on its top pallet), for a forklift bringing an empty pallet. */
+  emptyStackDrop(at: Vector3, linked: readonly string[] = []): { point: Vector3; yaw: number; id: string } | null {
+    const pool = this.sources.filter((s) => linked.includes(s.dock.id));
+    const sources = pool.length ? pool : this.sources;
+    if (!sources.length) return null;
+    const gap = (s: Source) => Math.hypot(s.dock.x - at.x, s.dock.z - at.z);
+    const source = sources.reduce((best, s) => (gap(s) < gap(best) ? s : best));
+    return { point: source.top.position.clone().setY(source.top.position.y + STREAM_CONFIG.palletHeight), yaw: source.dock.yaw, id: source.dock.id };
+  }
+  /** Pallets a source stack holds (dock setting stackCapacity, default 8). */
+  private stackMax(source: Source) {
+    return stackCapacityOf(this.host.settings()[source.dock.id]);
   }
   private placeStatic(group: Group, dock: SceneEquipment, y: number) {
     group.position.set(dock.x, y, dock.z);
@@ -591,7 +625,8 @@ export class PalletCycle<C extends CycleCargo> {
   /** A service forklift and a pallet source in the shuttle's cell (else the empty pallet goes back as with emptyPallet "return"). */
   private canCollectEmpty(shuttle: Shuttle<C>) {
     const cell = this.cellOf(shuttle.dock.id);
-    const ok = this.forklifts.some((f) => f.task === "service" && this.cellOf(f.object.id) === cell) && this.sources.some((s) => this.cellOf(s.dock.id) === cell);
+    const ok = this.forklifts.some((f) => f.task === "service" && this.cellOf(f.object.id) === cell && takesEmptyPallets(this.host.settings()[f.object.id]))
+      && this.sources.some((s) => this.cellOf(s.dock.id) === cell);
     if (!ok) this.host.log("warning", `${shuttle.object.name}: 서비스 지게차나 빈 팔레트 적치장이 없어 빈 팔레트를 반송 라인으로 보냄`);
     return ok;
   }
@@ -604,6 +639,8 @@ export class PalletCycle<C extends CycleCargo> {
       if (shuttle.feed) {
         // Roller-top: the empty pallet rolls off to the empty-pallet return line (not modelled), the deck waits for the next loaded pallet.
         if (group) {
+          // No service forklift could lift it off: it rolls off to the return line (not modelled). Never placed on the
+          // source stack without a forklift.
           this.host.unrender(group);
           group.removeFromParent();
           shuttle.feed.emptyReturned++;
@@ -787,7 +824,8 @@ export class PalletCycle<C extends CycleCargo> {
   private serviceJob(f: Forklift<C>) {
     const cell = this.cellOf(f.object.id);
     const role = this.host.settings()[f.object.id]?.forkliftRole ?? "auto";
-    const canUnload = role !== "supply", canSupply = role !== "unload";
+    // "emptyReturn": only empty pallets off inbound AMRs → source.
+    const canUnload = role !== "supply" && role !== "emptyReturn", canSupply = role !== "unload" && role !== "emptyReturn", canTakeEmpty = role !== "unload";
     const inCell = (s: Shuttle<C>) => this.cellOf(s.dock.id) === cell;
     const source = this.sources.find((s) => this.cellOf(s.dock.id) === cell && !s.busy);
     // 1. An AMR whose full pallet is already off waits for its empty pallet: shortest AMR downtime first.
@@ -799,7 +837,7 @@ export class PalletCycle<C extends CycleCargo> {
     const empty = this.shuttles.find((s) => s.state === "waitEmptyPick" && s.load && inCell(s));
     const swapWaiting = this.shuttles.some((s) => s.mode === "service" && s.state === "waitSwap" && inCell(s));
     // Alternate with swaps when both wait so neither side starves.
-    if (canSupply && empty && source && (!swapWaiting || !canUnload || f.lastJob !== "takeEmpty")) {
+    if (canTakeEmpty && empty && source && (!swapWaiting || !canUnload || f.lastJob !== "takeEmpty")) {
       this.takeEmptyJob(f, empty, source);
       return;
     }
@@ -815,7 +853,7 @@ export class PalletCycle<C extends CycleCargo> {
     }
     // Another forklift in the cell may supply the empty pallet: hand it over, otherwise chain the supply.
     const helper = this.forklifts.some((o) => o !== f && o.task === "service" && this.cellOf(o.object.id) === cell && this.enabled(o.object.id)
-      && (this.host.settings()[o.object.id]?.forkliftRole ?? "auto") !== "unload");
+      && (this.host.settings()[o.object.id]?.forkliftRole ?? "auto") !== "unload" && doesGeneralJobs(this.host.settings()[o.object.id]));
     this.unloadJob(f, shuttle, rack, !helper);
   }
   /** Full pallet off a waiting shuttle into a free Rack_m level; `chain`: then supply its empty pallet in the same job. */
@@ -936,7 +974,7 @@ export class PalletCycle<C extends CycleCargo> {
       load.group.rotation.set(0, source.dock.yaw, 0);
       this.stats.emptyStacked++;
       if (shuttle.feed) shuttle.feed.emptyReturned++;
-      if (source.stack.length + 2 > SOURCE_STACK_MAX) {
+      if (source.stack.length + 2 > this.stackMax(source)) {
         // Stack full: the stacked pallet is taken away (infinite store), the stack keeps its height.
         this.host.unrender(load.group);
         load.group.removeFromParent();

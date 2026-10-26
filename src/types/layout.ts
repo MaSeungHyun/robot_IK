@@ -34,13 +34,21 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** Forklift only, pallet cycle: "service" = swaps pallets on shuttle AMRs (full → Rack_m, empty → AMR), "rack" = Rack_m → Rack and Rack → 출하,
    * "carrier" = holds a pallet on its forks at the pallet in front of it (the robot loads it there) and carries it to an unload dock robot. */
   forkliftTask?:"service"|"rack"|"carrier";
-  /** Service forklift only: job split when several forklifts share a cell. "auto" (default) = any job; "unload" = only full
+  /** Forklift job split ("emptyReturn" = only lifts emptied pallets off AMRs onto the empty-pallet stack).
+   * Service forklift: job split when several forklifts share a cell. "auto" (default) = any job; "unload" = only full
    * pallets AMR → Rack_m; "supply" = only empty pallets (source → AMR, and empty pallets off inbound AMRs → source). */
-  forkliftRole?:"auto"|"unload"|"supply";
-  /** Shuttle AMR fed by a pallet-unit inbound only: what happens to the emptied pallet. "return" (default) = it rolls off to the
+  forkliftRole?:"auto"|"unload"|"supply"|"emptyReturn";
+  /** Pallet / shuttle AMR whose deck pallet is emptied at an unload dock: what happens to the emptied pallet. "forklift" (default) =
+   * a forklift lifts it off the AMR and stacks it on the empty-pallet source, then the AMR goes empty for the next pallet; "return" = it rolls off to the
    * return line at the AMR's home; "forklift" = the cell's service forklift lifts it off the AMR at the unload dock and stacks it
    * on the empty-pallet source (palletSource dock), then the AMR goes back for the next loaded pallet. */
   emptyPallet?:"return"|"forklift";
+  /** Dock (palletSource) only: pallets the empty-pallet stack holds (default 8, see constants/emptyPallet). */
+  stackCapacity?:number;
+  /** Conveyor only: an AMR may unload its deck boxes itself onto this belt when it leads to a scanner (default on). */
+  selfUnload?:boolean;
+  /** Conveyor only: seconds between boxes in that self-unload (default 1.6). */
+  deckFeedInterval?:number;
   /** Rack only: "mobile" = Rack_m (2 levels, carried by an AGV); default fixed Rack.glb. */
   rackType?:"fixed"|"mobile";
   /** Pallet only: id of the AMR it is mounted on (editor snap; the pallet rides on that shuttle AMR). */

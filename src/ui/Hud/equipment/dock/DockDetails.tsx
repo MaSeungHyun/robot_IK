@@ -3,12 +3,14 @@ import Badge from "@/components/Badge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
 import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
+import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
 
 export default function DockDetails({ object }: EquipmentDetailProps) {
   const enabled = useSceneStore((state) => state.settings[object.id]?.enabled);
+  const palletSource = useSceneStore((state) => state.settings[object.id]?.dockRole === "palletSource");
 
   const status = (
     <Badge tone={enabled ? "idle" : "offline"}>{enabled ? "출고 대기" : "중지"}</Badge>
@@ -37,6 +39,9 @@ export default function DockDetails({ object }: EquipmentDetailProps) {
             { value: "stage", label: "팔레트 순환 · 출하 대기 (로봇 하역)" },
           ]}
         />
+        {palletSource && (
+          <EquipmentNumberSetting id={object.id} field="stackCapacity" label="적치 용량 (초과분은 반출)" unit="개" min={1} max={30} integer />
+        )}
         <EquipmentChoiceSetting
           id={object.id}
           field="acceptGrade"

@@ -24,7 +24,7 @@ heading: number; lane?: Vector3; dockGate?: () => boolean; dockStage?: number;
     stage?: number };
   /** Unload dock: the AMR never sets the pallet down itself. It stays still at the dock, pallet on its deck, while
    * `busy()` (the dock robot depalletizes it there); then it drives back with the empty pallet and `emptyHome()` hands it off. */
-  hold?: { busy: () => boolean; emptyHome: (pallet: Group) => void };
+  hold?: { busy: () => boolean; emptyHome: (pallet: Group, taken: () => void) => void };
 };
 
 export class PalletDispatchController {
@@ -413,10 +413,17 @@ export class PalletDispatchController {
     this.elapsed = 0;
     if (this.phase === "returning") {
       // Empty pallet ridden back from a feed dock: handed off here (e.g. to the empty-pallet forklift / stack).
+      // The AMR keeps it (not available) until `taken()`: a forklift lifted it off, or it left by the return line.
       if (this.carried) {
         const pallet = this.carried;
-        this.carried = null;
-        this.routes?.hold?.emptyHome(pallet);
+        const hold = this.routes?.hold;
+        if (hold)
+          hold.emptyHome(pallet, () => {
+            if (this.carried !== pallet) return;
+            this.carried = null;
+            this.version++;
+          });
+        else this.carried = null;
       }
       // Settle to the home heading in place (handled while idle).
       this.turnTarget = this.nearestHeading(this.layout.amr.yaw, Math.PI * 2);

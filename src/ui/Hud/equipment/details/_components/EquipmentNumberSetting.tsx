@@ -9,8 +9,9 @@ import {
   toBoxesPerHour, toMetersPerMinute,
 } from "@/domain/simulation/equipmentSpeeds";
 import type { EquipmentSettings } from "@/types/layout";
+import { deckFeedIntervalOf, stackCapacityOf } from "@/constants/emptyPallet";
 
-type Field = "speed" | "reach" | "capacity" | "spawnInterval" | "beltSpeed" | "amrSpeed";
+type Field = "speed" | "reach" | "capacity" | "spawnInterval" | "beltSpeed" | "amrSpeed" | "stackCapacity" | "deckFeedInterval";
 type Props = {
   id: string;
   field: Field;
@@ -29,6 +30,8 @@ function read(field: Field, config: EquipmentSettings) {
   if (field === "beltSpeed") return toMetersPerMinute(beltSpeedOf(config));
   if (field === "amrSpeed") return amrSpeedOf(config);
   if (field === "spawnInterval") return toBoxesPerHour(spawnIntervalOf(config));
+  if (field === "stackCapacity") return stackCapacityOf(config);
+  if (field === "deckFeedInterval") return deckFeedIntervalOf(config);
   return config[field];
 }
 
