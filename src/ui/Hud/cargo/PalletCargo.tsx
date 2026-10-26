@@ -1,5 +1,7 @@
 import { useCargoStore } from "@/stores/useCargoStore";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
+import { boxStage } from "@/domain/cargo/CargoRegistry";
+import { BOX_STAGE_LABEL } from "@/ui/Hud/cargo/boxStageLabels";
 
 /** Pallet id and loaded box list of the pallet currently loading on this station (play mode). */
 export default function PalletCargo({ stationId }: { stationId: string }) {
@@ -12,16 +14,20 @@ export default function PalletCargo({ stationId }: { stationId: string }) {
     <DetailSection title={pallet ? `팔레트 ${pallet.id} · 적재 박스 ${pallet.boxIds.length}개` : "팔레트 교체 중"}>
       {pallet && pallet.boxIds.length > 0 ? (
         <div className="flex flex-wrap gap-1">
-          {pallet.boxIds.map((id) => (
+          {pallet.boxIds.map((id) => {
+            const record = registry.box(id);
+            return (
             <button
               key={id}
               type="button"
+              title={record ? BOX_STAGE_LABEL[boxStage(record)] : undefined}
               className={`rounded px-1.5 py-0.5 tabular-nums hover:bg-white/10 ${registry.box(id)?.inspection === "defect" ? "text-red-300" : ""}`}
               onClick={() => selectBox(id)}
             >
               {id}
             </button>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <p>적재된 박스가 없습니다.</p>

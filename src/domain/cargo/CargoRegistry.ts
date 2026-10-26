@@ -53,6 +53,40 @@ export type BoxRecord = {
   history: BoxEvent[];
 };
 
+/**
+ * Detailed box stage (finer than BoxState): combines where the box is with its inspection result and history.
+ * Derived on read (no stored field), so old records and replays get it too.
+ */
+export type BoxStage =
+  | "awaitingScan" // on a belt, not inspected yet
+  | "inboundAwaitingScan" // unloaded from an inbound pallet onto a belt, not inspected yet
+  | "scannedNormal" // on a belt, passed inspection
+  | "scannedDefect" // on a belt, inspected as defect (goes to the defect pallet)
+  | "assigned" // a robot has reserved it
+  | "held" // in a robot gripper
+  | "palletizedNormal" // on a loading pallet (normal)
+  | "palletizedDefect" // on a loading pallet (defect)
+  | "inTransit" // pallet on an AMR / forklift
+  | "stored" // in a rack slot
+  | "outboundStaged" // on an outbound dock
+  | "shipped"
+  | "passedUnprocessed"; // left the line unpicked
+export function boxStage(box: BoxRecord): BoxStage {
+  switch (box.state) {
+    case "passed": return "passedUnprocessed";
+    case "shipped": return "shipped";
+    case "dock": return "outboundStaged";
+    case "rack": return "stored";
+    case "amr": return "inTransit";
+    case "pallet": return box.inspection === "defect" ? "palletizedDefect" : "palletizedNormal";
+    case "robot": return box.history[box.history.length - 1]?.type === "pick" ? "held" : "assigned";
+    case "conveyor":
+      if (box.inspection === "defect") return "scannedDefect";
+      if (box.inspection === "normal") return "scannedNormal";
+      return box.history.some((e) => e.type === "unload") ? "inboundAwaitingScan" : "awaitingScan";
+  }
+}
+
 export type PalletRecord = {
   id: string;
   /** Pallet station (equipment) the pallet was loaded on. */

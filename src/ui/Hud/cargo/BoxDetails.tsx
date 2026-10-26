@@ -3,7 +3,9 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
 import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
-import type { BoxEventType, BoxState, PalletRecord } from "@/domain/cargo/CargoRegistry";
+import { boxStage, type BoxEventType, type BoxState, type PalletRecord } from "@/domain/cargo/CargoRegistry";
+import { BOX_STAGE_LABEL } from "@/ui/Hud/cargo/boxStageLabels";
+
 
 const BOX_STATE_LABEL: Record<BoxState, string> = {
   conveyor: "컨베이어 이동",
@@ -106,6 +108,7 @@ export default function BoxDetails({ id }: { id: string }) {
         rows={[
           { label: "검사 결과", value: box.inspection === null ? "미검사" : box.inspection === "defect" ? "불량" : "정상" },
           { label: "상태", value: BOX_STATE_LABEL[box.state] },
+          { label: "세부 단계", value: BOX_STAGE_LABEL[boxStage(box)] },
           { label: "현재 위치", value: name(box.holder) },
           { label: "팔레트", value: box.palletId ?? "-" },
           { label: "투입 시각", value: `${box.spawnedAt.toFixed(1)}s` },

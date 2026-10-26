@@ -14,6 +14,7 @@ import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { EQUIPMENT_REPORT_INTERVAL_MS, MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
+import { OPERATION_LABEL } from "@/domain/state/equipmentState";
 
 const metric = (value: number | undefined, unit: string) => (
   <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
@@ -68,6 +69,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
               value: formatMetric(telemetry?.operationCount, "회", 0),
             },
             { label: "처리 수량", value: formatMetric(robot?.count, "개", 0) },
+            { label: "장비 상태", value: robot?.operation ? OPERATION_LABEL[robot.operation] : undefined },
             { label: "현재 동작", value: robot?.status.split("·")[0] },
           ]}
         />
