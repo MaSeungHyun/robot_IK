@@ -18,8 +18,13 @@ const templates = new Map<string, Group>();
 const bodyMaterial = new MeshStandardMaterial({ color: "#475569" });
 const stripeMaterial = new MeshStandardMaterial({ color: "#fbbf24" });
 const legMaterial = new MeshStandardMaterial({ color: "#334155" });
-const accentMaterial = new MeshStandardMaterial({ color: PALLET_CONVEYOR.accent, emissive: PALLET_CONVEYOR.accent, emissiveIntensity: 0.35 });
-const padMaterial = new MeshStandardMaterial({ color: PALLET_CONVEYOR.accent, transparent: true, opacity: 0.45 });
+/** Outbound (출하) markings are red; flat (no emissive glow). */
+const SHIP_RED = "#e5484d";
+const accentMaterial = new MeshStandardMaterial({ color: SHIP_RED, roughness: 0.8 });
+const padMaterial = new MeshStandardMaterial({ color: SHIP_RED, transparent: true, opacity: 0.45 });
+/** Edit-mode flow arrows: neutral grey on ordinary belts, red on outbound / ship belts. */
+const arrowMaterial = new MeshStandardMaterial({ color: "#e4e4e7", roughness: 0.8 });
+const shipArrowMaterial = new MeshStandardMaterial({ color: SHIP_RED, roughness: 0.8 });
 /** Flat chevron pointing along +z (belt flow), `size` m wide. */
 function chevron(size: number) {
   const shape = new Shape(), w = size / 2, t = size * 0.22;
@@ -35,30 +40,41 @@ function chevron(size: number) {
   geometry.rotateX(Math.PI / 2);
   return geometry;
 }
+const arrowGeometry = chevron(C.beltWidth * 0.55);
+const arrowTemplates = new Map<string, Group>();
+const shipsOut = (role: ConveyorRole) => role === "outbound" || role === "ship";
 /**
- * #02dfef markings on a straight rail.glb belt (the rail itself is untouched): inbound (입하) = chevrons
- * along both side frames; outbound (출하) = large pallet chevrons on the belt, a side stripe and the AMR
- * transfer pad in front of the belt start.
+ * Flow arrows centred on the belt (every conveyor, like the former outbound chevrons), kept out of the
+ * instanced belt template so the editor can hide them during Play. Red on outbound / ship belts.
+ * Shared geometry/materials: callers clone the group.
  */
+export function conveyorArrows(turn: ConveyorTurn = "straight", role: ConveyorRole = "box") {
+  const key = `${turn}:${shipsOut(role) ? "ship" : "flow"}`;
+  let group = arrowTemplates.get(key);
+  if (group) return group;
+  group = new Group();
+  const material = shipsOut(role) ? shipArrowMaterial : arrowMaterial;
+  const top = C.height + 0.008;
+  const length = turn === "straight" ? C.length : beltLength({ x: 0, z: 0, yaw: 0, conveyorTurn: turn });
+  const count = Math.max(1, Math.round(length / 4));
+  for (let i = 0; i < count; i++) {
+    const s = (length * (i + 0.5)) / count;
+    const mark = new Mesh(arrowGeometry, material);
+    if (turn === "straight") mark.position.set(0, top, s - length / 2);
+    else {
+      const p = beltLocalPoint({ conveyorTurn: turn }, s);
+      mark.position.set(p.x, top, p.z);
+      mark.rotation.y = p.yaw;
+    }
+    group.add(mark);
+  }
+  arrowTemplates.set(key, group);
+  return group;
+}
+/** Outbound (출하) belt markings on a straight rail.glb (the rail itself is untouched): red side stripes and the AMR transfer pad. */
 function roleAccents(role: ConveyorRole, template: Group) {
   const half = C.length / 2, top = C.height + 0.008;
-  if (role === "inbound") {
-    const geometry = chevron(0.32);
-    for (let z = -half + 1.5; z < half - 0.5; z += 3)
-      for (const side of [-1, 1]) {
-        const mark = new Mesh(geometry, accentMaterial);
-        mark.position.set(side * (C.beltWidth / 2 + (C.width - C.beltWidth) / 4), top, z);
-        template.add(mark);
-      }
-    return;
-  }
   if (role !== "outbound") return;
-  const geometry = chevron(C.beltWidth * 0.55);
-  for (let z = -half + 2; z < half - 1; z += 4) {
-    const mark = new Mesh(geometry, accentMaterial);
-    mark.position.set(0, top, z);
-    template.add(mark);
-  }
   for (const side of [-1, 1]) {
     const stripe = new Mesh(new BoxGeometry(0.06, 0.02, C.length * 0.96), accentMaterial);
     stripe.position.set(side * (C.width / 2 - 0.03), top, 0);
@@ -93,7 +109,7 @@ function ribbon(turn: ConveyorTurn, width: number, depth: number) {
 }
 /** Immutable shared geometry/materials: clones only retain independent transforms. */
 export function conveyorTemplate(turn: ConveyorTurn = "straight", rail?: Object3D, role: ConveyorRole = "box") {
-  const accented = turn === "straight" && (role === "inbound" || role === "outbound");
+  const accented = turn === "straight" && role === "outbound";
   const key = `${turn === "straight" && rail ? "rail" : turn}${accented ? `:${role}` : ""}`;
   let template = templates.get(key);
   if (template) return template;
