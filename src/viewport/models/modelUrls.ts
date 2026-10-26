@@ -1,12 +1,5 @@
-import { useGLTF } from "@react-three/drei";
-import amrUrl from "@/assets/models/AMR.glb?url";
-import forkliftUrl from "@/assets/models/Forklift.glb?url";
-import boxUrl from "@/assets/models/box.glb?url";
-import palletUrl from "@/assets/models/pallet.glb?url";
-import rackUrl from "@/assets/models/Rack.glb?url";
-import robotUrl from "@/assets/models/RobotArm.glb?url";
-import railUrl from "@/assets/models/rail.glb?url";
-import scannerUrl from "@/assets/models/ScanTunnel.glb?url";
+import { useGLTF } from "@/lib/three/gltfLoader";
+import { amrUrl, forkliftUrl, boxUrl, palletUrl, rackUrl, robotArmUrl as robotUrl, railUrl, scanTunnelUrl as scannerUrl } from "@/constants/modelAssets";
 
 export const MODEL = { robot: robotUrl, pallet: palletUrl, box: boxUrl, amr: amrUrl, scanner: scannerUrl, rack: rackUrl, rail: railUrl, forklift: forkliftUrl };
 export const MODEL_URLS = Object.values(MODEL);

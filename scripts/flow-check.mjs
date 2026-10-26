@@ -34,7 +34,7 @@ try {
     const buffer = stripTextures(readFileSync(file));
     new GLTFLoader().parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), "", resolve, reject);
   });
-  const [robotGltf, boxGltf, palletGltf, scannerGltf] = await Promise.all(["RobotArm", "box", "pallet", "ScanTunnel"].map(n => parse(`src/assets/models/${n}.glb`)));
+  const [robotGltf, boxGltf, palletGltf, scannerGltf] = await Promise.all(["RobotArm", "box", "pallet", "ScanTunnel"].map(n => parse(`src/assets/models_original/${n}.glb`)));
   const { SCENE_TEMPLATES } = await load("/src/constants/sceneTemplates.ts");
   const { useSceneStore } = await load("/src/stores/useSceneStore.ts");
   const { FactorySimulator } = await load("/src/domain/simulation/FactorySimulator.ts");

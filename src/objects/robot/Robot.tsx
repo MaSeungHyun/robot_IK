@@ -1,5 +1,5 @@
 import useRobotJointReadings from "@/hooks/robot/useRobotJointReadings";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import type { ThreeElements } from "@react-three/fiber";
 import { useEffect, useId, useMemo, useRef, type RefObject } from "react";
 import type {
@@ -9,7 +9,7 @@ import type {
 } from "../../types/robot";
 import type { RobotController } from "@/domain/robot/RobotController";
 import { SuctionRobotController } from "@/domain/robot/SuctionRobotController";
-import robot from "@/assets/models/RobotArm.glb?url";
+import { robotArmUrl as robot } from "@/constants/modelAssets";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { simulationClock } from "@/domain/simulation/simulationClock";
 import { planningScheduler } from "@/domain/robot/ik/planningScheduler";

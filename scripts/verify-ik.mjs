@@ -6,7 +6,7 @@ import * as T from 'three';
 // Read actual GLB triangle geometry without decoding textures, preserving
 // model transforms and exercising the same BVH collision tests as the app.
 function load(name, nativeMeshNodes = false) {
-  const buffer = fs.readFileSync(`src/assets/models/${name}.glb`);
+  const buffer = fs.readFileSync(`src/assets/models_original/${name}.glb`);
   const gltf = JSON.parse(buffer.subarray(20, 20 + buffer.readUInt32LE(12)).toString());
   const binaryStart = 28 + buffer.readUInt32LE(12);
   function accessor(index) {
@@ -253,7 +253,7 @@ if(process.argv.includes('--scanner')) {
   assert.equal(inspection.getSignal('rotated'),'safe');
 
   const asset=load('scanner');
-  const raw=fs.readFileSync('src/assets/models/scanner.glb');
+  const raw=fs.readFileSync('src/assets/models_original/scanner.glb');
   const metadata=JSON.parse(raw.subarray(20,20+raw.readUInt32LE(12)).toString());
   let index=0;
   asset.traverse(node=>{if(node instanceof T.Mesh){node.material=new T.MeshStandardMaterial({name:metadata.materials[index++].name});}});

@@ -11,7 +11,7 @@ const messages = [];
 globalThis.postMessage = (message) => { messages.push(message); if (message.type === "progress") process.stdout.write(`\rprogress ${message.progress.evaluated}/${message.progress.total} ${message.progress.current}        `); };
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url) => {
-  const local = String(url).match(/\/src\/assets\/models\/[\w.-]+\.glb/);
+  const local = String(url).match(/\/src\/assets\/models(?:_original)?\/[\w.-]+\.glb/);
   if (!local) return realFetch(url);
   const file = readFileSync(`.${local[0]}`);
   return { arrayBuffer: async () => file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) };

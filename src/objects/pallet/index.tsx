@@ -1,5 +1,5 @@
-import { useGLTF } from "@react-three/drei";
-import pallet from "@/assets/models/pallet.glb?url";
+import { useGLTF } from "@/lib/three/gltfLoader";
+import { palletUrl as pallet } from "@/constants/modelAssets";
 import { useMemo } from "react";
 import type { ThreeElements } from "@react-three/fiber";
 import { createPalletModel } from "@/lib/three/palletModel";

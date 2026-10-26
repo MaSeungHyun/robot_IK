@@ -1,5 +1,5 @@
 import { Suspense, useEffect } from "react";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import { log } from "@/stores/useLogStore";
 import { useModelStore } from "@/stores/useModelStore";
 import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";

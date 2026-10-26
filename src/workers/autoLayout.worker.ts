@@ -6,9 +6,7 @@
 import "@/workers/workerShims";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { Group } from "three";
-import robotUrl from "@/assets/models/RobotArm.glb?url";
-import boxUrl from "@/assets/models/box.glb?url";
-import palletUrl from "@/assets/models/pallet.glb?url";
+import { robotArmUrl as robotUrl, boxUrl, palletUrl } from "@/constants/modelAssets";
 import { stripGlbTextures } from "@/domain/layout/stripGlbTextures";
 import { simulateTemplate, type SimModels } from "@/domain/layout/simulateLayout";
 import { searchLayouts } from "@/domain/layout/searchLayouts";

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import { MODEL } from "@/viewport/models/modelUrls";
 import type { ConveyorTurn } from "@/types/layout";
 import { buildConveyorGhost } from "@/viewport/editor/ghostModels";

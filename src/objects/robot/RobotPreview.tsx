@@ -1,6 +1,6 @@
-import { useGLTF } from "@react-three/drei";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import { useMemo } from "react";
-import robotUrl from "@/assets/models/RobotArm.glb?url";
+import { robotArmUrl as robotUrl } from "@/constants/modelAssets";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { poseRobotHome } from "@/domain/robot/ik/joints";
 

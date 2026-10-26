@@ -13,7 +13,7 @@ try {
   const THREE = await import("three");
   const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
   const { stripGlbTextures } = await load("/src/domain/layout/stripGlbTextures.ts");
-  const parse = async (n) => { const f = readFileSync(`src/assets/models/${n}.glb`); return (await new GLTFLoader().parseAsync(stripGlbTextures(f.buffer.slice(f.byteOffset, f.byteOffset + f.byteLength)), "")).scene; };
+  const parse = async (n) => { const f = readFileSync(`src/assets/models_original/${n}.glb`); return (await new GLTFLoader().parseAsync(stripGlbTextures(f.buffer.slice(f.byteOffset, f.byteOffset + f.byteLength)), "")).scene; };
   const [robotModel, boxModel, palletModel] = await Promise.all(["robot", "box", "pallet"].map(parse));
   const { SCENE_TEMPLATES } = await load("/src/constants/sceneTemplates.ts");
   const { useSceneStore } = await load("/src/stores/useSceneStore.ts");

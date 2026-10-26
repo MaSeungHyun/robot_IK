@@ -1,11 +1,6 @@
-import scannerUrl from "@/assets/models/ScanTunnel.glb?url";
-import { useGLTF } from "@react-three/drei";
+import { scanTunnelUrl as scannerUrl, robotArmUrl as robotUrl, palletUrl, amrUrl, rackUrl, forkliftUrl } from "@/constants/modelAssets";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import { useEffect, useMemo } from "react";
-import robotUrl from "@/assets/models/RobotArm.glb?url";
-import palletUrl from "@/assets/models/pallet.glb?url";
-import amrUrl from "@/assets/models/AMR.glb?url";
-import rackUrl from "@/assets/models/Rack.glb?url";
-import forkliftUrl from "@/assets/models/Forklift.glb?url";
 import { buildModelGhost, type GhostModelKind } from "@/viewport/editor/ghostModels";
 
 export default function ModelGhost({ kind }: { kind: GhostModelKind }) {

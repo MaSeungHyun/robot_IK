@@ -1,4 +1,4 @@
-import { useGLTF } from "@react-three/drei";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import { useContext, useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
@@ -12,7 +12,7 @@ import {
 } from "three";
 import { Line2, LineGeometry, LineMaterial } from "three-stdlib";
 import { AMR_PATH_LAYERS as LAYERS } from "@/constants/amrPath";
-import amrUrl from "@/assets/models/AMR.glb?url";
+import { amrUrl } from "@/constants/modelAssets";
 import { useInstanceModel } from "@/viewport/instancing/useInstanceModel";
 import { selectionContext } from "@react-three/postprocessing";
 

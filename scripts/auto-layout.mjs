@@ -33,7 +33,7 @@ try {
   const { simulateTemplate } = await load("/src/domain/layout/simulateLayout.ts");
   const { searchLayouts } = await load("/src/domain/layout/searchLayouts.ts");
   const parse = async (name) => {
-    const file = readFileSync(`src/assets/models/${name}.glb`);
+    const file = readFileSync(`src/assets/models_original/${name}.glb`);
     return (await new GLTFLoader().parseAsync(stripGlbTextures(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength)), "")).scene;
   };
   const [robot, box, pallet] = await Promise.all(["robot", "box", "pallet"].map(parse));
