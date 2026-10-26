@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => {
-  const buffer = fs.readFileSync(path.join(root, "src/assets/models", file));
+  const buffer = fs.readFileSync(path.join(root, process.env.MODELS_DIR ?? "src/assets/models_original", file));
   return JSON.parse(buffer.subarray(20, 20 + buffer.readUInt32LE(12)).toString());
 };
 const clean = (name) => name.replace(/\.\d+$/, "").toLowerCase();
@@ -76,7 +76,7 @@ for (const index of pallet.scenes[0].nodes) {
 
 // Conveyor rail (rail.glb) and scan tunnel (ScanTunnel.glb): belt surfaces come from the "conveyorbelt" material vertices.
 const readBin = (file) => {
-  const buffer = fs.readFileSync(path.join(root, "src/assets/models", file));
+  const buffer = fs.readFileSync(path.join(root, process.env.MODELS_DIR ?? "src/assets/models_original", file));
   const jsonLength = buffer.readUInt32LE(12);
   return buffer.subarray(20 + jsonLength + 8);
 };

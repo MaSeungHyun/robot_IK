@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import type { Object3D } from "three";
-import forkliftUrl from "@/assets/models/Forklift.glb?url";
+import { forkliftUrl } from "@/constants/modelAssets";
 import { FORKLIFT_MODEL } from "@/constants/modelPoints.generated";
 
 /** GLTFLoader strips "." from node names (`Forklift.Fork` loads as `ForkliftFork`): compare alphanumerics only. */

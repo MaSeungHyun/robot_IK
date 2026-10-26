@@ -158,7 +158,7 @@ export const ROBOT_MODEL = {
 export const RAIL_MODEL = {
   /** Rail mesh bounds in mesh-local space (belt runs along z; the node pivot is ignored, bottom goes on the floor). */
   min: [-0.8282,-0.5649,-13.1263] as [number, number, number],
-  max: [0.8282,0.5649,13.1263] as [number, number, number],
+  max: [0.8282,0.7581,13.1263] as [number, number, number],
   /** Belt surface ("conveyorbelt" vertices): top y and x/z extent in mesh-local space. */
   beltTop: 0.4757,
   beltX: [-0.712,0.7044] as [number, number],
