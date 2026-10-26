@@ -20,6 +20,11 @@ export default function ForkliftModel({ fork }: { fork?: Object3D }) {
     });
     if (!found) console.warn(`Forklift.glb: fork node "${FORKLIFT_MODEL.forkNode}" not found; the fork will not move.`);
     forkNode.current = found;
+    // Moving equipment: casts and receives the key light shadow.
+    model.traverse((node) => {
+      node.castShadow = true;
+      node.receiveShadow = true;
+    });
   }, [model]);
   useFrame(() => {
     const node = forkNode.current;

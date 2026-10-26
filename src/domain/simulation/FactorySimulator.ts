@@ -308,8 +308,6 @@ export class FactorySimulator {
     this.instances = instances;
     this.settings = getSettings;
     this.boxAsset = createUnitBox(box);
-    // Boxes only receive shadows (hundreds of small casters); see SceneInstances.
-    this.boxAsset.traverse((node) => { node.userData.noCastShadow = true; });
     const owned = PalletCycle.owned(objects, this.settings());
     // Roller-top shuttles fed by a pallet-unit inbound belt carry their pallet at the belt height.
     const rollerShuttles = owned ? palletFeeds(objects, this.settings(), (id) => this.links.outgoing(id, "feed")) : new Map<string, SceneEquipment>();

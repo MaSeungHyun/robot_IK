@@ -21,19 +21,19 @@ export default function FloorRoom({ width, depth, wallHeight, preview = false, i
   // Grey concrete slabs (in-house PBR); flat procedural fallback on the performance tier.
   const pbr = useRoomMaps("floor", width, depth);
   const room = useRef<Group>(null);
-  // Floor, walls and roof only receive shadows: BackSide/cut-away walls and the roof would
-  // otherwise darken the whole interior.
+  // Walls, frame and roof carry baked shading: no shadows at all (cut-away walls and the roof would
+  // darken the interior). Only the floor receives the moving equipment shadows.
   useLayoutEffect(() => {
     room.current?.traverse((node) => {
       node.castShadow = false;
-      node.receiveShadow = !preview;
+      node.receiveShadow = !preview && node.userData.shadowFloor === true;
       if (!interactive) node.raycast = noRaycast;
       else if (node.raycast === noRaycast && !preview) delete (node as { raycast?: unknown }).raycast;
     });
   });
   return (
     <group ref={room}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.003, 0]} raycast={preview ? noRaycast : undefined} receiveShadow>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.003, 0]} raycast={preview ? noRaycast : undefined} userData={{ shadowFloor: true }} receiveShadow>
         <planeGeometry args={[width, depth]} />
         {pbr && !preview ? (
           <meshStandardMaterial key="pbr" {...pbr} color="#ffffff" roughness={1} metalness={0} normalScale={[0.6, 0.6]} />

@@ -6,7 +6,7 @@ import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
 /** geometry: what is drawn (the node's own, or its userData.lowPoly stand-in once the owner is static). */
 type Entry={node:Mesh;owner:Object3D;visible:boolean;raycast:Mesh["raycast"];previous:Matrix4;batch:Batch;geometry:BufferGeometry;sector:string};
 /** dirty: entries changed since the last sync; only those batches are reordered/rewritten. */
-type Batch={geometry:BufferGeometry;material:Material|Material[];entries:Set<Entry>;mesh:InstancedMesh|null;capacity:number;ordered:Entry[];castShadow:boolean;dirty:boolean};
+type Batch={geometry:BufferGeometry;material:Material|Material[];entries:Set<Entry>;mesh:InstancedMesh|null;capacity:number;ordered:Entry[];castShadow:boolean;receiveShadow:boolean;dirty:boolean};
 /** Per-owner frame state: static owners whose world matrix and visibility did not change are skipped. */
 type OwnerFrame={visible:boolean;skip:boolean;previous:Matrix4;seen:boolean};
 /** nested: cargo nodes (userData.cargo) found inside this owner at register time, registered as their own owners. */
@@ -40,7 +40,8 @@ export class SceneInstances {
       if(selected&&visible)visit(entry.node);
     }
   }
-  register(owner:Object3D){
+  /** `staticShadow`: static baked-shadow model (no cast, no receive); remembered on the owner for LOD rebatching. */
+  register(owner:Object3D,staticShadow=false){
     const existing=this.owners.get(owner);
     if(existing){existing.references++;return()=>this.unregister(owner);}
     this.roots.add(owner);
@@ -54,6 +55,8 @@ export class SceneInstances {
       ? `${Math.floor(owner.matrixWorld.elements[12] / INSTANCE_SECTOR_SIZE)},${Math.floor(owner.matrixWorld.elements[14] / INSTANCE_SECTOR_SIZE)}`
       : "dynamic";
     const entries:Entry[]=[],nested:Object3D[]=[];
+    // Static baked-shadow models (rack, conveyor, dock): neither cast nor receive; see useInstanceModel.
+    if(staticShadow)owner.userData.staticShadow=true;
     const visit=(node:Object3D)=>{
       if(node!==owner&&this.roots.has(node))return;
       // A box born inside a pallet group (inbound pallets) is its own owner: a robot reparents it to its gripper, and
@@ -62,7 +65,7 @@ export class SceneInstances {
       if(!(node instanceof Mesh)||node.userData.excludeFromInstancing||"isSkinnedMesh" in node||node instanceof InstancedMesh||!node.visible||this.sources.has(node)){
         for(const child of node.children)visit(child);return;
       }
-      const batch=this.batchFor(node,node.geometry,sector);
+      const batch=this.batchFor(node,node.geometry,sector,staticShadow);
       const entry:Entry={node,owner,visible:node.visible,raycast:node.raycast,previous:new Matrix4(),batch,geometry:node.geometry,sector};
       entries.push(entry);batch.entries.add(entry);batch.dirty=true;this.sources.set(node,entry);node.visible=false;node.raycast=noRaycast;
       for(const child of node.children)visit(child);
@@ -71,12 +74,12 @@ export class SceneInstances {
     this.owners.set(owner,{entries,references:1,frame:{visible:true,skip:false,previous:new Matrix4(),seen:false},lowPoly:false,nested});this.dirty=true;
     return()=>this.unregister(owner);
   }
-  private batchFor(node:Mesh,geometry:BufferGeometry,sector:string){
+  private batchFor(node:Mesh,geometry:BufferGeometry,sector:string,staticShadow:boolean){
     const materials=Array.isArray(node.material)?node.material:[node.material];
-    const key=`${geometry.userData.instanceGeometryKey??geometry.uuid}:${materials.map(m=>m.uuid).join(":")}:${!node.userData.noCastShadow}:${sector}`;
+    const key=`${geometry.userData.instanceGeometryKey??geometry.uuid}:${materials.map(m=>m.uuid).join(":")}:${!node.userData.noCastShadow}:${staticShadow}:${sector}`;
     let batch=this.batches.get(key);
-    // Meshes tagged userData.noCastShadow (boxes, pallets) only receive shadows.
-    if(!batch){batch={geometry,material:node.material,entries:new Set(),mesh:null,capacity:0,ordered:[],castShadow:!node.userData.noCastShadow,dirty:true};this.batches.set(key,batch);}
+    // Moving equipment and cargo cast and receive; static baked models neither; userData.noCastShadow only receives.
+    if(!batch){batch={geometry,material:node.material,entries:new Set(),mesh:null,capacity:0,ordered:[],castShadow:!staticShadow&&!node.userData.noCastShadow,receiveShadow:!staticShadow,dirty:true};this.batches.set(key,batch);}
     return batch;
   }
   /** LOD: a static owner (racked pallet) switches meshes that offer geometry.userData.lowPoly to that stand-in. */
@@ -86,7 +89,7 @@ export class SceneInstances {
       const low=entry.node.geometry.userData.lowPoly as BufferGeometry|undefined;
       if(!low||entry.geometry===low)continue;
       entry.batch.entries.delete(entry);entry.batch.dirty=true;
-      entry.batch=this.batchFor(entry.node,low,entry.sector);entry.geometry=low;
+      entry.batch=this.batchFor(entry.node,low,entry.sector,entry.owner.userData.staticShadow===true);entry.geometry=low;
       entry.batch.entries.add(entry);entry.batch.dirty=true;this.dirty=true;
     }
   }
@@ -132,8 +135,8 @@ export class SceneInstances {
           batch.capacity=2**Math.ceil(Math.log2(Math.max(16,batch.ordered.length)));
           batch.mesh=new InstancedMesh(batch.geometry,batch.material,batch.capacity);
           batch.mesh.instanceMatrix.setUsage(DynamicDrawUsage);batch.mesh.frustumCulled=true;
-          // Equipment and cargo cast and receive the key light shadow (off = the light stops casting).
-          batch.mesh.castShadow=batch.castShadow;batch.mesh.receiveShadow=true;
+          // Shadow flags per batch (off quality = the light stops casting).
+          batch.mesh.castShadow=batch.castShadow;batch.mesh.receiveShadow=batch.receiveShadow;
           this.root.add(batch.mesh);
         }
         batch.mesh!.count=batch.ordered.length;

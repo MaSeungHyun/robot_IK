@@ -11,6 +11,6 @@ export default function ConveyorBelt({ entity }: { entity: SceneEquipment }) {
   const { scene: rail } = useGLTF(MODEL.rail);
   const role = useSceneStore((state) => state.settings[entity.id]?.conveyorRole ?? "box");
   const model = useMemo(() => conveyorTemplate(turn, rail, role).clone(true), [turn, rail, role]);
-  useInstanceModel(model);
+  useInstanceModel(model, true);
   return <primitive object={model} dispose={null} />;
 }

@@ -30,6 +30,6 @@ export default function Dock({ id }: { id?: string }) {
     group.add(mesh);
     return group;
   }, [defect]);
-  useInstanceModel(model);
+  useInstanceModel(model, true);
   return <primitive object={model} dispose={null} />;
 }
