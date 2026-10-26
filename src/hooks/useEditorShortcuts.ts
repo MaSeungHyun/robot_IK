@@ -22,7 +22,8 @@ export default function useEditorShortcuts(enabled:boolean){
       const state=useSceneStore.getState();
       if(!state.editing||event.isComposing||event.defaultPrevented)return;
       if(event.target instanceof Element&&event.target.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]'))return;
-      if(document.querySelector('[role="dialog"],[role="listbox"],[role="menu"]'))return;
+      // Non-modal flyouts (Asset panel, data-keeps-shortcuts) do not block the editor shortcuts.
+      if(document.querySelector('[role="dialog"]:not([data-keeps-shortcuts]),[role="listbox"],[role="menu"]'))return;
       const modal=useModalTransformStore.getState();
       if(modal.session)return; // ModalTransform owns the keyboard while G/R is active.
       const mod=event.ctrlKey||event.metaKey,key=event.key.toLowerCase();

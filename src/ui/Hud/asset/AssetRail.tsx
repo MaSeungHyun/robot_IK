@@ -168,7 +168,7 @@ export default function AssetRail() {
 function TemplateFlyout({ onDone }: { onDone: () => void }) {
   const clear = useSceneStore((s) => s.clear);
   return (
-    <div role="dialog" aria-label="템플릿" className={cn(flyout, "w-96")}>
+    <div role="dialog" aria-label="템플릿" data-keeps-shortcuts="" className={cn(flyout, "w-96")}>
       <h2 className="mb-2 text-sm font-semibold text-text-primary">템플릿</h2>
       <div className="grid grid-cols-2 gap-2">
         {SCENE_TEMPLATES.map((template) => (
@@ -217,6 +217,7 @@ function AssetFlyout({
     <div
       role="dialog"
       aria-label={`${EQUIPMENT_NAMES[kind]} 프리셋`}
+      data-keeps-shortcuts=""
       className={cn(flyout, "w-72")}
     >
       <canvas

@@ -273,7 +273,7 @@ export default function CameraRig() {
       )
         return;
       if (
-        document.querySelector('[role="dialog"],[role="listbox"],[role="menu"]')
+        document.querySelector('[role="dialog"]:not([data-keeps-shortcuts]),[role="listbox"],[role="menu"]')
       )
         return;
       if (useCameraTrackingStore.getState().trackedId) return;
