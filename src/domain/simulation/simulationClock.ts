@@ -13,7 +13,7 @@ export const SIMULATION_CLOCK = {
   /** Rendered-frame stall clamp (s of real time) before applying playback speed. */
   maxFrameDelta: 0.1,
   /** Wall-clock ms per rendered frame spent stepping (at least one step always runs). */
-  frameBudgetMs: 10,
+  frameBudgetMs: 8,
   /** Budget at high playback speeds (>= highSpeed) while the clock is behind its target: stepping may take most
    *  of a 60 Hz frame there, since the user asked for sim throughput over frame rate. */
   highSpeedBudgetMs: 14,

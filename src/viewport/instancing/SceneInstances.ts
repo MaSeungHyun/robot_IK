@@ -1,4 +1,4 @@
-import { DynamicDrawUsage, Group, InstancedMesh, Matrix4, Mesh, Vector3 } from "three";
+import { DynamicDrawUsage, Group, InstancedMesh, Matrix4, Mesh, MeshDepthMaterial, Vector3 } from "three";
 import type { BufferGeometry, Material, Object3D } from "three";
 import { INSTANCE_SECTOR_SIZE } from "@/constants/viewport";
 import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
@@ -8,7 +8,8 @@ type Entry={node:Mesh;owner:Object3D;visible:boolean;raycast:Mesh["raycast"];pre
 /** dirty: entries changed since the last sync; only those batches are reordered/rewritten. */
 type Batch={geometry:BufferGeometry;material:Material|Material[];entries:Set<Entry>;mesh:InstancedMesh|null;capacity:number;ordered:Entry[];castShadow:boolean;receiveShadow:boolean;dirty:boolean};
 /** Per-owner frame state: static owners whose world matrix and visibility did not change are skipped. */
-type OwnerFrame={visible:boolean;skip:boolean;previous:Matrix4;seen:boolean};
+/** frozen: its source meshes have matrixAutoUpdate off while it is static and unchanged (no per-frame compose). */
+type OwnerFrame={visible:boolean;skip:boolean;previous:Matrix4;seen:boolean;frozen:boolean};
 /** nested: cargo nodes (userData.cargo) found inside this owner at register time, registered as their own owners. */
 type Registration={entries:Entry[];references:number;frame:OwnerFrame;lowPoly:boolean;nested:Object3D[]};
 const isDescendant=(node:Object3D,ancestor:Object3D)=>{
@@ -17,6 +18,27 @@ const isDescendant=(node:Object3D,ancestor:Object3D)=>{
 };
 const noRaycast:Mesh["raycast"]=()=>{};
 const hiddenScale = new Vector3(0, 0, 0);
+/**
+ * Shadow depth material for every instanced batch. three.js shares one default depth material between all casters,
+ * so a frame that draws plain meshes and InstancedMeshes into the shadow map flips its `instancing` program variant
+ * back and forth, re-running getProgram (getParameters / getProgramCacheKey) on every switch. A separate material
+ * keeps each variant on its own program. Same defaults as three's internal one (BasicDepthPacking).
+ */
+export const instancedDepthMaterial = new MeshDepthMaterial();
+/** Materials for which three.js would build a per-material depth variant (alpha test, displacement, clipping) keep the default path. */
+export const usesSharedDepth = (material: Material | Material[]) => {
+  if (Array.isArray(material)) return false;
+  const m = material as Material & { alphaMap?: unknown; map?: unknown; displacementMap?: unknown; displacementScale?: number };
+  return !((m.alphaTest > 0 && (m.map || m.alphaMap)) || (m.displacementMap && m.displacementScale !== 0) || m.alphaToCoverage || (m.clipShadows && m.clippingPlanes?.length));
+};
+const setFrozen = (entries: Entry[], frozen: boolean) => {
+  for (const entry of entries) {
+    // The owner itself keeps composing: that is how a moved static owner is detected.
+    if (entry.node === entry.owner) continue;
+    entry.node.matrixAutoUpdate = !frozen;
+    if (!frozen) entry.node.updateMatrix();
+  }
+};
 
 /** Keeps original scene transforms/bounds for IK; only the draw representation is batched. */
 export class SceneInstances {
@@ -71,7 +93,7 @@ export class SceneInstances {
       for(const child of node.children)visit(child);
     };
     visit(owner);
-    this.owners.set(owner,{entries,references:1,frame:{visible:true,skip:false,previous:new Matrix4(),seen:false},lowPoly:false,nested});this.dirty=true;
+    this.owners.set(owner,{entries,references:1,frame:{visible:true,skip:false,previous:new Matrix4(),seen:false,frozen:false},lowPoly:false,nested});this.dirty=true;
     return()=>this.unregister(owner);
   }
   private batchFor(node:Mesh,geometry:BufferGeometry,sector:string,staticShadow:boolean){
@@ -100,6 +122,7 @@ export class SceneInstances {
     const registration=this.owners.get(owner);if(!registration)return;
     if(--registration.references>0&&!deep)return;
     this.orphans.delete(owner);
+    if(registration.frame.frozen){setFrozen(registration.entries,false);registration.frame.frozen=false;}
     for(const entry of registration.entries){
       entry.node.visible=entry.visible;entry.node.raycast=entry.raycast;
       this.sources.delete(entry.node);
@@ -137,6 +160,7 @@ export class SceneInstances {
           batch.mesh.instanceMatrix.setUsage(DynamicDrawUsage);batch.mesh.frustumCulled=true;
           // Shadow flags per batch (off quality = the light stops casting).
           batch.mesh.castShadow=batch.castShadow;batch.mesh.receiveShadow=batch.receiveShadow;
+          if(usesSharedDepth(batch.material))batch.mesh.customDepthMaterial=instancedDepthMaterial;
           this.root.add(batch.mesh);
         }
         batch.mesh!.count=batch.ordered.length;
@@ -159,14 +183,23 @@ export class SceneInstances {
       }
       if(isStatic&&frame.seen){
         owner.updateWorldMatrix(true,false);
-        if(frame.visible===visible&&frame.previous.equals(owner.matrixWorld)){frame.skip=true;continue;}
+        if(frame.visible===visible&&frame.previous.equals(owner.matrixWorld)){
+          // Unchanged static owner: its hidden source meshes stop recomposing local matrices every frame.
+          if(!frame.frozen){setFrozen(registration.entries,true);frame.frozen=true;}
+          frame.skip=true;continue;
+        }
+        if(frame.frozen){setFrozen(registration.entries,false);frame.frozen=false;}
         owner.updateWorldMatrix(false,true);
-      }else owner.updateWorldMatrix(true,true);
+      }else{
+        if(frame.frozen){setFrozen(registration.entries,false);frame.frozen=false;}
+        owner.updateWorldMatrix(true,true);
+      }
       frame.skip=false;frame.seen=true;frame.visible=visible;frame.previous.copy(owner.matrixWorld);
     }
     for(const batch of this.batches.values()){
       const reordered=batch.dirty;batch.dirty=false;
-      let changed=false;
+      // Changed instance range: only that slice of instanceMatrix is uploaded (full upload after a reorder).
+      let changed=false,first=Infinity,last=-1;
       for(let i=0;i<batch.ordered.length;i++){
         const entry=batch.ordered[i];
         const frame=this.owners.get(entry.owner)?.frame;
@@ -177,11 +210,14 @@ export class SceneInstances {
         // all the way back to the world origin.
         if(frame&&!frame.visible)this.matrix.scale(hiddenScale);
         if(reordered||!entry.previous.equals(this.matrix)){
-          batch.mesh!.setMatrixAt(i,this.matrix);entry.previous.copy(this.matrix);changed=true;
+          batch.mesh!.setMatrixAt(i,this.matrix);entry.previous.copy(this.matrix);changed=true;if(i<first)first=i;last=i;
         }
       }
       if(changed){
-        batch.mesh!.instanceMatrix.needsUpdate=true;
+        const attribute=batch.mesh!.instanceMatrix;
+        attribute.clearUpdateRanges();
+        if(!reordered)attribute.addUpdateRange(first*16,(last-first+1)*16);
+        attribute.needsUpdate=true;
         batch.mesh!.boundingBox=null;
         // Refresh only on changes; camera and shadow-camera culling share these current bounds.
         batch.mesh!.computeBoundingSphere();

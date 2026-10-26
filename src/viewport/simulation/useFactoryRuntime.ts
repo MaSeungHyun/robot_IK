@@ -1,10 +1,9 @@
 import useMockEquipmentTelemetry from "@/hooks/useMockEquipmentTelemetry";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF } from "@/lib/three/gltfLoader";
 import { useShallow } from "zustand/react/shallow";
-import boxUrl from "@/assets/models/box.glb?url";
-import palletUrl from "@/assets/models/pallet.glb?url";
+import { boxUrl, palletUrl } from "@/constants/modelAssets";
 import { FactorySimulator } from "@/domain/simulation/FactorySimulator";
 import type { SimulatorRunProps } from "@/viewport/simulation/types";
 import { useSceneInstances } from "@/viewport/instancing/useInstanceModel";

@@ -5,6 +5,7 @@ import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
 import { log } from "@/stores/useLogStore";
 import { useModelStore } from "@/stores/useModelStore";
 import { useWarmupStore } from "@/stores/useWarmupStore";
+import { instancedDepthMaterial, usesSharedDepth } from "@/viewport/instancing/SceneInstances";
 import { buildConveyorGhost, buildModelGhost, type GhostModelKind } from "@/viewport/editor/ghostModels";
 import { useModelsSettled } from "@/stores/useModelStore";
 import { MODEL, MODEL_URLS } from "@/viewport/models/modelUrls";
@@ -43,6 +44,7 @@ export default function ModelWarmup() {
         if (!(node instanceof Mesh)) return;
         // SceneInstances draws equipment as InstancedMesh, a separate program variant.
         const mesh = new InstancedMesh(node.geometry, node.material, 1);
+        if (usesSharedDepth(node.material)) mesh.customDepthMaterial = instancedDepthMaterial;
         instanced.push(mesh);
         root.add(mesh);
         const materials: Material[] = Array.isArray(node.material) ? node.material : [node.material];
