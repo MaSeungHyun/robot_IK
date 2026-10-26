@@ -251,8 +251,10 @@ export class PalletDispatchController {
   }
   /** Docked-heading check: largest |heading − station yaw| (wrapped) seen on arrival, and arrivals counted. */
   readonly stationYaw = { arrivals: 0, maxError: 0 };
-  private recordStationYaw(target: number) {
-    const diff = Math.atan2(Math.sin(this.carrier.rotation.y - target), Math.cos(this.carrier.rotation.y - target));
+  private recordStationYaw(target: number, symmetric = false) {
+    // Symmetric stations (roller transfer / robot unload) accept either end facing: error is taken modulo π.
+    const d = this.carrier.rotation.y - target, k = symmetric ? 2 : 1;
+    const diff = Math.atan2(Math.sin(k * d), Math.cos(k * d)) / k;
     this.stationYaw.arrivals++;
     this.stationYaw.maxError = Math.max(this.stationYaw.maxError, Math.abs(diff));
   }
@@ -264,8 +266,11 @@ export class PalletDispatchController {
   /** Rotates in place toward turnTarget; true once aligned. */
   private turn(delta: number) {
     if (this.turnTarget === null) return true;
-    const diff = this.turnTarget - this.carrier.rotation.y,
+    // Always the shortest way round: wrap the delta into [-π, π] (turnTarget is re-based onto the current turn).
+    const current = this.carrier.rotation.y,
+      diff = Math.atan2(Math.sin(this.turnTarget - current), Math.cos(this.turnTarget - current)),
       step = SIMULATOR_CONFIG.amrTurnRate * delta;
+    this.turnTarget = current + diff;
     if (Math.abs(diff) <= step) {
       this.carrier.rotation.y = this.turnTarget;
       this.turnTarget = null;
@@ -322,8 +327,8 @@ export class PalletDispatchController {
         this.payload = null;
         if (this.routes) this.follow(this.routes.returning, "returning");
         else {
-          // Wait at the dock with exactly the dock heading (no 90°/180° equivalent).
-          this.turnTarget = this.nearestHeading(this.layout.dock.yaw, Math.PI * 2);
+          // Wait at the dock square to it; the AMR is symmetric, so either end facing (shortest turn, ±π).
+          this.turnTarget = this.nearestHeading(this.layout.dock.yaw, Math.PI);
           this.phase = "idle";
           this.path = [];
           this.goal = null;
@@ -392,10 +397,10 @@ export class PalletDispatchController {
     if (this.cursor < this.path.length || this.holding) return;
     // At the inbound conveyor's receive pose: face along the belt, then wait for the roller transfer.
     if (this.phase === "pickup" && this.routes?.feed) {
-      // Final heading is exactly the receive pose's heading (the shortest turn gets there; no 180° flip).
-      this.turnTarget ??= this.nearestHeading(this.routes.feed.heading, Math.PI * 2);
+      // Roller transfer works with either end facing the belt (symmetric AMR): receive yaw or yaw ± π, whichever is nearer.
+      this.turnTarget ??= this.nearestHeading(this.routes.feed.heading, Math.PI);
       if (!this.turn(delta)) return;
-      this.recordStationYaw(this.routes.feed.heading);
+      this.recordStationYaw(this.routes.feed.heading, true);
       this.phase = "receiving";
       this.version++;
       return;
@@ -404,10 +409,10 @@ export class PalletDispatchController {
     // releasing, so the pallet (held at a 90° multiple) lands square to the dock.
     if (this.phase === "dispatch") {
       const store = this.routes?.store;
-      // A rack slot and a dock are both entered with exactly their station heading.
+      // A rack slot keeps its exact heading (lift/drive-in direction matters); a dock accepts either end (±π, shortest).
       this.turnTarget ??= store
         ? this.nearestHeading(store.heading, Math.PI * 2)
-        : this.nearestHeading(this.layout.dock.yaw, Math.PI * 2);
+        : this.nearestHeading(this.layout.dock.yaw, Math.PI);
       if (!this.turn(delta)) return;
     }
     this.elapsed = 0;
@@ -426,7 +431,7 @@ export class PalletDispatchController {
         else this.carried = null;
       }
       // Settle to the home heading in place (handled while idle).
-      this.turnTarget = this.nearestHeading(this.layout.amr.yaw, Math.PI * 2);
+      this.turnTarget = this.nearestHeading(this.layout.amr.yaw, Math.PI);
       this.phase = "idle";
       this.path = [];
       this.goal = null;
@@ -444,7 +449,7 @@ export class PalletDispatchController {
       this.recordStationYaw(this.routes.store.heading);
       this.phase = "storing";
     } else {
-      this.recordStationYaw(this.layout.dock.yaw);
+      this.recordStationYaw(this.layout.dock.yaw, true);
       this.phase = "unloading";
     }
   }

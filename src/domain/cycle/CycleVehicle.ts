@@ -11,7 +11,7 @@ export type CycleBody = { id: string; circles: () => readonly { x: number; z: nu
 type Action =
   | { type: "path"; to: Vector3; loaded: boolean; ignore?: readonly string[] }
   | { type: "straight"; to: Vector3; backward: boolean; speed: number; ignore?: readonly string[] }
-  | { type: "turn"; heading: number }
+  | { type: "turn"; heading: number; symmetric: boolean }
   | { type: "fork"; y: number }
   | { type: "call"; run: () => void }
   | { type: "until"; test: () => boolean };
@@ -188,8 +188,9 @@ export class CycleVehicle {
     this.queue.push({ type: "straight", to: to.clone().setY(0), backward: options.backward ?? false, speed: options.speed ?? CYCLE_CONFIG.creepSpeed, ignore: options.ignore });
     return this;
   }
-  turn(heading: number) {
-    this.queue.push({ type: "turn", heading });
+  /** Turn in place, shortest way round. `symmetric`: either end may face `heading` (±π, whichever is nearer). */
+  turn(heading: number, symmetric = false) {
+    this.queue.push({ type: "turn", heading, symmetric });
     return this;
   }
   forkTo(y: number) {
@@ -228,10 +229,11 @@ export class CycleVehicle {
         return action.test() ? dt : false;
       case "turn": {
         const position = this.carrier.rotation;
-        const target = action.heading + TAU * Math.round((position.y - action.heading) / TAU);
-        const diff = target - position.y, step = CYCLE_CONFIG.turnRate * dt;
+        const period = action.symmetric ? Math.PI : TAU;
+        const target = action.heading + period * Math.round((position.y - action.heading) / period);
+        const raw = target - position.y, diff = Math.atan2(Math.sin(raw), Math.cos(raw)), step = CYCLE_CONFIG.turnRate * dt;
         if (Math.abs(diff) <= step) {
-          position.y = target;
+          position.y += diff;
           return dt - Math.abs(diff) / CYCLE_CONFIG.turnRate;
         }
         const next = position.y + Math.sign(diff) * step;

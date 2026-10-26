@@ -351,8 +351,10 @@ export class ForkliftController {
   }
   private turn(delta: number) {
     if (this.turnTarget === null) return true;
-    const diff = this.turnTarget - this.carrier.rotation.y,
+    const current = this.carrier.rotation.y,
+      diff = Math.atan2(Math.sin(this.turnTarget - current), Math.cos(this.turnTarget - current)),
       step = SIMULATOR_CONFIG.amrTurnRate * delta;
+    this.turnTarget = current + diff;
     if (Math.abs(diff) <= step) {
       this.carrier.rotation.y = this.turnTarget;
       this.turnTarget = null;
