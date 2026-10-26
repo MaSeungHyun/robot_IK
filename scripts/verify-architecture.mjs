@@ -17,6 +17,8 @@ for (const file of files) {
   for (const { fileName: specifier } of imports) {
     if (specifier.startsWith("@/features/") || specifier.startsWith("@/ui/components/")) errors.push(`${name}: obsolete import ${specifier}`);
     if (name.startsWith("domain/") && /^(?:@\/(?:ui|viewport|objects|stores|hooks|components)\/|react(?:$|\/)|@react-three\/|zustand(?:$|\/))/.test(specifier)) errors.push(`${name}: presentation/state dependency ${specifier}`);
+    // KPI layer stays headless/pure: no three (math or scene graph) in domain/kpi.
+    if (name.startsWith("domain/kpi/") && /^three(?:$|\/)/.test(specifier)) errors.push(`${name}: domain/kpi must not import three`);
     if (!specifier.startsWith("@/") && !specifier.startsWith(".")) continue;
     const clean = specifier.split("?")[0];
     if (/\.(?:glb|png|jpg|jpeg|svg|css|webp)$/.test(clean)) continue;

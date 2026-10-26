@@ -10,6 +10,7 @@ import { useSceneInstances } from "@/viewport/instancing/useInstanceModel";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { useCargoStore } from "@/stores/useCargoStore";
+import { useKpiStore } from "@/stores/useKpiStore";
 import { simulationClock } from "@/domain/simulation/simulationClock";
 import { ikSolveStats } from "@/domain/robot/ik/robotIK";
 import { log } from "@/stores/useLogStore";
@@ -44,6 +45,15 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   // A new world (new run / reset) starts the shared fixed-step clock from zero.
   useEffect(() => { simulationClock.reset(); }, [world]);
 
+  // KPI settings apply to the mounted world (also mid-run: from the next sample on).
+  useEffect(() => {
+    const apply = ({ sampleInterval, cellSize }: { sampleInterval: number; cellSize: number }) => world.kpi.configure({ interval: sampleInterval, cellSize });
+    apply(useKpiStore.getState());
+    const unsubscribe = useKpiStore.subscribe(apply);
+    useKpiStore.getState().setReport(world.kpi.report());
+    return () => { unsubscribe(); useKpiStore.getState().setReport(null); };
+  }, [world]);
+
   useEffect(() => {
     world.connectInstances();
     useCargoStore.getState().setRegistry(world.cargo, world.transport);
@@ -77,6 +87,7 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
     onProgress(world.placed, world.status);
     setEquipment(world.equipment);
     useCargoStore.getState().refresh();
+    useKpiStore.getState().setReport(world.kpi.report());
     const ik = ikSolveStats, plans = ik.analytic + ik.tilt + ik.numeric + ik.rrt + ik.failed;
     if (plans - ikLogged.current >= IK_LOG_EVERY) {
       ikLogged.current = plans;

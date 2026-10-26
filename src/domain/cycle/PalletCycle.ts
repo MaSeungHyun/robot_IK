@@ -1208,6 +1208,27 @@ export class PalletCycle<C extends CycleCargo> {
       })),
     ];
   }
+  /**
+   * KPI view of the cycle vehicles: plain position + work bucket from the real state machine (read only).
+   * Moving with a load / transfer work = busy, waiting to load/unload or for a forklift/dock = waiting,
+   * held by another vehicle while driving = blocked, parked without a job = idle.
+   */
+  kpiActors(): { id: string; x: number; z: number; work: "busy" | "waiting" | "blocked" | "idle" }[] {
+    type Work = "busy" | "waiting" | "blocked" | "idle";
+    const SHUTTLE_WAIT: readonly ShuttleState[] = ["loading", "waitSwap", "waitEmpty", "waitDock", "waitPallet", "waitEmptyPick"];
+    const SHUTTLE_WORK: readonly ShuttleState[] = ["unloading", "swapping", "rollOn", "emptyPicking"];
+    const FORK_WAIT: readonly ForkliftTaskState[] = ["waitTarget", "holdLoading", "holdUnloading"];
+    const FORK_WORK: readonly ForkliftTaskState[] = ["pickUp", "putDown"];
+    const AGV_WORK: readonly AgvState[] = ["lifting", "lowering"];
+    // Driving states: a vehicle held by another body counts as blocked in traffic.
+    const drive = (vehicle: CycleVehicle): Work => (vehicle.held > 0 ? "blocked" : "busy");
+    const row = (id: string, vehicle: CycleVehicle, work: Work) => ({ id, x: vehicle.position.x, z: vehicle.position.z, work });
+    return [
+      ...this.shuttles.map((s) => row(s.object.id, s.vehicle, SHUTTLE_WAIT.includes(s.state) ? "waiting" : SHUTTLE_WORK.includes(s.state) ? "busy" : drive(s.vehicle))),
+      ...this.agvs.map((a) => row(a.object.id, a.vehicle, a.state === "idle" ? "idle" : a.state === "waitEmpty" ? "waiting" : AGV_WORK.includes(a.state) ? "busy" : drive(a.vehicle))),
+      ...this.forklifts.map((f) => row(f.object.id, f.vehicle, f.state === "idle" ? "idle" : FORK_WAIT.includes(f.state) ? "waiting" : FORK_WORK.includes(f.state) ? "busy" : drive(f.vehicle))),
+    ];
+  }
   /** Agent-like snapshot rows (details panel / Hud) for the cycle vehicles. */
   agentRows(): { id: string; name: string; state: "idle" | "pickup" | "loading" | "dispatch" | "unloading" | "returning" | "waiting"; status: string; target: string | null; completed: number; battery: number }[] {
     type Row = "idle" | "pickup" | "loading" | "dispatch" | "unloading" | "returning" | "waiting";

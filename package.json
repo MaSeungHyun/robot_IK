@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test:architecture": "node scripts/verify-architecture.mjs",
     "test:determinism": "node scripts/verify-determinism.mjs",
+    "kpi": "node scripts/kpi.mjs",
     "test:ik": "node scripts/verify-ik.mjs",
     "test:amr": "node scripts/verify-amr.mjs",
     "test:scene": "node scripts/verify-ik.mjs --scene",

@@ -1,4 +1,5 @@
 import { ScannerInspection } from "@/domain/scanner/ScannerInspection";
+import { KpiCollector, type KpiSample } from "@/domain/kpi/KpiCollector";
 import { CONVEYOR_LAYOUT } from "@/constants/conveyorLayoutConfig";
 import { SCANNER_CONFIG } from "@/constants/scanner";
 import { Euler, Group, Vector3 } from "three";
@@ -239,6 +240,8 @@ const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
 export class FactorySimulator {
   readonly root = new Group();
   readonly inspection: ScannerInspection;
+  /** KPI samples on sim time (see domain/kpi); configure() from the viewport settings. */
+  readonly kpi = new KpiCollector();
   /** Per-box / per-pallet records; a new registry per run (cleared on STOP). */
   readonly cargo = new CargoRegistry((message) => log("warning", "박스 추적", message));
   private scanFrom = new Vector3();
@@ -1212,6 +1215,7 @@ export class FactorySimulator {
   advance(dt: number) {
     const settings = this.settings();
     this.elapsed += dt;
+    this.kpi.tick(this.elapsed, this.kpiSample);
     for (const robot of this.robots)
       if (robot.busy && settings[robot.object.id].enabled)
         robot.busySeconds += dt;
@@ -2783,6 +2787,29 @@ export class FactorySimulator {
       })),
     };
   }
+  private readonly kpiSample = (): KpiSample => {
+    const rows = this.buildEquipment(), stats = this.stats;
+    const positions = new Map<string, { x: number; z: number }>();
+    for (const agent of this.agents) positions.set(agent.object.id, agent.dispatch.carrier.position);
+    for (const agent of this.forkliftAgents) positions.set(agent.object.id, agent.controller.carrier.position);
+    // Pallet-cycle vehicles: their own work classification (their display rows call robot loading "loading" = busy).
+    const CYCLE_STATE = { busy: "transferring", waiting: "waiting", blocked: "blocked", idle: "idle" } as const;
+    const CYCLE_PHASE = { busy: "dispatch", waiting: "waiting", blocked: "blocked", idle: "idle" } as const;
+    const cycle = new Map((this.cycle?.kpiActors() ?? []).map((actor) => [actor.id, actor]));
+    return {
+      counters: { boxesIn: stats.spawned, placed: stats.placed, passed: stats.passed, palletsIn: this.unloaded, palletsShipped: stats.completedPallets ?? 0, wip: stats.live },
+      equipment: [...rows.robots, ...rows.agents].flatMap((row) => {
+        const actor = cycle.get(row.id), state = actor && row.operation !== "disabled" ? CYCLE_STATE[actor.work] : row.operation;
+        return row.category && state ? [{ id: row.id, name: row.name, category: row.category, state }] : [];
+      }),
+      vehicles: rows.agents.flatMap((row) => {
+        const actor = cycle.get(row.id);
+        if (actor) return [{ id: row.id, x: actor.x, z: actor.z, phase: row.state === "disabled" ? "disabled" : CYCLE_PHASE[actor.work] }];
+        const p = positions.get(row.id);
+        return p ? [{ id: row.id, x: p.x, z: p.z, phase: row.state }] : [];
+      }),
+    };
+  };
   get stats(): StreamStats {
     return {
       spawned: this.spawned,
