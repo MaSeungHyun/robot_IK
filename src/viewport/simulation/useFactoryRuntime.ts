@@ -37,7 +37,7 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   const ikLogged = useRef(0);
   const world = useMemo(
     // Links only change in edit mode, where no run is mounted; read them once per run.
-    () => new FactorySimulator(objects, box.scene, pallet.scene, getSettings, instances ?? undefined, Math.random, useSceneStore.getState().links),
+    () => new FactorySimulator(objects, box.scene, pallet.scene, getSettings, instances ?? undefined, undefined, useSceneStore.getState().links),
     [objects, box.scene, pallet.scene, instances],
   );
 

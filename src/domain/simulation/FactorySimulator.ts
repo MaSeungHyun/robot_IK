@@ -305,12 +305,13 @@ export class FactorySimulator {
     pallet: Group,
     getSettings: () => Record<string, EquipmentSettings>,
     instances?: SimulationRenderer,
-    random: () => number = Math.random,
+    random?: () => number,
     links: readonly SceneLink[] = [],
   ) {
     this.links = new LinkIndex(links);
     this.rackRandom = mulberry32(sceneSeed(objects));
-    this.inspection = new ScannerInspection(getSettings, random);
+    // Seeded from the layout and timed by the sim clock: identical scan results/signals at every speed and run.
+    this.inspection = new ScannerInspection(getSettings, random ?? mulberry32(sceneSeed(objects) ^ 0x5ca11e7), () => this.elapsed);
     this.instances = instances;
     this.settings = getSettings;
     this.boxAsset = createUnitBox(box);
