@@ -43,6 +43,9 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
    * return line at the AMR's home; "forklift" = the cell's service forklift lifts it off the AMR at the unload dock and stacks it
    * on the empty-pallet source (palletSource dock), then the AMR goes back for the next loaded pallet. */
   emptyPallet?:"return"|"forklift";
+  /** Shuttle AMR only: "mounted" (default) = starts with the pallet on its deck; "forklift" = starts empty and a service
+   *  forklift places a pallet from the empty-pallet source (works without a mounted pallet object's position). */
+  initialPallet?:"mounted"|"forklift";
   /** Dock (palletSource) only: pallets the empty-pallet stack holds (default 8, see constants/emptyPallet). */
   stackCapacity?:number;
   /** Conveyor only: an AMR may unload its deck boxes itself onto this belt when it leads to a scanner (default on). */
@@ -71,3 +74,6 @@ export type ConveyorRole="box"|"inbound"|"fed"|"outbound"|"ship";
 
 /** Forklift role, including the legacy "rack" value saved by older scenes. */
 export const isForkliftRole = (role: string | undefined) => role === "forklift" || role === "rack";
+/** Model an AMR role renders with: a role change never swaps the model, so roles are offered only within one family. */
+export type AmrModel = "amr" | "forklift" | "agv";
+export const amrModelOf = (role: string | undefined): AmrModel => (isForkliftRole(role) ? "forklift" : role === "agv" ? "agv" : "amr");

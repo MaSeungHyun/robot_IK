@@ -47,6 +47,8 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
     () => (inbound && palletUnit ? objects.filter((o) => o.kind === "amr" && !["forklift", "agv"].includes(settings[o.id]?.amrRole ?? "")).length : 0),
     [inbound, palletUnit, objects, settings],
   );
+  // Every inbound flow must pass a robot: warn when the scene has none.
+  const noRobot = useMemo(() => inbound && !objects.some((o) => o.kind === "robot"), [inbound, objects]);
   const running = useSimulationStore((state) => state.running);
   const telemetry = useEquipmentTelemetry(object.id);
 
@@ -85,10 +87,12 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
             { value: "box", label: "박스 투입" },
             { value: "inbound", label: "입하 (박스 / 팔레트 투입)" },
             { value: "fed", label: "로봇 투입 (자동 투입 없음)" },
-            { value: "outbound", label: "출하 (AMR 팔레트 이송)" },
-            { value: "ship", label: "출하 (박스 반출, 로봇 투입)" },
+            { value: "outbound", label: "출하 · 팔레트 전용 (AMR이 팔레트를 밀어 넣음)" },
+            { value: "ship", label: "출하 · 박스 (로봇이 박스를 올림)" },
           ]}
+          info="출하 컨베이어 종류: 팔레트 전용은 AMR 상부 롤러가 팔레트째 넘기고(로봇 불필요), 박스는 지게차가 둔 팔레트(또는 AMR 위 팔레트)에서 로봇이 박스를 하나씩 올립니다."
         />
+        {noRobot && <p style={{ color: "#f59e0b" }}>⚠ 입하 흐름에 로봇이 없습니다. 입하 박스·팔레트는 반드시 로봇을 거쳐야 합니다. 로봇을 배치하고 연결하세요.</p>}
         {inbound && (
           <EquipmentChoiceSetting
             id={object.id}
@@ -103,7 +107,7 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
           />
         )}
         {inbound && palletUnit && (
-          <p style={{ color: receiver ? undefined : "#02dfef" }}>
+          <p style={{ color: receiver ? undefined : "#f59e0b" }}>
             {receiver ? `받는 AMR: ${receiver.name} (셔틀)` : amrCount ? `받는 AMR: 🔗 연결 AMR 우선, 없으면 가장 가까운 빈 AMR (${amrCount}대 대상)` : "⚠ 받을 AMR이 없습니다. 팔레트는 스토퍼에서 대기합니다. AMR을 🔗 공급으로 연결하거나 배치하세요."}
           </p>
         )}

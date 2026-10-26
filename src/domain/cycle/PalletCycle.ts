@@ -283,7 +283,13 @@ export class PalletCycle<C extends CycleCargo> {
         pallet.managed = true;
         const belt = feeds.get(object.id);
         const feed: Feed<C> | null = belt ? { belt, timer: spawnIntervalOf(settings[belt.id] ?? {}), incoming: null, deck: null, fed: 0, emptyReturned: 0 } : null;
-        if (feed) {
+        // initialPallet "forklift": the deck starts empty and a service forklift places a source pallet (pallet object = station only).
+        const startEmpty = !feed && config.initialPallet === "forklift";
+        if (startEmpty) {
+          this.host.unrender(pallet.group);
+          pallet.group.removeFromParent();
+          pallet.shipping = true;
+        } else if (feed) {
           this.feedBelts.add(belt!.id);
           // Roller-top AMR: the deck starts empty, loaded pallets come from the inbound belt.
           vehicle.carrier.add(createRollerTopModel());
@@ -297,8 +303,10 @@ export class PalletCycle<C extends CycleCargo> {
         const atReceive = !receive || Math.hypot(object.x - receive.x, object.z - receive.z) <= CYCLE_CONFIG.feedReach;
         const home = receive && !atReceive ? new Vector3(receive.x, 0, receive.z) : new Vector3(object.x, 0, object.z);
         const homeYaw = receive && !atReceive ? receive.yaw : object.yaw;
-        const shuttle: Shuttle<C> = { object, vehicle, pallet, mode: role(dock) === "service" ? "service" : "scan", dock, state: feed ? (atReceive ? "waitPallet" : "toReceive") : "loading", home, homeYaw, load: null, trips: 0, feed, emptyByForklift: !!feed && emptyByForkliftOf(settings[object.id]) };
+        const shuttle: Shuttle<C> = { object, vehicle, pallet, mode: role(dock) === "service" ? "service" : "scan", dock, state: feed ? (atReceive ? "waitPallet" : "toReceive") : startEmpty ? "waitEmpty" : "loading", home, homeYaw, load: null, trips: 0, feed, emptyByForklift: !!feed && emptyByForkliftOf(settings[object.id]) };
         this.shuttles.push(shuttle);
+        if (startEmpty && !docks.some((d) => role(d) === "palletSource"))
+          host.log("warning", `${object.name}: 시작 팔레트를 올릴 빈 팔레트 적치장(palletSource)이 없어 대기합니다`);
         if (feed && !atReceive)
           vehicle.goTo(home).turn(homeYaw).then(() => {
             vehicle.carrier.position.copy(home);
@@ -600,7 +608,7 @@ export class PalletCycle<C extends CycleCargo> {
     if (shuttle.mode === "scan") {
       this.stats.scanTrips++;
       this.setShuttle(shuttle, "toUnload", `${record ?? ""} · 박스 ${boxes.length}`);
-      vehicle.goTo(goal).turn(dock.yaw).then(() => {
+      vehicle.goTo(goal).turn(dock.yaw, true).then(() => {
         if (record) this.host.cargo.arrivePallet({ t: this.now(), palletId: record, dockId: dock.id });
         this.setShuttle(shuttle, "unloading");
         const load = shuttle.load!;
@@ -619,7 +627,7 @@ export class PalletCycle<C extends CycleCargo> {
     } else {
       this.stats.serviceTrips++;
       this.setShuttle(shuttle, "toService", `${record ?? ""} · 박스 ${boxes.length}`);
-      vehicle.goTo(goal).turn(dock.yaw).then(() => this.setShuttle(shuttle, "waitSwap"));
+      vehicle.goTo(goal).turn(dock.yaw, true).then(() => this.setShuttle(shuttle, "waitSwap"));
     }
   }
   /** A service forklift and a pallet source in the shuttle's cell (else the empty pallet goes back as with emptyPallet "return"). */
@@ -829,7 +837,8 @@ export class PalletCycle<C extends CycleCargo> {
     const inCell = (s: Shuttle<C>) => this.cellOf(s.dock.id) === cell;
     const source = this.sources.find((s) => this.cellOf(s.dock.id) === cell && !s.busy);
     // 1. An AMR whose full pallet is already off waits for its empty pallet: shortest AMR downtime first.
-    const needsEmpty = this.shuttles.find((s) => s.mode === "service" && s.state === "waitEmpty" && inCell(s));
+    // Any mode: a scan shuttle set to start empty (initialPallet "forklift") waits here too.
+    const needsEmpty = this.shuttles.find((s) => !s.feed && s.state === "waitEmpty" && inCell(s));
     if (canSupply && needsEmpty && source) {
       this.supplyJob(f, needsEmpty, source);
       return;
@@ -843,18 +852,58 @@ export class PalletCycle<C extends CycleCargo> {
     }
     const shuttle = this.shuttles.find((s) => s.mode === "service" && s.state === "waitSwap" && inCell(s));
     if (!canUnload || !shuttle || !shuttle.load || !this.sources.some((s) => this.cellOf(s.dock.id) === cell)) return;
-    const rack = this.racks.find((r) => r.state === "filling" && this.cellOf(r.object.id) === cell && r.levels.some((l, i) => !l && !r.booked.has(i)));
-    if (!rack) {
-      if (f.state !== "waitTarget") {
-        f.job = null;
-        this.setForklift(f, "waitTarget");
-      }
-      return;
-    }
     // Another forklift in the cell may supply the empty pallet: hand it over, otherwise chain the supply.
     const helper = this.forklifts.some((o) => o !== f && o.task === "service" && this.cellOf(o.object.id) === cell && this.enabled(o.object.id)
       && (this.host.settings()[o.object.id]?.forkliftRole ?? "auto") !== "unload" && doesGeneralJobs(this.host.settings()[o.object.id]));
-    this.unloadJob(f, shuttle, rack, !helper);
+    const cellRacks = this.racks.filter((r) => this.cellOf(r.object.id) === cell);
+    const rack = cellRacks.find((r) => r.state === "filling" && r.levels.some((l, i) => !l && !r.booked.has(i)));
+    if (rack) {
+      this.unloadJob(f, shuttle, rack, !helper);
+      return;
+    }
+    // No Rack_m in this cell: the full pallet goes straight from the AMR into a free slot of the cell's fixed rack.
+    const slot = cellRacks.length ? null : this.host.rackFree(this.slotBookings, (r) => this.cellOf(r.id) === cell);
+    if (slot) {
+      this.directStoreJob(f, shuttle, slot.rack, slot.slot, !helper);
+      return;
+    }
+    if (f.state !== "waitTarget") {
+      f.job = null;
+      this.setForklift(f, "waitTarget");
+    }
+  }
+  /** No Rack_m in the cell: full pallet off a waiting shuttle directly into a fixed rack slot; `chain`: then supply its empty pallet. */
+  private directStoreJob(f: Forklift<C>, shuttle: Shuttle<C>, rack: SceneEquipment, slot: number, chain: boolean) {
+    const key = `${rack.id}:${slot}`;
+    this.slotBookings.add(key);
+    f.job = "storeDirect";
+    this.setShuttle(shuttle, "swapping", "Rack_m 없음 · 랙 직접 적재");
+    this.setForklift(f, "toPick");
+    shuttle.load!.group.updateWorldMatrix(true, false);
+    const heading = alongPallet(yawOf(shuttle.load!.group), shuttle.dock.yaw);
+    const deck = shuttle.vehicle.position.clone().setY(shuttle.pallet.baseY);
+    const half = STREAM_CONFIG.palletDepth / 2;
+    this.pick(f, deck, heading, half, () => {
+      if (shuttle.load) this.measurePick(shuttle.load.group, deck, heading);
+      return shuttle.load;
+    }, [shuttle.object.id]);
+    if (!chain) f.vehicle.then(() => this.setShuttle(shuttle, "waitEmpty", "만재 팔레트 내림"));
+    const { x } = RACK_CONFIG.slots[slot];
+    this.place(f, rackSlotPoint(rack, slot), rackHeading(rack), RACK_CONFIG.front - x + half, (load) => {
+      this.slotBookings.delete(key);
+      this.stored.set(key, load);
+      this.host.rackStore(rack, slot, load.group, load.boxes.map((b) => b.node), load.palletId);
+      this.stats.storedToRack++;
+      shuttle.load = null;
+    }, [], undefined, RACK_CONFIG.liftClearance + 0.02);
+    if (chain) {
+      const source = this.sources.find((s) => this.cellOf(s.dock.id) === this.cellOf(shuttle.dock.id));
+      if (source) {
+        this.supplySteps(f, shuttle, source);
+        return;
+      }
+    }
+    this.finish(f);
   }
   /** Full pallet off a waiting shuttle into a free Rack_m level; `chain`: then supply its empty pallet in the same job. */
   private unloadJob(f: Forklift<C>, shuttle: Shuttle<C>, rack: RackM<C>, chain: boolean) {

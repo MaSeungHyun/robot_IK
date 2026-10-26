@@ -40,6 +40,7 @@ export type ForkliftTaskState = keyof typeof FORKLIFT_TASK_STATES;
 /** What a cycle forklift is doing (service: AMR swap; rack: Rack_m → Rack / Rack → 출하). */
 export const FORKLIFT_JOBS = {
   swapFull: "만재 팔레트 AMR → Rack_m",
+  storeDirect: "만재 팔레트 AMR → 랙 (Rack_m 없음)",
   swapEmpty: "빈 팔레트 적치장 → AMR",
   store: "Rack_m → 랙 적재",
   ship: "랙 → 출하 로봇 옆",
