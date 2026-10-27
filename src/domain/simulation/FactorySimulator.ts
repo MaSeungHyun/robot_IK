@@ -21,7 +21,7 @@ import { LinkIndex, type SceneLink } from "@/types/links";
 import { TransportQueue } from "@/domain/amr/TransportQueue";
 import { PalletController } from "@/domain/pallet/PalletController";
 import { PalletDispatchController } from "@/domain/amr/PalletDispatchController";
-import { AMRTrafficController } from "@/domain/amr/AMRTrafficController";
+import { AMRTrafficController, type TrafficBody, type TrafficPlanner } from "@/domain/amr/AMRTrafficController";
 import type { DispatchRoutes } from "@/domain/amr/PalletDispatchController";
 import { layoutPath, routeFailureReason } from "@/domain/amr/navigation/layoutNavigation";
 import { robotArmState, vehicleState } from "@/domain/state/equipmentState";
@@ -39,7 +39,8 @@ import { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import { log } from "@/stores/useLogStore";
 import { ForkliftController, type ForkliftJob, type ForkliftTarget } from "@/domain/amr/ForkliftController";
 import { isForkliftRole } from "@/types/layout";
-import { FORKLIFT_CONFIG, forkliftStop } from "@/constants/forklift";
+import { FORKLIFT_CONFIG, FORKLIFT_TRAFFIC, forkliftStop } from "@/constants/forklift";
+import { AMR_COOPERATION } from "@/constants/amr";
 
 const ROUTE_CACHE_SIZE = 256;
 import { DOOR_CONFIG } from "@/constants/door";
@@ -165,6 +166,10 @@ function trimPath(points: Vector3[], gap: number) {
   }
   return [points[0].clone(), points[0].clone()];
 }
+/** AMR traffic replans run in axis mode (grid-aligned legs, no any-angle diagonals). */
+const AXIS_ROUTE = { axis: true } as const;
+/** Nearest world axis (multiple of 90°): forklifts place pallets along world axes, so the AMR receives square to them. */
+const axisHeading = (yaw: number) => (Math.PI / 2) * Math.round(yaw / (Math.PI / 2));
 const pathHeading = (points: Vector3[]) => {
   const a = points[Math.max(0, points.length - 2)], b = points[points.length - 1];
   return a.distanceTo(b) > 1e-3 ? Math.atan2(b.x - a.x, b.z - a.z) : 0;
@@ -1423,78 +1428,13 @@ export class FactorySimulator {
     const forkliftBodies = this.forkliftAgents
       .filter((agent) => settings[agent.object.id].enabled)
       // Capsule footprint as a row of circles (body + tines), so clearance matches the model.
-      .flatMap((agent) => agent.controller.bodies.map((position) => ({ position, radius: agent.controller.radius })));
+      .flatMap((agent) => agent.controller.bodies.map((position) => ({ position, radius: agent.controller.radius, owner: agent.object.id })));
     this.trafficTick++;
-    this.traffic.advance(this.trafficVehicles, dt, (vehicle, target, inflate = 0) => {
-      const navigation = this.navigation.get(vehicle.id);
-      if (!navigation) return null;
-      const dispatch = vehicle.dispatch,
-        goal = target ?? dispatch.goal;
-      if (!goal) return null;
-      const position = dispatch.carrier.position,
-        own = dispatch.radius;
-      // Other AMRs are temporary obstacles. Shrink a disc that already touches this
-      // vehicle so the start is never "occupied", and ignore one parked on the goal:
-      // traffic control then waits behind it instead of failing the route.
-      const obstacles: NavigationObstacle[] = [...navigation.obstacles];
-      for (const other of this.agents) {
-        if (other.object.id === vehicle.id) continue;
-        const at = other.dispatch.carrier.position,
-          radius = Math.max(
-            0,
-            Math.min(
-              other.dispatch.radius + AMR_TRAFFIC.safetyMargin + inflate,
-              Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3,
-            ),
-          );
-        if (
-          !target &&
-          Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)
-        )
-          continue;
-        obstacles.push({
-          kind: other.object.kind,
-          pose: { x: at.x, z: at.z, yaw: 0 },
-          radius,
-        });
-      }
-      // Forklifts are moving obstacles too (shrunk like the AMRs above when already touching).
-      for (const body of forkliftBodies) {
-        const at = body.position,
-          radius = Math.max(0, Math.min(body.radius + AMR_TRAFFIC.safetyMargin + inflate, Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3));
-        if (!target && Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)) continue;
-        obstacles.push({ kind: "amr", pose: { x: at.x, z: at.z, yaw: 0 }, radius });
-      }
-      if (dispatch.phase === "returning")
-        obstacles.push({ kind: "pallet", pose: navigation.layout.pallet });
-      // A failed search explores the whole region (~50 ms); retrying the same trip every step stalled frames.
-      // Remember the failure briefly (same start/goal within a few cm) and report "no path" without searching.
-      const failed = this.failedRoutes.get(vehicle.id), p0 = dispatch.carrier.position;
-      // Coarse signature of the moving obstacles (0.5 m grid): when a blocker leaves, the cached failure is stale.
-      let sig = "";
-      for (let i = navigation.obstacles.length; i < obstacles.length; i++) {
-        const o = obstacles[i];
-        if (o.kind !== "pallet") sig += `${Math.round(o.pose.x * 2)},${Math.round(o.pose.z * 2)};`;
-      }
-      const repeat = failed && failed.sig === sig && this.trafficTick - failed.tick < ROUTE_FAIL_HOLD_STEPS && failed.loaded === dispatch.loaded
-        && Math.hypot(failed.sx - p0.x, failed.sz - p0.z) < 0.05 && Math.hypot(failed.gx - goal.x, failed.gz - goal.z) < 0.05;
-      const direct = repeat ? null : layoutPath(navigation.layout, p0, goal, dispatch.loaded, obstacles);
-      if (direct) this.failedRoutes.delete(vehicle.id);
-      if (!direct && !repeat) this.failedRoutes.set(vehicle.id, { tick: this.trafficTick, loaded: dispatch.loaded, sig, sx: p0.x, sz: p0.z, gx: goal.x, gz: goal.z });
-      // Inbound-conveyor receive pose sits inside the belt clearance: route via its straight approach lane.
-      const lane = dispatch.feedLane;
-      if (direct || !lane) return direct;
-      const here = dispatch.carrier.position.clone();
-      if (Math.hypot(goal.x - lane.x, goal.z - lane.z) < 1.6) {
-        const path = layoutPath(navigation.layout, here, lane, dispatch.loaded, obstacles);
-        return path && [...path, new Vector3(goal.x, 0, goal.z)];
-      }
-      if (here.distanceTo(lane) < 1.6) {
-        const path = layoutPath(navigation.layout, lane, goal, dispatch.loaded, obstacles);
-        return path && [here, ...path];
-      }
-      return null;
-    }, forkliftBodies);
+    // Move guards for the route-less moves (rack insert / retreat, forklift turns and fork creeps); installed once per agent.
+    for (const agent of this.agents) agent.dispatch.guard ??= this.amrGuard(agent);
+    for (const agent of this.forkliftAgents) agent.controller.guard ??= this.forkliftGuard(agent);
+    this.trafficBodies = forkliftBodies;
+    this.traffic.advance(this.trafficVehicles, dt, this.trafficPlan, forkliftBodies);
     this.advanceBatteries(dt, settings);
     this.advanceForklifts(dt, settings);
     this.advanceEmptyPicks(settings);
@@ -1989,7 +1929,7 @@ export class FactorySimulator {
         );
         continue;
       }
-      routes = { pickup, dispatch: outbound, returning, feed: { heading: pathHeading(pickup) } };
+      routes = { pickup, dispatch: outbound, returning, feed: { heading: axisHeading(pathHeading(pickup)) } };
       if (slot !== undefined && !handoff)
         routes.store = {
           slot: rackSlotPoint(destination, slot),
@@ -2004,13 +1944,15 @@ export class FactorySimulator {
     if (!routes || !target) return false;
     let handed: Group | null = null;
     const deck = new Vector3(handoffAt.x, AMR_DECK, handoffAt.z);
+    const receiveHeading = routes.feed?.heading;
     const job: ForkliftJob = {
       kind: "store",
       peerId: agent.object.id,
       ready: () => agent.dispatch.phase === "receiving",
       pickup: { point: new Vector3(pallet.object.x, 0, pallet.object.z), heading: pallet.object.yaw },
       take: () => handed,
-      targets: () => this.aroundTargets(deck, agent.object.id),
+      // Parallel to the AMR first (forks along its body), sideways only when those approaches are unreachable.
+      targets: () => this.aroundTargets(deck, agent.object.id, receiveHeading),
       store: (payload) => {
         this.root.attach(payload);
         payload.position.copy(deck);
@@ -2260,12 +2202,15 @@ export class FactorySimulator {
       .sort((a, b) => distance(a.controller.carrier.position, near.object) - distance(b.controller.carrier.position, near.object))[0];
   }
   /** Forklift drop poses around `point`: the pallet lands on `point` (height y) approached from four sides. */
-  private aroundTargets(point: Vector3, id: string): ForkliftTarget[] {
-    return [0, Math.PI / 2, Math.PI, -Math.PI / 2].map((heading, slot) => ({
+  private aroundTargets(point: Vector3, id: string, prefer?: number): ForkliftTarget[] {
+    const headings = prefer === undefined ? [0, Math.PI / 2, Math.PI, -Math.PI / 2] : [prefer, prefer + Math.PI, prefer + Math.PI / 2, prefer - Math.PI / 2];
+    return headings.map((heading, slot) => ({
       rackId: id,
       slot,
       slotPoint: point.clone(),
       heading,
+      // With a preferred axis both parallel sides (heading and +180deg) are equivalent: the cheaper one wins.
+      group: prefer === undefined ? undefined : slot < 2 ? 0 : 1,
       approach: forkliftStop(point, heading, FORKLIFT_CONFIG.forkLength),
     }));
   }
@@ -2395,6 +2340,122 @@ export class FactorySimulator {
   private forkliftTraffic = new Map<string, { wait: number; retry: number }>();
   private forkliftAhead = new Vector3();
   private forkliftNext = new Vector3();
+  private guardPose = new Vector3();
+  /**
+   * AMR rack insert / retreat guard: the next creep point may not close in below the safety gap on another AMR or a
+   * forklift circle (moves that open the gap always pass). Broadphase: axis box of FORKLIFT_TRAFFIC.guardRange.
+   */
+  private amrGuard(agent: FactoryAgent) {
+    return (x: number, z: number) => {
+      const self = agent.dispatch,
+        here = self.carrier.position,
+        range = FORKLIFT_TRAFFIC.guardRange;
+      const ok = (at: Vector3, radius: number) => {
+        if (Math.abs(at.x - here.x) > range || Math.abs(at.z - here.z) > range) return true;
+        const limit = self.radius + radius + AMR_TRAFFIC.safetyMargin,
+          then = Math.hypot(at.x - x, at.z - z);
+        return then >= limit || then >= Math.hypot(at.x - here.x, at.z - here.z) - 1e-6;
+      };
+      for (const other of this.agents) if (other !== agent && !ok(other.dispatch.carrier.position, other.dispatch.radius)) return false;
+      for (const body of this.trafficBodies) if (!ok(body.position, body.radius)) return false;
+      return true;
+    };
+  }
+  /**
+   * Forklift guard for in-place turns and fork in / out creeps (incl. recover / back-outs): the swept capsule at the
+   * next pose (position + heading) may not close in below the safety gap on any AMR (except the job's deck peer) or
+   * another forklift circle. Broadphase: axis box of FORKLIFT_TRAFFIC.guardRange.
+   */
+  private forkliftGuard(agent: FactoryForkliftAgent) {
+    return (x: number, z: number, heading: number) => {
+      const controller = agent.controller,
+        here = controller.carrier.position,
+        range = FORKLIFT_TRAFFIC.guardRange,
+        pose = this.guardPose.set(x, 0, z);
+      const ok = (at: Vector3, radius: number) => {
+        if (Math.abs(at.x - here.x) > range || Math.abs(at.z - here.z) > range) return true;
+        const then = controller.clearance(at.x, at.z, pose, heading);
+        return then >= radius + AMR_TRAFFIC.safetyMargin || then >= controller.clearance(at.x, at.z) - 1e-6;
+      };
+      for (const other of this.agents) if (other.object.id !== controller.job?.peerId && !ok(other.dispatch.carrier.position, other.dispatch.radius)) return false;
+      for (const other of this.forkliftAgents) if (other !== agent) for (const at of other.controller.bodies) if (!ok(at, other.controller.radius)) return false;
+      return true;
+    };
+  }
+  /** Forklift footprint circles of the current step (AMR traffic planner and forklift make-way). */
+  private trafficBodies: TrafficBody[] = [];
+  /** AMR traffic replanner (stall / detour / side step / evade): axis-aligned route around the other AMRs and forklifts. */
+  private readonly trafficPlan: TrafficPlanner = (vehicle, target, inflate = 0, ignore) => {
+    const navigation = this.navigation.get(vehicle.id);
+    if (!navigation) return null;
+    const dispatch = vehicle.dispatch,
+      goal = target ?? dispatch.goal;
+    if (!goal) return null;
+    const position = dispatch.carrier.position,
+      own = dispatch.radius;
+    // Other AMRs are temporary obstacles. Shrink a disc that already touches this
+    // vehicle so the start is never "occupied", and ignore one parked on the goal:
+    // traffic control then waits behind it instead of failing the route.
+    const obstacles: NavigationObstacle[] = [...navigation.obstacles];
+    for (const other of this.agents) {
+      if (other.object.id === vehicle.id || other.object.id === ignore) continue;
+      const at = other.dispatch.carrier.position,
+        radius = Math.max(
+          0,
+          Math.min(
+            other.dispatch.radius + AMR_TRAFFIC.safetyMargin + inflate,
+            Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3,
+          ),
+        );
+      if (
+        !target &&
+        Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)
+      )
+        continue;
+      obstacles.push({
+        kind: other.object.kind,
+        pose: { x: at.x, z: at.z, yaw: 0 },
+        radius,
+      });
+    }
+    // Forklifts are moving obstacles too (shrunk like the AMRs above when already touching).
+    for (const body of this.trafficBodies) {
+      if (ignore !== undefined && body.owner === ignore) continue;
+      const at = body.position,
+        radius = Math.max(0, Math.min(body.radius + AMR_TRAFFIC.safetyMargin + inflate, Math.hypot(at.x - position.x, at.z - position.z) - own - 1e-3));
+      if (!target && Math.hypot(at.x - goal.x, at.z - goal.z) < radius + dispatch.radiusAt(goal)) continue;
+      obstacles.push({ kind: "amr", pose: { x: at.x, z: at.z, yaw: 0 }, radius });
+    }
+    if (dispatch.phase === "returning")
+      obstacles.push({ kind: "pallet", pose: navigation.layout.pallet });
+    // A failed search explores the whole region (~50 ms); retrying the same trip every step stalled frames.
+    // Remember the failure briefly (same start/goal within a few cm) and report "no path" without searching.
+    const failed = this.failedRoutes.get(vehicle.id), p0 = dispatch.carrier.position;
+    // Coarse signature of the moving obstacles (0.5 m grid): when a blocker leaves, the cached failure is stale.
+    let sig = "";
+    for (let i = navigation.obstacles.length; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      if (o.kind !== "pallet") sig += `${Math.round(o.pose.x * 2)},${Math.round(o.pose.z * 2)};`;
+    }
+    const repeat = failed && failed.sig === sig && this.trafficTick - failed.tick < ROUTE_FAIL_HOLD_STEPS && failed.loaded === dispatch.loaded
+      && Math.hypot(failed.sx - p0.x, failed.sz - p0.z) < 0.05 && Math.hypot(failed.gx - goal.x, failed.gz - goal.z) < 0.05;
+    const direct = repeat ? null : layoutPath(navigation.layout, p0, goal, dispatch.loaded, obstacles, AXIS_ROUTE);
+    if (direct) this.failedRoutes.delete(vehicle.id);
+    if (!direct && !repeat) this.failedRoutes.set(vehicle.id, { tick: this.trafficTick, loaded: dispatch.loaded, sig, sx: p0.x, sz: p0.z, gx: goal.x, gz: goal.z });
+    // Inbound-conveyor receive pose sits inside the belt clearance: route via its straight approach lane.
+    const lane = dispatch.feedLane;
+    if (direct || !lane) return direct;
+    const here = dispatch.carrier.position.clone();
+    if (Math.hypot(goal.x - lane.x, goal.z - lane.z) < 1.6) {
+      const path = layoutPath(navigation.layout, here, lane, dispatch.loaded, obstacles, AXIS_ROUTE);
+      return path && [...path, new Vector3(goal.x, 0, goal.z)];
+    }
+    if (here.distanceTo(lane) < 1.6) {
+      const path = layoutPath(navigation.layout, lane, goal, dispatch.loaded, obstacles, AXIS_ROUTE);
+      return path && [here, ...path];
+    }
+    return null;
+  };
   /**
    * Holds a driving forklift short of any other AMR body (regular or rack) it would close in on; after
    * waiting a while it plans a detour around them. Regular AMRs treat forklifts as bodies to keep clear of.
@@ -2405,34 +2466,45 @@ export class FactorySimulator {
     const state = this.forkliftTraffic.get(agent.object.id) ?? { wait: 0, retry: 0 };
     this.forkliftTraffic.set(agent.object.id, state);
     controller.held = false;
-    if (!controller.moving) {
+    // A turn / fork creep held by the move guard counts as blocked too (make-way / joint plan below).
+    const guarded = !controller.moving && controller.guardHeld;
+    if (!controller.moving && !guarded) {
       state.wait = 0;
       return;
     }
-    controller.predict(step, this.forkliftNext);
-    controller.predict(0.8 * (step / dt), this.forkliftAhead);
+    // The job's peer AMR (deck hand-off) is only ignored on the final approach; elsewhere it is traffic like any other.
+    const end = controller.goal,
+      nearPeer = end !== null && Math.hypot(end.x - position.x, end.z - position.z) < FORKLIFT_TRAFFIC.peerIgnoreRange;
     const others: { at: Vector3; radius: number }[] = [];
     for (const other of this.agents)
-      if (settings[other.object.id].enabled && other.object.id !== controller.job?.peerId) others.push({ at: other.dispatch.carrier.position, radius: other.dispatch.radius });
+      if (settings[other.object.id].enabled && (other.object.id !== controller.job?.peerId || !nearPeer)) others.push({ at: other.dispatch.carrier.position, radius: other.dispatch.radius });
     for (const other of this.forkliftAgents)
       if (other !== agent && settings[other.object.id].enabled) for (const at of other.controller.bodies) others.push({ at: at.clone(), radius: other.controller.radius });
     // Footprint (capsule) clearance to each other body, now vs. after the predicted move.
-    const closing = (to: Vector3, at: Vector3, limit: number) => {
+    // The predicted pose uses the heading of the leg it reaches: at a corner the forks swing with the body.
+    const closing = (to: Vector3, heading: number, at: Vector3, limit: number) => {
       const now = controller.clearance(at.x, at.z),
-        then = controller.clearance(at.x, at.z, to);
+        then = controller.clearance(at.x, at.z, to, heading);
       return then < limit && then <= now + 1e-6;
     };
-    const blocked = others.some(({ at, radius }) => {
-      const limit = radius + AMR_TRAFFIC.safetyMargin;
-      return closing(this.forkliftNext, at, limit) || closing(this.forkliftAhead, at, limit);
-    });
+    let blocked = guarded;
+    if (!guarded) {
+      controller.predict(step, this.forkliftNext);
+      const nextHeading = controller.predictedHeading;
+      controller.predict(0.8 * (step / dt), this.forkliftAhead);
+      const aheadHeading = controller.predictedHeading;
+      blocked = others.some(({ at, radius }) => {
+        const limit = radius + AMR_TRAFFIC.safetyMargin;
+        return closing(this.forkliftNext, nextHeading, at, limit) || closing(this.forkliftAhead, aheadHeading, at, limit);
+      });
+    }
     if (!blocked) {
       state.wait = 0;
       return;
     }
-    controller.held = true;
+    controller.held = controller.moving;
     state.wait += dt;
-    if (state.wait >= FORKLIFT_STUCK_S) {
+    if (controller.moving && state.wait >= FORKLIFT_STUCK_S) {
       // Stuck: other side / next rack, or back off along the heading and replan.
       state.wait = 0;
       state.retry = 1;
@@ -2442,15 +2514,60 @@ export class FactorySimulator {
     state.retry -= dt;
     if (state.wait < 0.8 || state.retry > 0) return;
     state.retry = 1;
-    const goal = controller.goal;
-    if (!goal) return;
+    // Narrow aisle: an idle, empty AMR standing on the route steps into a free pocket instead of the forklift waiting.
+    const mover = { id: agent.object.id, position, radius: controller.radius, corridor: [...controller.bodies.map((b) => b.clone()), ...controller.remaining(FORKLIFT_TRAFFIC.makeWayCorridor)] };
+    let madeWay = false;
+    for (const vehicle of this.trafficVehicles)
+      if (vehicle.id !== controller.job?.peerId && this.traffic.makeWay(vehicle, mover, this.trafficVehicles, this.trafficPlan, this.trafficBodies)) madeWay = true;
+    if (madeWay) return;
     const extra: NavigationObstacle[] = others.map(({ at, radius }) => ({
       kind: "amr",
       pose: { x: at.x, z: at.z, yaw: 0 },
       radius: Math.max(0, Math.min(radius + AMR_TRAFFIC.safetyMargin, Math.hypot(at.x - position.x, at.z - position.z) - controller.radius - 1e-3)),
     }));
+    // Still stuck: joint plan with the nearest AMR (forklift stays / backs off, AMR passes / pockets).
+    if (state.wait >= AMR_COOPERATION.after && this.cooperateForklift(agent, step / dt, extra)) return;
+    const goal = controller.goal;
+    if (!goal || !controller.moving) return;
     const path = this.forkliftRoute(position, goal, controller.loaded, extra);
     if (path) controller.reroute(path);
+  }
+  private cooperateForklift(agent: FactoryForkliftAgent, factor: number, extra: NavigationObstacle[]) {
+    const controller = agent.controller,
+      position = controller.carrier.position,
+      range = FORKLIFT_TRAFFIC.guardRange;
+    let nearest: (typeof this.trafficVehicles)[number] | null = null,
+      best = Infinity;
+    for (const vehicle of this.trafficVehicles) {
+      if (!vehicle.enabled || vehicle.id === controller.job?.peerId) continue;
+      const at = vehicle.dispatch.carrier.position,
+        distance = Math.hypot(at.x - position.x, at.z - position.z);
+      if (distance <= range && distance < best) {
+        best = distance;
+        nearest = vehicle;
+      }
+    }
+    if (!nearest) return false;
+    const heading = controller.carrier.rotation.y,
+      backs: { distance: number; path: Vector3[] }[] = [];
+    if (controller.moving)
+      for (const distance of FORKLIFT_TRAFFIC.coopBack) {
+        const end = new Vector3(position.x - Math.sin(heading) * distance, 0, position.z - Math.cos(heading) * distance);
+        const route = this.forkliftRoute(position, end, controller.loaded, extra);
+        let length = 0;
+        if (route) for (let i = 1; i < route.length; i++) length += route[i].distanceTo(route[i - 1]);
+        if (route && length <= distance * 1.3 + 0.2) backs.push({ distance, path: [position.clone(), end] });
+      }
+    const corridor = [...controller.bodies.map((b) => b.clone()), ...controller.remaining(FORKLIFT_TRAFFIC.makeWayCorridor)];
+    const back = this.traffic.cooperateForklift(
+      nearest,
+      { id: agent.object.id, position, radius: controller.radius, circles: controller.bodies, corridor, backs, backSpeed: FORKLIFT_CONFIG.insertSpeed * factor },
+      this.trafficVehicles,
+      this.trafficBodies,
+    );
+    if (back === null) return false;
+    if (back > 0) controller.backOffFor(back);
+    return true;
   }
   /** Door opening for display (0 closed … 1 open). */
   doorOpening(id: string) {

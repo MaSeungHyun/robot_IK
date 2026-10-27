@@ -1,6 +1,7 @@
 import { Vector3 } from "three";
 import type { FactoryLayout,EquipmentKind,EquipmentPose,ConveyorTurn } from "@/types/layout";
 import { SIMULATOR_CONFIG as C,AMR_TRAFFIC } from "@/constants/simulatorLayout";
+import { AMR_AXIS_PATH } from "@/constants/amr";
 import { findPathBetween } from "@/domain/amr/navigation/pathfinding";
 import type { Cell } from "@/domain/amr/navigation/pathfinding";
 import { STREAM_CONFIG } from "@/constants/simulation";
@@ -168,7 +169,8 @@ export function routeFailureReason(layout:FactoryLayout,start:{x:number;z:number
   if(extra.some(o=>o.path?.length&&o.kind!=="floor"))return `${stage}: 다른 AMR의 운반·복귀 경로 예약이 해제되기를 기다립니다.`;
   return `${stage}: 연결 가능한 통로가 없습니다. 장비 배치를 확인해 주세요.`;
 }
-export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[]):Vector3[]|null{
+export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[],options:{axis?:boolean}={}):Vector3[]|null{
+  const axis=options.axis===true;
   const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius,padding=C.navigationPadding;
   const clear=preparedClear(layout,loaded,extra);
   if(!clear(start.x,start.z)||!clear(goal.x,goal.z))return null;
@@ -224,17 +226,30 @@ export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{
     if(!s){s=segmentClear(world(a),world(b))?2:1;edges[ai]=s;edges[(b[1]*columns+b[0])*9+8-d]=s;}
     return s===2;
   };
-  const result=findPathBetween({columns,rows,blocked,canTraverse},connectors(start),connectors(goal));
+  const result=findPathBetween({columns,rows,blocked,canTraverse},connectors(start),connectors(goal),axis?{fourWay:true,turnCost:AMR_AXIS_PATH.turnCost}:{});
   if(!result)return null;
   const points=[new Vector3(start.x,0,start.z),...result.map(([x,z])=>new Vector3(x*C.grid+minX,0,z*C.grid+minZ)),new Vector3(goal.x,0,goal.z)];
   // Line-of-sight smoothing (string pulling): from each kept point jump to the farthest later point whose straight
   // segment is clearance-checked clear, so grid staircases become straight (diagonal) runs. Deterministic.
+  const aligned=(a:Vector3,b:Vector3)=>Math.abs(a.x-b.x)<1e-6||Math.abs(a.z-b.z)<1e-6;
   const smoothed:Vector3[]=[points[0]];
   for(let i=0;i<points.length-1;){
     // Forward greedy (stop at the first blocked shortcut) keeps the cost linear in path length.
     let j=i+1;
-    while(j+1<points.length&&segmentClear(points[i],points[j+1]))j++;
+    while(j+1<points.length&&(!axis||aligned(points[i],points[j+1]))&&segmentClear(points[i],points[j+1]))j++;
     smoothed.push(points[j]);i=j;
+  }
+  // Axis mode: the off-grid start / goal connectors become an L (corner clearance-checked) instead of a short diagonal.
+  if(axis)for(let i=1;i<smoothed.length;i++){
+    const a=smoothed[i-1],b=smoothed[i];
+    if(aligned(a,b))continue;
+    const corner=[new Vector3(b.x,0,a.z),new Vector3(a.x,0,b.z)].find(c=>segmentClear(a,c)&&segmentClear(c,b));
+    if(corner){smoothed.splice(i,0,corner);i++;}
+  }
+  // Drop middle points of straight axis runs.
+  if(axis)for(let i=1;i+1<smoothed.length;){
+    const a=smoothed[i-1],b=smoothed[i],c=smoothed[i+1];
+    if((Math.abs(a.x-b.x)<1e-6&&Math.abs(b.x-c.x)<1e-6)||(Math.abs(a.z-b.z)<1e-6&&Math.abs(b.z-c.z)<1e-6))smoothed.splice(i,1);else i++;
   }
   points.length=0;points.push(...smoothed);
   for(let i=1;i<points.length;i++){

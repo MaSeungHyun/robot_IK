@@ -2,6 +2,9 @@ export type Cell = readonly [number,number];
 export type NavigationGrid = {columns:number;rows:number;blocked:{has(id:number):boolean};canTraverse?:(from:Cell,to:Cell)=>boolean};
 
 const DIRECTIONS:readonly Cell[]=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+const AXES=DIRECTIONS.slice(0,4);
+/** fourWay: axis moves only (Manhattan heuristic); turnCost: extra cost when the move direction changes. */
+export type SearchOptions={fourWay?:boolean;turnCost?:number};
 
 /** Eight-neighbour A*: diagonal movement without cutting blocked corners. */
 export function findPath(grid:NavigationGrid,start:Cell,goal:Cell): Cell[] | null {
@@ -9,7 +12,8 @@ export function findPath(grid:NavigationGrid,start:Cell,goal:Cell): Cell[] | nul
 }
 
 /** Multiple safe connectors avoid rejecting valid world positions between grid cells. */
-export function findPathBetween(grid:NavigationGrid,starts:Cell[],goals:Cell[]):Cell[]|null{
+export function findPathBetween(grid:NavigationGrid,starts:Cell[],goals:Cell[],options:SearchOptions={}):Cell[]|null{
+  const fourWay=options.fourWay===true,turnCost=options.turnCost??0,moves=fourWay?AXES:DIRECTIONS;
   const {columns,rows,blocked}=grid;
   const inside=([x,z]:Cell)=>Number.isInteger(x)&&Number.isInteger(z)&&x>=0&&z>=0&&x<columns&&z<rows;
   const key=([x,z]:Cell)=>z*columns+x;
@@ -25,7 +29,7 @@ export function findPathBetween(grid:NavigationGrid,starts:Cell[],goals:Cell[]):
     let h=heuristic[id];
     if(h<0){
       h=Infinity;const cx=id%columns,cz=Math.floor(id/columns);
-      for(const goal of targets){const dx=Math.abs(cx-goal[0]),dz=Math.abs(cz-goal[1]);h=Math.min(h,Math.max(dx,dz)+(Math.SQRT2-1)*Math.min(dx,dz));}
+      for(const goal of targets){const dx=Math.abs(cx-goal[0]),dz=Math.abs(cz-goal[1]);h=Math.min(h,fourWay?dx+dz:Math.max(dx,dz)+(Math.SQRT2-1)*Math.min(dx,dz));}
       heuristic[id]=h;
     }
     return h;
@@ -61,11 +65,12 @@ export function findPathBetween(grid:NavigationGrid,starts:Cell[],goals:Cell[]):
     }
     closed[current]=1;
     const x=current%columns,z=Math.floor(current/columns);
-    for(const [dx,dz] of DIRECTIONS){
+    const parent=parents[current],px=parent<0?0:x-parent%columns,pz=parent<0?0:z-Math.floor(parent/columns);
+    for(const [dx,dz] of moves){
       const nx=x+dx,nz=z+dz;
       if(nx<0||nz<0||nx>=columns||nz>=rows)continue;
       if(dx&&dz&&(blocked.has(z*columns+nx)||blocked.has(nz*columns+x)))continue;
-      const id=nz*columns+nx,next=item.g+(dx&&dz?Math.SQRT2:1);
+      const id=nz*columns+nx,next=item.g+(dx&&dz?Math.SQRT2:1)+(turnCost&&parent>=0&&(px!==dx||pz!==dz)?turnCost:0);
       if(blocked.has(id)||closed[id]||next>=cost[id])continue;
       if(grid.canTraverse&&!grid.canTraverse([x,z],[nx,nz]))continue;
       cost[id]=next;parents[id]=current;push(id,next);

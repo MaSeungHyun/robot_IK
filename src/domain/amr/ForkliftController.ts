@@ -1,6 +1,6 @@
 import { Group, Vector3 } from "three";
 import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
-import { FORKLIFT_CIRCLES, FORKLIFT_CONFIG, forkLiftFor, forkliftAxisDistance, forkliftStop } from "@/constants/forklift";
+import { FORKLIFT_APPROACH, FORKLIFT_CIRCLES, FORKLIFT_CONFIG, forkLiftFor, forkliftAxisDistance, forkliftStop } from "@/constants/forklift";
 
 /**
  * Forklift (Forklift.glb), driven like a real forklift by `Forklift_point` (the fork-hole contact
@@ -22,6 +22,9 @@ export type ForkliftTarget = {
   slotPoint: Vector3;
   heading: number;
   approach: Vector3;
+  /** Consecutive targets with the same group are equally valid: the cheapest reachable one is taken
+   * (FORKLIFT_APPROACH). Without a group, targets are tried strictly in order. */
+  group?: number;
 };
 
 export type ForkliftJob = {
@@ -169,31 +172,53 @@ export class ForkliftController {
     return this.circles;
   }
   /** Clearance from floor point (x, z) to the footprint of this forklift with its origin at `origin` (default: now). */
-  clearance(x: number, z: number, origin: Vector3 = this.carrier.position) {
-    return forkliftAxisDistance(x, z, origin.x, origin.z, this.carrier.rotation.y) - FORKLIFT_CONFIG.footprint.radius;
+  clearance(x: number, z: number, origin: Vector3 = this.carrier.position, heading = this.carrier.rotation.y) {
+    return forkliftAxisDistance(x, z, origin.x, origin.z, heading) - FORKLIFT_CONFIG.footprint.radius;
   }
   /** Driving a floor route (traffic applies); fork moves and slot insert/retreat are not. */
   get moving() {
-    return this.stage === "toRack" || this.stage === "toDoor" || this.stage === "toOutside" || this.stage === "toInside" || this.stage === "returning";
+    return this.stage === "toPick" || this.stage === "toRack" || this.stage === "toDoor" || this.stage === "toOutside" || this.stage === "toInside" || this.stage === "returning";
   }
   /** End of the current route. */
   get goal() {
     return this.path[this.path.length - 1] ?? null;
   }
   /** Position after driving `delta` (s, speed-scaled) along the route, without moving. */
+  /** Heading at the end of the last `predict` (direction of the leg reached; driving snaps the body to it). */
+  predictedHeading = 0;
   predict(delta: number, out: Vector3) {
     out.copy(this.carrier.position);
+    this.predictedHeading = this.carrier.rotation.y;
     if (!this.moving) return out;
     let remaining = delta * SIMULATOR_CONFIG.amrSpeed;
     for (let i = this.cursor; i < this.path.length && remaining > 0; i++) {
       const point = this.path[i],
         length = out.distanceTo(point);
+      if (length > 1e-8) this.predictedHeading = Math.atan2(point.x - out.x, point.z - out.z);
       if (length <= remaining) {
         out.copy(point);
         remaining -= length;
       } else {
         out.lerp(point, remaining / length);
         break;
+      }
+    }
+    return out;
+  }
+  /** Route ahead (current position first), cut at `limit` m: the corridor an idle AMR is asked to clear. */
+  remaining(limit: number) {
+    const out = [this.carrier.position.clone()];
+    let left = limit;
+    for (let i = this.cursor; i < this.path.length && left > 0; i++) {
+      const from = out[out.length - 1],
+        point = this.path[i],
+        length = from.distanceTo(point);
+      if (length <= left) {
+        out.push(point.clone());
+        left -= length;
+      } else {
+        out.push(from.clone().lerp(point, left / length));
+        left = 0;
       }
     }
     return out;
@@ -207,6 +232,31 @@ export class ForkliftController {
   }
   /** Set by the owner each step: true holds the AMR in place while driving (traffic). */
   held = false;
+  /** Owner-installed swept-footprint check for moves without a route (in-place turns, fork in/out creeps, back-offs):
+   * false holds the move this step. */
+  guard: ((x: number, z: number, heading: number) => boolean) | null = null;
+  /** True when the guard held a move during the last advance. */
+  guardHeld = false;
+  private guarded(x: number, z: number, heading: number) {
+    if (!this.guard || this.guard(x, z, heading)) return false;
+    this.guardHeld = true;
+    return true;
+  }
+  /** Joint plan with an AMR: back straight off `distance` m (guarded creep), then replan to the current goal. */
+  backOffFor(distance: number) {
+    if (!this.job || !this.moving) return false;
+    const goal = this.goal?.clone(),
+      stage = this.stage!,
+      loaded = this.payload !== null;
+    if (!goal) return false;
+    const heading = this.carrier.rotation.y;
+    this.backAt.set(this.carrier.position.x - Math.sin(heading) * distance, 0, this.carrier.position.z - Math.cos(heading) * distance);
+    this.pending = () => this.route(goal, loaded, stage);
+    this.stage = "recover";
+    this.path = [];
+    this.version++;
+    return true;
+  }
   get status() {
     return this.stage ? STATUS[this.stage] : "지게차 대기";
   }
@@ -237,18 +287,50 @@ export class ForkliftController {
     this.job = null;
     return false;
   }
-  /** First reachable, bookable target not tried yet; drives toward it. */
+  /** Route length + weighted heading change (now -> legs -> target heading). */
+  private approachCost(route: Vector3[], heading: number) {
+    let cost = 0,
+      yaw = this.carrier.rotation.y;
+    const turn = (to: number) => {
+      cost += FORKLIFT_APPROACH.turnCost * Math.abs(Math.atan2(Math.sin(to - yaw), Math.cos(to - yaw)));
+      yaw = to;
+    };
+    for (let i = 1; i < route.length; i++) {
+      const dx = route[i].x - route[i - 1].x,
+        dz = route[i].z - route[i - 1].z,
+        length = Math.hypot(dx, dz);
+      if (length < 1e-3) continue;
+      cost += length;
+      turn(Math.atan2(dx, dz));
+    }
+    turn(heading);
+    return cost;
+  }
+  /** Cheapest reachable, bookable target of the first group that has one (not tried yet); drives toward it. */
   private chooseTarget() {
-    const job = this.job!;
-    for (const target of job.targets()) {
-      if (this.tried.has(targetKey(target))) continue;
-      const route = this.plan(this.carrier.position, target.approach, this.payload !== null);
-      if (!route) continue;
-      if (job.claim && !job.claim(target, this.target)) continue;
-      this.target = target;
-      this.insertAt.copy(forkliftStop(target.slotPoint, target.heading));
-      this.follow(route, "toRack");
-      return true;
+    const job = this.job!,
+      targets = job.targets();
+    for (let i = 0; i < targets.length; ) {
+      // Equivalent block [i, j): same defined group, else a single target.
+      let j = i + 1;
+      if (targets[i].group !== undefined) while (j < targets.length && targets[j].group === targets[i].group) j++;
+      const options: { target: ForkliftTarget; route: Vector3[]; cost: number }[] = [];
+      for (let k = i; k < j; k++) {
+        const target = targets[k];
+        if (this.tried.has(targetKey(target))) continue;
+        const route = this.plan(this.carrier.position, target.approach, this.payload !== null);
+        if (route) options.push({ target, route, cost: j - i > 1 ? this.approachCost(route, target.heading) : 0 });
+      }
+      // Stable sort: equal cost keeps the listed order (deterministic tie-break).
+      options.sort((a, b) => a.cost - b.cost);
+      for (const { target, route } of options) {
+        if (job.claim && !job.claim(target, this.target)) continue;
+        this.target = target;
+        this.insertAt.copy(forkliftStop(target.slotPoint, target.heading));
+        this.follow(route, "toRack");
+        return true;
+      }
+      i = j;
     }
     return false;
   }
@@ -337,6 +419,8 @@ export class ForkliftController {
       dz = goal.z - position.z,
       length = Math.hypot(dx, dz),
       step = FORKLIFT_CONFIG.insertSpeed * delta;
+    const t = length > step ? step / length : 1;
+    if (this.guarded(position.x + dx * t, position.z + dz * t, this.carrier.rotation.y)) return false;
     if (length > step) {
       position.x += (dx / length) * step;
       position.z += (dz / length) * step;
@@ -355,6 +439,8 @@ export class ForkliftController {
       diff = Math.atan2(Math.sin(this.turnTarget - current), Math.cos(this.turnTarget - current)),
       step = SIMULATOR_CONFIG.amrTurnRate * delta;
     this.turnTarget = current + diff;
+    const next = Math.abs(diff) <= step ? this.turnTarget : current + Math.sign(diff) * step;
+    if (this.guarded(this.carrier.position.x, this.carrier.position.z, next)) return false;
     if (Math.abs(diff) <= step) {
       this.carrier.rotation.y = this.turnTarget;
       this.turnTarget = null;
@@ -375,6 +461,7 @@ export class ForkliftController {
     return Math.max(0, forkLiftFor(this.target!.slotPoint.y));
   }
   advance(delta: number) {
+    this.guardHeld = false;
     const job = this.job;
     if (!job || !this.stage) {
       this.turn(delta);

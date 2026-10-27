@@ -49,6 +49,24 @@ function footprintOf() {
 }
 
 /** Circles (local z centres, shared radius) covering the capsule, for code that only knows circles. */
+/** Forklift traffic against AMRs. */
+/**
+ * Equivalent approaches (e.g. both parallel sides of an AMR deck, forklift heading = AMR heading or +180deg): every
+ * reachable one is planned and the cheapest wins: route length (m) + turnCost x total heading change (rad).
+ */
+export const FORKLIFT_APPROACH = {
+  turnCost: 0.6,
+};
+export const FORKLIFT_TRAFFIC = {
+  /** Within this distance (m) of its route end the forklift ignores its job's peer AMR (final approach onto / off its deck). */
+  peerIgnoreRange: 3,
+  /** Route length (m) ahead of a held forklift that an idle AMR is asked to clear. */
+  makeWayCorridor: 6,
+  /** Broadphase box half-size (m): only agents this close are tested by the move guard (turns, fork creeps, back-offs). */
+  guardRange: 4,
+  /** Straight back-off distances (m) a held forklift may take in a joint plan with an AMR. */
+  coopBack: [1, 2],
+};
 export const FORKLIFT_CIRCLES = (() => {
   const { rear, front, radius } = FORKLIFT_CONFIG.footprint,
     count = Math.max(2, Math.ceil((front - rear) / (radius * 0.5)) + 1);

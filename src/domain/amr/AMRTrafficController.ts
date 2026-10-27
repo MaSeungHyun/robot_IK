@@ -1,6 +1,7 @@
 import { Vector3 } from "three";
-import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
-import { AMR_STALL_REPLAN } from "@/constants/amr";
+import { AMR_TRAFFIC, SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
+import { AMR_COOPERATION, AMR_STALL_REPLAN } from "@/constants/amr";
+import { sweptClear } from "@/domain/amr/cooperativePlanner";
 import type { PalletDispatchController } from "@/domain/amr/PalletDispatchController";
 
 type Vehicle = {
@@ -30,6 +31,8 @@ export type TrafficPlanner = (
   target?: Vector3,
   /** Extra clearance (m) added around other AMRs / forklifts (stall replans). */
   inflate?: number,
+  /** Vehicle / forklift id left out of the obstacles (joint plans check that pair in space-time instead). */
+  ignore?: string,
 ) => Vector3[] | null;
 
 /** AMR body diameter (AMR.glb); traffic distances below scale with it. */
@@ -94,7 +97,17 @@ function conflicts(
   return distance < now - 1e-7 || end <= now + 1e-6;
 }
 /** A body the traffic controller must keep clear of but does not drive (e.g. a forklift). */
-export type TrafficBody = { position: Vector3; radius: number };
+export type TrafficBody = { position: Vector3; radius: number; owner?: string };
+/** A forklift in a joint plan: footprint circles, route corridor ahead and the straight back-offs it can take. */
+export type ForkliftPeer = {
+  id: string;
+  position: Vector3;
+  radius: number;
+  circles: readonly Vector3[];
+  corridor: Vector3[];
+  backs: { distance: number; path: Vector3[] }[];
+  backSpeed: number;
+};
 const grows = (vehicle: Vehicle, next: Vector3) =>
   vehicle.dispatch.radiusAt(next) > vehicle.dispatch.radius + 1e-9;
 function polylineDistance(point: Vector3, path: readonly Vector3[]) {
@@ -176,7 +189,14 @@ export class AMRTrafficController {
     return v.enabled && v.dispatch.moving && !v.dispatch.gated && !v.dispatch.holding && v.dispatch.phase !== "returning";
   }
   private round = 0;
+  /** Sim time (s) for joint-plan cooldowns; uncapped planner and remaining search budget of the current joint plan. */
+  private clock = 0;
+  private rawPlan: TrafficPlanner | null = null;
+  private coopSearches = 0;
+  private coopAt = new Map<string, number>();
   advance(vehicles: Vehicle[], delta: number, plan: TrafficPlanner, bodies: readonly TrafficBody[] = []) {
+    this.clock += delta;
+    this.rawPlan = plan;
     // Cap path searches per advance (deterministic, not wall-clock): a burst of side-step attempts used to run
     // dozens of grid searches in one step (60 ms frame spikes). Over budget a search reports "no path" and the
     // vehicle simply keeps waiting/retries on a later step.
@@ -344,7 +364,7 @@ export class AMRTrafficController {
           dispatch = vehicle.dispatch;
         if (!vehicle.enabled) continue;
         if (dispatch.holding) {
-          this.release(vehicle, motion, vehicles, replan, dt);
+          this.release(vehicle, motion, vehicles, replan, dt, bodies);
           continue;
         }
         if (motion.allowed) {
@@ -448,11 +468,13 @@ export class AMRTrafficController {
           corridor.push(body.position.clone().addScaledVector(through.normalize(), TRAFFIC_RESOLUTION.corridor));
         const peer = { id: BODY_YIELD, position: body.position, radius: body.radius, corridor };
         if (this.stepAside(vehicle, peer, vehicles, replan, bodies) || this.backOff(vehicle, peer, vehicles, replan, bodies)) return;
+        // The forklift side (holdForklift) runs the joint plan with its back-offs; here only the AMR can move.
       }
       const path = replan(vehicle);
       if (path) vehicle.dispatch.reroute(path);
       return;
     }
+    if (this.motions.get(vehicle.id)!.wait >= AMR_COOPERATION.after && this.cooperate(vehicle, other, vehicles, bodies)) return;
     const otherMoves = other.enabled && other.dispatch.moving;
     if (!otherMoves) {
       // Cooperative yield: an idle, empty peer (parked / idle at home) steps into a free pocket off this vehicle's
@@ -461,27 +483,56 @@ export class AMRTrafficController {
       const extra = path ? pathLength(path) - vehicle.dispatch.remainingLength() : Infinity;
       if (this.evade(other, vehicle, extra, vehicles, replan, bodies)) return;
       if (path) vehicle.dispatch.reroute(path);
-      else this.backOff(vehicle, this.peer(other), vehicles, replan, bodies);
+      else if (!this.backOff(vehicle, this.peer(other), vehicles, replan, bodies)) this.cooperate(vehicle, other, vehicles, bodies);
       return;
     }
     // A gated / parked-aside peer is waiting, not driving: it yields like an idle one when it loses priority.
     const [loser, winner] =
       this.priority(vehicle, other) <= 0 ? [other, vehicle] : [vehicle, other];
-    if (this.motions.get(loser.id)!.yieldFrom === winner.id && loser.dispatch.holding) return;
+    if (this.motions.get(loser.id)!.yieldFrom === winner.id && loser.dispatch.holding) {
+      // The loser already parked for the winner, yet they still conflict (narrow aisle, no deeper pocket):
+      // the winner must move too instead of waiting for the stall watchdog: joint plan, detour, else side step / back off.
+      if (this.cooperate(winner, loser, vehicles, bodies)) return;
+      const path = replan(winner);
+      if (path) {
+        winner.dispatch.reroute(path);
+        return;
+      }
+      if (this.stepAside(winner, this.peer(loser), vehicles, replan, bodies)) return;
+      this.backOff(winner, this.peer(loser), vehicles, replan, bodies);
+      return;
+    }
     // Deterministic order: the lower-priority vehicle yields (side cell, else straight reverse); only if it
     // cannot move at all does the winner try the same.
     if (this.stepAside(loser, this.peer(winner), vehicles, replan, bodies)) return;
     if (this.backOff(loser, this.peer(winner), vehicles, replan, bodies)) return;
     if (this.stepAside(winner, this.peer(loser), vehicles, replan, bodies)) return;
-    this.backOff(winner, this.peer(loser), vehicles, replan, bodies);
+    if (this.backOff(winner, this.peer(loser), vehicles, replan, bodies)) return;
+    // Neither can clear alone (narrow aisle): plan both together.
+    this.cooperate(winner, loser, vehicles, bodies);
   }
   /** Idle, empty `idle` moves to the nearest free pocket clear of `mover`'s route (nav grid via the planner, so
    * wall/equipment clearance uses the AMR radius), then returns once the mover has passed (see release). */
   private evade(idle: Vehicle, mover: Vehicle, detourExtra: number, vehicles: Vehicle[], replan: TrafficPlanner, bodies: readonly TrafficBody[]) {
-    const d = idle.dispatch;
-    if (!idle.enabled || d.phase !== "idle" || d.loaded || this.priority(mover, idle) > 0) return false;
+    if (this.priority(mover, idle) > 0) return false;
     const corridor = mover.dispatch.remaining(TRAFFIC_RESOLUTION.evadeCorridor);
-    const peer: Peer = { id: mover.id, position: mover.dispatch.carrier.position, radius: mover.dispatch.radius, corridor };
+    return this.evadePeer(idle, { id: mover.id, position: mover.dispatch.carrier.position, radius: mover.dispatch.radius, corridor }, detourExtra, vehicles, replan, bodies);
+  }
+  /**
+   * A forklift (not an AMR, so no priority / route of its own here) is held by idle, empty `idle` standing on its
+   * route corridor: `idle` moves to a free pocket off it and returns after the body hold (see release). False when
+   * it is not in the way, not idle, or no pocket is reachable.
+   */
+  makeWay(idle: Vehicle, mover: TrafficMover, vehicles: Vehicle[], replan: TrafficPlanner, bodies: readonly TrafficBody[]) {
+    if (!this.motions.has(idle.id)) return false;
+    const need = idle.dispatch.radius + mover.radius + this.margin;
+    if (polylineDistance(idle.dispatch.carrier.position, mover.corridor) >= need + 0.05) return false;
+    return this.evadePeer(idle, { ...mover, id: BODY_YIELD }, Infinity, vehicles, replan, bodies);
+  }
+  private evadePeer(idle: Vehicle, peer: Peer, detourExtra: number, vehicles: Vehicle[], replan: TrafficPlanner, bodies: readonly TrafficBody[]) {
+    const d = idle.dispatch;
+    if (!idle.enabled || d.phase !== "idle" || d.loaded) return false;
+    const corridor = peer.corridor;
     const position = d.carrier.position, need = d.radius + peer.radius + this.margin;
     const candidates: { point: Vector3; ring: number }[] = [];
     for (const ring of TRAFFIC_RESOLUTION.rings) {
@@ -502,13 +553,154 @@ export class AMRTrafficController {
       if (2 * pathLength(path) * TRAFFIC_RESOLUTION.evadeWeight >= detourExtra) continue;
       if (!d.evade(path)) return false;
       const motion = this.motions.get(idle.id)!;
-      motion.yieldFrom = mover.id;
+      motion.yieldFrom = peer.id;
       motion.hold = 0;
       motion.wait = 0;
       motion.retry = TRAFFIC_RESOLUTION.retry;
       return true;
     }
     return false;
+  }
+  private coopReady(id: string) {
+    return this.clock - (this.coopAt.get(id) ?? -Infinity) >= AMR_COOPERATION.cooldown;
+  }
+  /** Uncapped by the per-step budget but by the joint plan's own (AMR_COOPERATION.searches). */
+  private coopPlan(vehicle: Vehicle, target: Vector3 | undefined, ignore: string) {
+    if (this.coopSearches <= 0 || !this.rawPlan) return null;
+    this.coopSearches--;
+    return this.rawPlan(vehicle, target, 0, ignore);
+  }
+  private speedOf(vehicle: Vehicle) {
+    return vehicle.speed * SIMULATOR_CONFIG.amrSpeed;
+  }
+  /** Free cells near `vehicle` clear of `peer`'s corridor and every other body (nearest ring first, stable order). */
+  private pockets(vehicle: Vehicle, peer: Peer, vehicles: Vehicle[], bodies: readonly TrafficBody[]) {
+    const position = vehicle.dispatch.carrier.position,
+      need = vehicle.dispatch.radius + peer.radius + this.margin,
+      out: Vector3[] = [];
+    for (const ring of TRAFFIC_RESOLUTION.rings) {
+      for (let k = 0; k < TRAFFIC_RESOLUTION.angles && out.length < AMR_COOPERATION.pockets; k++) {
+        const angle = (k / TRAFFIC_RESOLUTION.angles) * Math.PI * 2,
+          point = new Vector3(position.x + ring * Math.cos(angle), 0, position.z + ring * Math.sin(angle));
+        if (polylineDistance(point, peer.corridor) < need + 0.05) continue;
+        if (!this.clearOfOthers(point, vehicle, peer, vehicles, bodies)) continue;
+        out.push(point);
+      }
+      if (out.length >= AMR_COOPERATION.pockets) break;
+    }
+    return out;
+  }
+  private settleYield(vehicle: Vehicle, peer: Peer, path: Vector3[]) {
+    if (vehicle.dispatch.moving) {
+      this.commitYield(vehicle, peer, path, this.backward(vehicle, path));
+      return true;
+    }
+    if (!vehicle.dispatch.evade(path)) return false;
+    const motion = this.motions.get(vehicle.id)!;
+    motion.yieldFrom = peer.id;
+    motion.hold = 0;
+    motion.wait = 0;
+    motion.retry = TRAFFIC_RESOLUTION.retry;
+    return true;
+  }
+  /**
+   * Joint plan for a stuck AMR pair: for both orderings (x passes, y clears) combine x staying or retreating away
+   * from y with y driving into a pocket off x's corridor; every combination is checked in space-time (both moving at
+   * once, AMR_COOPERATION.horizon) and the cheapest conflict-free one is committed (both move; they resume through
+   * release() once the other has passed). Deterministic: fixed candidate order, strict cost comparison.
+   */
+  private cooperate(a: Vehicle, b: Vehicle, vehicles: Vehicle[], bodies: readonly TrafficBody[]) {
+    const C = AMR_COOPERATION;
+    if (!a.enabled || !b.enabled || !this.coopReady(a.id) || !this.coopReady(b.id)) return false;
+    this.coopAt.set(a.id, this.clock);
+    this.coopAt.set(b.id, this.clock);
+    this.coopSearches = C.searches;
+    let best: { cost: number; x: Vehicle; y: Vehicle; pathX: Vector3[] | null; pathY: Vector3[] } | null = null;
+    for (const [x, y] of [[a, b], [b, a]] as const) {
+      const dy = y.dispatch;
+      if (!dy.moving && (dy.phase !== "idle" || dy.loaded)) continue;
+      const xPos = x.dispatch.carrier.position,
+        need = x.dispatch.radius + y.dispatch.radius + this.margin,
+        rest = x.dispatch.moving ? x.dispatch.remaining(TRAFFIC_RESOLUTION.corridor) : [xPos.clone()];
+      const retreats: (Vector3[] | null)[] = [null];
+      const away = xPos.clone().sub(y.dispatch.carrier.position).setY(0);
+      if (x.dispatch.moving && away.lengthSq() > 1e-8) {
+        away.normalize();
+        for (const distance of C.retreats) {
+          const path = this.coopPlan(x, xPos.clone().addScaledVector(away, distance), y.id);
+          if (path && path.length >= 2) retreats.push(path);
+        }
+      }
+      const peerX: Peer = { id: x.id, position: xPos, radius: x.dispatch.radius, corridor: rest };
+      for (const pocket of this.pockets(y, peerX, vehicles, bodies)) {
+        const pathY = this.coopPlan(y, pocket, x.id);
+        if (!pathY || pathY.length < 2) continue;
+        for (const pathX of retreats) {
+          const corridor = pathX ? [pathX[pathX.length - 1], ...rest] : rest;
+          if (polylineDistance(pocket, corridor) < need + 0.05) continue;
+          const clear = sweptClear(
+            { path: pathX ?? [xPos], speed: this.speedOf(x) * TRAFFIC_RESOLUTION.reverseSpeed, radius: x.dispatch.radius },
+            { path: pathY, speed: this.speedOf(y), radius: y.dispatch.radius },
+            C.horizon,
+            C.step,
+            this.margin,
+          );
+          if (!clear) continue;
+          const cost = C.returnWeight * (pathLength(pathY) + (pathX ? pathLength(pathX) : 0));
+          if (!best || cost < best.cost - 1e-9) best = { cost, x, y, pathX, pathY };
+        }
+      }
+    }
+    if (!best) return false;
+    if (!this.settleYield(best.y, this.peer(best.x), best.pathY)) return false;
+    if (best.pathX) this.commitYield(best.x, this.peer(best.y), best.pathX, this.backward(best.x, best.pathX));
+    return true;
+  }
+  /**
+   * Joint plan of an AMR and a held forklift (called by the forklift's owner): forklift stays or backs straight off
+   * (`fork.backs`), the AMR either drives on to its goal past the forklift or into a pocket off the forklift's
+   * corridor; space-time checked with the forklift's footprint circles. Returns the forklift back-off distance to
+   * apply (0 = stay), or null when no combination works. The AMR part is committed here.
+   */
+  cooperateForklift(vehicle: Vehicle, fork: ForkliftPeer, vehicles: Vehicle[], bodies: readonly TrafficBody[]) {
+    const C = AMR_COOPERATION,
+      d = vehicle.dispatch;
+    if (!vehicle.enabled || !this.motions.has(vehicle.id) || !this.coopReady(vehicle.id) || !this.coopReady(fork.id)) return null;
+    if (!d.moving && (d.phase !== "idle" || d.loaded)) return null;
+    this.coopAt.set(vehicle.id, this.clock);
+    this.coopAt.set(fork.id, this.clock);
+    this.coopSearches = C.searches;
+    const offsets = fork.circles.map((c) => ({ x: c.x - fork.position.x, z: c.z - fork.position.z }));
+    const peer: Peer = { id: BODY_YIELD, position: fork.position, radius: fork.radius, corridor: fork.corridor };
+    const options: { path: Vector3[]; pocket: boolean; base: number }[] = [];
+    if (d.moving) {
+      const pass = this.coopPlan(vehicle, undefined, fork.id);
+      if (pass && pass.length >= 2) options.push({ path: pass, pocket: false, base: Math.max(0, pathLength(pass) - d.remainingLength()) });
+    }
+    for (const pocket of this.pockets(vehicle, peer, vehicles, bodies)) {
+      const path = this.coopPlan(vehicle, pocket, fork.id);
+      if (path && path.length >= 2) options.push({ path, pocket: true, base: C.returnWeight * pathLength(path) });
+    }
+    const backs = [{ distance: 0, path: [fork.position.clone()] }, ...fork.backs];
+    let best: { cost: number; option: (typeof options)[number]; back: number } | null = null;
+    for (const option of options)
+      for (const back of backs) {
+        const clear = sweptClear(
+          { path: back.path, speed: fork.backSpeed, radius: fork.radius, offsets },
+          { path: option.path, speed: this.speedOf(vehicle), radius: d.radius },
+          C.horizon,
+          C.step,
+          this.margin,
+        );
+        if (!clear) continue;
+        const cost = option.base + C.returnWeight * back.distance;
+        if (!best || cost < best.cost - 1e-9) best = { cost, option, back: back.distance };
+      }
+    if (!best) return null;
+    if (best.option.pocket) {
+      if (!this.settleYield(vehicle, peer, best.option.path)) return null;
+    } else d.reroute(best.option.path);
+    return best.back;
   }
   private peer(vehicle: Vehicle): Peer {
     return {
@@ -642,12 +834,16 @@ export class AMRTrafficController {
     vehicles: Vehicle[],
     replan: TrafficPlanner,
     dt: number,
+    bodies: readonly TrafficBody[] = [],
   ) {
     const dispatch = vehicle.dispatch;
     dispatch.yielding = true;
     motion.hold += dt;
     if (motion.retry > 0) return;
     motion.retry = TRAFFIC_RESOLUTION.retry;
+    // Parked for a winner that is itself stuck (narrow aisle): plan both together instead of holding on.
+    const stuck = vehicles.find((other) => other.id === motion.yieldFrom);
+    if (stuck && motion.hold >= AMR_COOPERATION.after && (this.motions.get(stuck.id)?.wait ?? 0) >= AMR_COOPERATION.after && this.cooperate(stuck, vehicle, vehicles, bodies)) return;
     // Yielded to a forklift (no known route): give it a moment to pass first.
     if (motion.yieldFrom === BODY_YIELD && motion.hold < TRAFFIC_RESOLUTION.bodyHold) return;
     const winner = vehicles.find((other) => other.id === motion.yieldFrom);
@@ -670,7 +866,10 @@ export class AMRTrafficController {
     motion.wait = 0;
   }
 }
+/* Joint planning helpers live on the class below (cooperate / cooperateForklift). */
 type Peer = { id: string; position: Vector3; radius: number; corridor: Vector3[] };
+/** External mover (forklift) for makeWay: origin, footprint radius and the route corridor ahead. */
+export type TrafficMover = Peer;
 const BODY_YIELD = "\u0000rack-body";
 function pathLength(path: readonly Vector3[]) {
   let length = 0;

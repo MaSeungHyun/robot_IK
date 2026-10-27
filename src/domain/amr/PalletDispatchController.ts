@@ -49,6 +49,8 @@ export class PalletDispatchController {
   yielding = false;
   /** Backing out of another AMR's way: keeps its heading and drives backward (slower). */
   reversing = false;
+  /** Owner-installed clearance check for the rack insert / retreat creep (no traffic route there): false holds it. */
+  guard: ((x: number, z: number) => boolean) | null = null;
   /** Waiting at the inbound queue pose for the receive pose to clear. */
   gated = false;
   get moving() {
@@ -238,6 +240,7 @@ export class PalletDispatchController {
       goal,
       loaded,
       this.obstacles,
+      { axis: true },
     );
     if (!points) {
       this.phase = "blocked";
@@ -422,6 +425,11 @@ export class PalletDispatchController {
       if (this.carried) {
         const pallet = this.carried;
         const hold = this.routes?.hold;
+        // Square up to the home heading BEFORE offering the pallet: the forklift lifts it off along this heading.
+        if (hold) {
+          this.turnTarget ??= this.nearestHeading(this.layout.amr.yaw, Math.PI);
+          if (!this.turn(delta)) return;
+        }
         if (hold)
           hold.emptyHome(pallet, () => {
             if (this.carried !== pallet) return;
@@ -492,6 +500,8 @@ export class PalletDispatchController {
         dz = goal.z - position.z,
         length = Math.hypot(dx, dz),
         step = RACK_CONFIG.insertSpeed * delta;
+      const t = length > step ? step / length : 1;
+      if (this.guard && !this.guard(position.x + dx * t, position.z + dz * t)) return;
       if (length > step) {
         position.x += (dx / length) * step;
         position.z += (dz / length) * step;
