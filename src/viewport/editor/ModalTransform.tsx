@@ -137,7 +137,7 @@ export default function ModalTransform() {
     if (start) apply({ clientX: lastPointer.x, clientY: lastPointer.y, shiftKey: false });
 
     const restore = () => {
-      group.position.set(origin.x, 0, origin.z);
+      group.position.set(origin.x, group.position.y, origin.z);
       group.rotation.y = origin.yaw;
     };
     const finish = (confirm: boolean) => {
@@ -196,7 +196,7 @@ export default function ModalTransform() {
         const store = useModalTransformStore.getState();
         store.setAxis(store.axis === next ? null : next);
         if (pointer) apply(pointer);
-        else group.position.set(origin.x, 0, origin.z);
+        else group.position.set(origin.x, group.position.y, origin.z);
       } else if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();

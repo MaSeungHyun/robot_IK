@@ -86,7 +86,7 @@ export default function EditableEquipment({
       <group
         ref={setObject}
         userData={{ sceneId: entity.id }}
-        position={[pose.x, 0, pose.z]}
+        position={[pose.x, entity.elevation ?? 0, pose.z]}
         rotation={[0, pose.yaw, 0]}
         onClick={(event) => {
           if (!isSelectionClick(event) || !editing || useSceneStore.getState().pending) return;

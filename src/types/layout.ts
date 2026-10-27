@@ -1,12 +1,13 @@
+import type { ConveyorPathId } from "@/domain/conveyor/conveyorPaths";
 import type { EquipmentMetadata } from "@/types/equipment";
 
 export type EquipmentKind="robot"|"pallet"|"conveyor"|"amr"|"dock"|"scanner"|"floor"|"rack"|"door";
 export type EquipmentPose={x:number;z:number;yaw:number};
 export type FactoryLayout=Record<Exclude<EquipmentKind,"scanner"|"floor"|"rack"|"door">,EquipmentPose>;
 /** Floor/wall room: integer grid cells, centered on the object pose; wallHeight 0 = floor only. */
-export type FloorSize={width:number;depth:number;wallHeight:number};
+export type FloorSize={width:number;depth:number;wallHeight:number;/** false: no generated roof (e.g. the template draws its own glb roof). */roof?:boolean};
 export type ConveyorTurn="straight"|"left"|"right";
-export type SceneEquipment=EquipmentPose&{id:string;kind:EquipmentKind;name:string;metadata?:EquipmentMetadata;conveyorTurn?:ConveyorTurn;floor?:FloorSize};
+export type SceneEquipment=EquipmentPose&{id:string;kind:EquipmentKind;name:string;metadata?:EquipmentMetadata;conveyorTurn?:ConveyorTurn;/** Spline conveyor: whole glb rail + extracted belt centreline (see domain/conveyor/conveyorPaths). */conveyorPath?:ConveyorPathId;/** Straight belt length in metres (default CONVEYOR_LAYOUT.length). */conveyorLength?:number;floor?:FloorSize;/** Mount height in metres (e.g. a robot on a GLB pedestal; default 0 = floor). */elevation?:number};
 /** Inspection grade of a box (unscanned boxes count as normal) and of the pallet that collects it. */
 export type CargoGrade="normal"|"defect";
 /** Which boxes a robot picks; "all" keeps the original behaviour. */
@@ -58,6 +59,8 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   mountedOn?:string;
   /** Inbound conveyor unit: "box" (default, boxes are palletized onto the AMR pallet) or "pallet" (loaded pallets roll onto a roller-top AMR). */
   inboundUnit?:"box"|"pallet";
+  /** Boxes stacked on each inbound pallet (default PALLET_STACKING.defaultBoxes). */
+  palletBoxes?:number;
   /** Conveyor only: 자동 생성 — the belt start spawns boxes (or loaded pallets in pallet-inbound mode). Newly placed conveyors
    * get false (cargo only enters through the flow); absent = legacy scenes, treated as on. */
   autoSpawn?:boolean;

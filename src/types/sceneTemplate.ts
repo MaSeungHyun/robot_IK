@@ -1,12 +1,33 @@
 import type { TemplateLink } from "@/types/links";
+import type { ConveyorPathId } from "@/domain/conveyor/conveyorPaths";
 import type { ConveyorTurn, EquipmentKind, EquipmentPose, EquipmentSettings, FloorSize } from "@/types/layout";
 
 export type TemplateEquipment = EquipmentPose & {
   kind: EquipmentKind;
   conveyorTurn?: ConveyorTurn;
+  /** Spline conveyor drawn with its whole glb rail (see conveyorPaths). */
+  conveyorPath?: ConveyorPathId;
+  /** Straight belt length in metres (default 26.25 = rail.glb). */
+  conveyorLength?: number;
+  /** Mount height (m), e.g. a robot standing on a GLB pedestal. */
+  elevation?: number;
   floor?: FloorSize;
   settings?: Partial<EquipmentSettings>;
 };
+
+/** Static decor: a named root node of a template source GLB, drawn at its authored transform (not simulated, not editable). */
+export type TemplateProp = {
+  source: "factory" | "railInOut" | "agv";
+  node: string;
+  /** World position override (default: the node's authored transform); yaw in radians about +Y. */
+  position?: readonly [number, number, number];
+  yaw?: number;
+  /** Skip meshes whose material name is listed (parts drawn by the room kit instead, e.g. Enviroment "wall"/"BG_Floor"). */
+  excludeMaterials?: readonly string[];
+};
+
+/** Template lighting preset; "factory" = factory.glb lights + HDR + AgX (see viewport/lighting/FactoryLighting.tsx). */
+export type TemplateLighting = "factory";
 
 export type SceneTemplate = {
   id: string;
@@ -15,4 +36,8 @@ export type SceneTemplate = {
   equipment: readonly TemplateEquipment[];
   /** Optional equipment relations (🔗) by equipment index; templates without links keep distance-based behaviour. */
   links?: readonly TemplateLink[];
+  /** Optional GLB props (static decor kept as authored; see objects/props/GlbProps.tsx). */
+  props?: readonly TemplateProp[];
+  /** Optional lighting preset replacing the default ambient + key light. */
+  lighting?: TemplateLighting;
 };

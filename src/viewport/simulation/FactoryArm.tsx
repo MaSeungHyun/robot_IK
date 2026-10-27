@@ -25,7 +25,7 @@ const FactoryArm = memo(function FactoryArm({ robot, world, running, transferMod
   return (
     <Robot
       robotId={robot.object.id}
-      position={[robot.object.x, 0, robot.object.z]}
+      position={[robot.object.x, robot.object.elevation ?? 0, robot.object.z]}
       rotation={[0, robot.object.yaw, 0]}
       pickupRadius={SIMULATOR_CONFIG.reach}
       transferMode={transferMode}

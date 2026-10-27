@@ -65,7 +65,7 @@ export default function GroupTransform() {
     for (const p of from.poses) {
       const next = restore ? p : transformed(p, from);
       const group = editableGroups.get(p.id);
-      if (group) { group.position.set(next.x, 0, next.z); group.rotation.set(0, next.yaw, 0); }
+      if (group) { group.position.set(next.x, group.position.y, next.z); group.rotation.set(0, next.yaw, 0); }
     }
   };
 
