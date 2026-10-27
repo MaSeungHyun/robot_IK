@@ -36,15 +36,6 @@
       }
     },
     {
-      "kind": "dock",
-      "x": -18.818,
-      "z": 20.4383,
-      "yaw": 0,
-      "settings": {
-        "dockRole": "unload"
-      }
-    },
-    {
       "kind": "robot",
       "x": 3.904,
       "z": 20.438,
@@ -55,15 +46,6 @@
       }
     },
     {
-      "kind": "dock",
-      "x": 6.104,
-      "z": 20.4383,
-      "yaw": 0,
-      "settings": {
-        "dockRole": "unload"
-      }
-    },
-    {
       "kind": "robot",
       "x": 23.608,
       "z": 20.438,
@@ -71,15 +53,6 @@
       "elevation": 1.192,
       "settings": {
         "robotRole": "depalletize"
-      }
-    },
-    {
-      "kind": "dock",
-      "x": 25.808,
-      "z": 20.4383,
-      "yaw": 0,
-      "settings": {
-        "dockRole": "unload"
       }
     },
     {

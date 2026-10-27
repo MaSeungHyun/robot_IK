@@ -52,6 +52,7 @@ import { isPalletInbound, palletFeeds, receivePose } from "@/domain/cycle/pallet
 import { createPalletModel } from "@/lib/three/palletModel";
 import { planStack } from "@/domain/pallet/packing/stacking";
 import { withScannerBelts } from "@/domain/conveyor/scannerBelt";
+import { withRobotStops } from "@/domain/layout/robotStops";
 
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
 function mulberry32(seed: number) {
@@ -319,6 +320,8 @@ export class FactorySimulator {
   ) {
     // Free-standing ScanTunnel scanners run boxes on their own belt (sim-only conveyor; see scannerBelt.ts).
     ({ objects, getSettings } = withScannerBelts(objects, getSettings));
+    // No unload dock needed: AMRs stop at a reachable free pose next to the depalletizing robot itself.
+    ({ objects, getSettings } = withRobotStops(objects, getSettings));
     this.links = new LinkIndex(links);
     this.rackRandom = mulberry32(sceneSeed(objects));
     // Seeded from the layout and timed by the sim clock: identical scan results/signals at every speed and run.

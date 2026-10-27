@@ -83,6 +83,13 @@ function wallBlocker(o:NavigationObstacle,loaded:boolean,palletYaw:number):(x:nu
   const axes=[[pc,-ps],[ps,pc],[ux,uz],[-uz,ux]].map(([nx,nz])=>[nx,nz,pw/2*Math.abs(nx*pc-nz*ps)+pd/2*Math.abs(nx*ps+nz*pc)+length/2*Math.abs(nx*ux+nz*uz)+r*Math.abs(-nx*uz+nz*ux)+.01-1e-8]);
   return (x,z)=>{if(body(x,z))return true;for(const [nx,nz,gap] of axes)if(Math.abs((x-cx)*nx+(z-cz)*nz)>=gap)return false;return true;};
 }
+/** Whether a loaded AMR (pallet held at `palletYaw`) may stop at (x,z) next to `robot`, by the same test the route planner
+ * uses for its goal cell; `others` are the remaining equipment (conveyors, scanners, racks, pallets). */
+export function loadedStopClear(robot:EquipmentPose,x:number,z:number,palletYaw:number,others:readonly (EquipmentPose&{kind:EquipmentKind})[]){
+  const far={x:1e4,z:1e4,yaw:0};
+  const layout:FactoryLayout={robot,conveyor:far,pallet:{x:far.x,z:far.z,yaw:palletYaw},amr:far,dock:far};
+  return navigationClear(layout,x,z,true,others.map((o)=>({kind:o.kind,pose:o})));
+}
 function navigationClear(layout:FactoryLayout,x:number,z:number,loaded:boolean,extra:NavigationObstacle[]){
   const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius;
   const clears=(kind:EquipmentKind,pose:EquipmentPose&BeltShape)=>loaded&&!customBelt(kind,pose)?!loadedOverlaps(x,z,layout.pallet.yaw,kind,pose)&&clearancePose(x,z,kind,pose)>=AMR_TRAFFIC.emptyRadius-1e-8:clearancePose(x,z,kind,pose)>=radius-1e-8;
