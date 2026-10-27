@@ -13,6 +13,8 @@ type BoxInspection = { result: ScanResult; scanners: Set<string> };
 export class ScannerInspection {
   private sensors = new Map<string, SensorState>();
   private boxes = new WeakMap<Object3D, BoxInspection>();
+  /** Boxes that already carry an inspection result elsewhere (cargo record, rack stock): never scanned again. */
+  isInspected?: (box: Object3D) => boolean;
   private settings: () => Record<string, EquipmentSettings>;
   private random: () => number;
   private now: () => number;
@@ -64,7 +66,7 @@ export class ScannerInspection {
 
     for (const [id, sensor] of this.sensors) {
       const config = settings[id];
-      if (!config?.enabled || this.boxes.get(box)?.scanners.has(id)) continue;
+      if (!config?.enabled || this.boxes.has(box) || this.isInspected?.(box)) continue;
 
       const start = (from.x - sensor.point.x) * sensor.normal.x + (from.z - sensor.point.z) * sensor.normal.z;
       const end = (to.x - sensor.point.x) * sensor.normal.x + (to.z - sensor.point.z) * sensor.normal.z;

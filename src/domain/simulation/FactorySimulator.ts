@@ -453,6 +453,8 @@ export class FactorySimulator {
       pallet.orderFrom(loaders.map((robot) => ({ x: robot.object.x, z: robot.object.z, reach: this.settings()[robot.object.id]?.reach ?? Infinity })));
     }
     this.scanners = objects.filter((o) => o.kind === "scanner");
+    // Scan gate: only boxes without an inspection result are inspected (one result per box, never re-scanned).
+    this.inspection.isInspected = (node) => node.userData.inspected === true || (this.cargo.box(node.userData.boxId)?.inspection ?? null) !== null;
     this.inspection.onScan = (node, scannerId, result) => {
       const id = node.userData.boxId;
       if (id) this.scannedIds.add(id);
@@ -1107,6 +1109,8 @@ export class FactorySimulator {
         const node = new Group();
         node.add(this.boxAsset.clone(true));
         node.userData.cargo = true;
+        // Stock stored in a rack (from the layout / glb) counts as already inspected (normal): never re-scanned.
+        node.userData.inspected = true;
         node.position.copy(s.position).add(new Vector3(0, base, 0));
         group.add(node);
         return node;
