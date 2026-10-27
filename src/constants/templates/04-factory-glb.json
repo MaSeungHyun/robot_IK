@@ -64,7 +64,7 @@
       "z": 37.0651,
       "yaw": 1.5708,
       "settings": {
-        "capacity": 2
+        "capacity": 2, "mountedOn": "amr-97"
       }
     },
     {
@@ -132,11 +132,11 @@
     },
     {
       "kind": "pallet",
-      "x": -22.142,
+      "x": -16.58,
       "z": 37.0651,
-      "yaw": 0,
+      "yaw": 1.5708,
       "settings": {
-        "capacity": 2
+        "capacity": 2, "mountedOn": "amr-98"
       }
     },
     {
@@ -145,7 +145,7 @@
       "z": 37.0651,
       "yaw": 1.5708,
       "settings": {
-        "capacity": 2
+        "capacity": 2, "mountedOn": "amr-99"
       }
     },
     {
@@ -154,7 +154,7 @@
       "z": 37.0651,
       "yaw": 1.5708,
       "settings": {
-        "capacity": 2
+        "capacity": 2, "mountedOn": "amr-100"
       }
     },
     {
@@ -669,6 +669,91 @@
       "settings": {
         "conveyorRole": "outbound"
       }
+    },
+    {
+      "kind": "amr",
+      "x": -20.7756,
+      "z": 37.0651,
+      "yaw": 1.5708,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -16.58,
+      "z": 37.0651,
+      "yaw": 1.5708,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -0.87,
+      "z": 37.0651,
+      "yaw": 1.5708,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 19.1168,
+      "z": 37.0651,
+      "yaw": 1.5708,
+      "settings": {
+        "amrRole": "shuttle"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 2,
+      "z": 44,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -6,
+      "z": 48,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift", "forkliftTask": "service"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 10,
+      "z": 48,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift", "forkliftTask": "service"
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "deliver",
+      "from": 6,
+      "to": 100
+    },
+    {
+      "type": "deliver",
+      "from": 17,
+      "to": 100
+    },
+    {
+      "type": "deliver",
+      "from": 18,
+      "to": 100
+    },
+    {
+      "type": "deliver",
+      "from": 19,
+      "to": 100
     }
   ],
   "props": [
