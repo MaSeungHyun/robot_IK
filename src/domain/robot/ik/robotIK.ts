@@ -214,9 +214,6 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     ]);
   }
   const nearest = (value: number, reference: number) => reference + Math.atan2(Math.sin(value-reference), Math.cos(value-reference));
-  /** Suction cone (rad): tool pitch off vertical (world -Y) allowed at contact; hard limit, outside it the IK refuses. */
-  const SUCTION_TILT = MathUtils.degToRad(IK_CONFIG.suctionMaxTiltDegrees);
-  const offVertical = (pitch: number) => Math.abs(nearest(pitch, -Math.PI / 2) + Math.PI / 2);
   /** Time-weighted joint travel (s): hand00 is slower, so its turns cost more. */
   const travelCost = (from: number[], to: number[]) => to.reduce((sum, value, i) =>
     sum + Math.abs(value - from[i]) / (i === 0 ? MOTION.baseAngularSpeed : MOTION.angularSpeed), 0);
@@ -815,11 +812,9 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     // Near full reach the tool turns continuously (wrist held on the reach limit) instead of in steps, and only
     // the locked branch is accepted: crossing the straight-elbow boundary mid-lift is what made hand02 jerk.
     let best: number[] | null = null, bestPitch = lock.pitch, bestJump = Infinity;
-    // Suction: only solutions facing the floor (hard cone); none -> null, the planner replans.
     for (const solution of analytic.solve(target, start, { pitch: lock.origin, keepElbow: false, maxReachRatio: lock.maxReach, adjustPitch: true, softReachStart: lock.softReach })) {
       if (solution.front !== lock.front || solution.elbow !== lock.elbow) continue;
       if (Math.abs(solution.pitch - lock.origin) > MathUtils.degToRad(IK_CONFIG.analyticMaxTiltDegrees)) continue;
-      if (offVertical(solution.pitch) > SUCTION_TILT) continue;
       const angles = solution.angles;
       if (Math.abs(angles[0] - lock.baseYaw) > 2e-3) continue;
       angles[0] = lock.baseYaw;
@@ -844,8 +839,8 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     if (!analytic) return null;
     const start = read(), limits = limitsAround(start), branch = analytic.branchOf(start);
     let best: number[] | null = null, bestCost = Infinity;
-    const cone = IK_CONFIG.suctionMaxTiltDegrees;
-    for (const tilt of [0, cone, -cone]) {
+    const sweep = IK_CONFIG.approachTiltDegrees;
+    for (const tilt of [0, sweep, -sweep]) {
       for (const solution of analytic.solve(target, start, { pitch: -Math.PI / 2 + MathUtils.degToRad(tilt), keepElbow: false, maxReachRatio: LINE_MAX_REACH })) {
         const angles = solution.angles;
         if (all[4].locked) angles[4] = start[4];
@@ -872,7 +867,6 @@ export function createRobotIK(model: Group, collisionMode: "world" | "held-box-h
     for (const solution of analytic.solve(target, start, { pitch: lock.origin, keepElbow: false, maxReachRatio: lock.maxReach, adjustPitch: true, softReachStart: lock.softReach })) {
       solutions++;
       if (Math.abs(solution.pitch - lock.origin) > MathUtils.degToRad(IK_CONFIG.analyticMaxTiltDegrees)) continue;
-      if (offVertical(solution.pitch) > SUCTION_TILT) continue;
       if (solution.front !== lock.front || solution.elbow !== lock.elbow) continue;
       onBranch++;
       const angles = solution.angles;

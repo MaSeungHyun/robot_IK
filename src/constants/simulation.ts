@@ -150,9 +150,8 @@ export const IK_CONFIG = {
   placementWorldTiltToleranceDegrees: 5,
   /** Largest tool tilt (deg off vertical) the closed-form IK sweeps before numeric IK. */
   analyticMaxTiltDegrees: 20,
-  /** Suction gripper (hand04 tool axis) must face the floor during approach/grasp/place: max deg off world -Y.
-   *  Hard limit at contact (approach/grasp/place line and track solves): outside it the IK refuses and the planner replans. */
-  suctionMaxTiltDegrees: 5,
+  /** Tool tilts (deg off vertical) tried by the approach solve after strict vertical: 0, +x, -x. */
+  approachTiltDegrees: 10,
   /** Arm link sphere radius (m) for the conveyor keep-out; small so the wrist can still pick just above the belt (hand01-hand02-hand04 sampled as spheres along the links). */
   armLinkRadius: 0.03,
   /** Analytic ranking penalty (s of equivalent joint travel) for a branch whose links pass through a conveyor. */
