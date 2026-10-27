@@ -36,3 +36,9 @@
 - 첫 프레임에 노드 재질 컴파일이 있어 처음 전환 시 잠깐 끊길 수 있음.
 - 무한 그리드 대신 GridHelper(선 약 1,600개) 사용.
 - 앱은 필요할 때만 렌더(on-demand)하는 방식이 두 렌더러 모두 같음.
+
+## Babylon 룩 (WebGL 전용)
+- 설정 > 렌더링의 "Babylon 룩" 옵션(기본 끄기). 끄면 기존 화면과 같음.
+- 구성: 환경 반사(Babylon environmentSpecular 큐브 → PMREM → `scene.environment`, `public/env/babylonSpecular.bin`), 반구 조명(HemisphereLight 흰/검정, 세기 π), 반구광 하이라이트(재질 `onBeforeCompile` + `customProgramCacheKey`, 토글 시 한 번만 재컴파일), 톤 매핑(노출 0.8 → `1-exp2(-1.590579x)` → 감마 1/2.2 → 대비 1.2, 컴포저 마지막 패스), 선택: 블룸(0.3/0.9, mipmapBlur), N8AO.
+- WebGPU에서는 EffectComposer가 없어 지원하지 않음: 옵션이 비활성화되고 "WebGPU에서는 지원되지 않음" 표시, 장면에도 적용하지 않음(`selectBabylonLook`이 null).
+- 비교 캡처/측정: `node scripts/render-compare/capture.mjs` (카메라·시뮬 시간은 `scripts/render-compare/cameras.json`).
