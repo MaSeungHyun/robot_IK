@@ -18,7 +18,10 @@
       "kind": "dock",
       "x": -32.0521,
       "z": -24.4975,
-      "yaw": 0
+      "yaw": 0,
+      "settings": {
+        "dockRole": "palletSource"
+      }
     },
     {
       "kind": "amr",
