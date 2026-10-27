@@ -1,7 +1,10 @@
 /** Industrial roller-shutter door (m, s). Width/height are per-door settings; limits are sanity only. */
 export const DOOR_CONFIG = {
-  width: 4,
-  height: 4.5,
+  /** Defaults = door.glb panel native size (wall_door.001: 6.9321 x 6.0 m); with door.glb present the panel's own size is used. */
+  width: 6.9321,
+  height: 6,
+  /** Fraction of the height a fully opened door rolls up (1 = completely open). */
+  openRatio: 1 / 2,
   minSize: 0.6,
   maxWidth: 30,
   maxHeight: 15,

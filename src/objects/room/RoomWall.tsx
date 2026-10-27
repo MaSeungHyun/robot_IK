@@ -3,11 +3,12 @@ import { useFrame } from "@react-three/fiber";
 import { Group, Vector3 } from "three";
 import { FACTORY_ROOM as C } from "@/constants/factoryRoom";
 import { createRoomTexture } from "@/objects/room/roomTextures";
-import { useRoomMaps } from "@/objects/room/roomMaterials";
 import RoomFrame from "./RoomFrame";
 import type { RoomBeam } from "./RoomFrame";
 import type { WallOpening } from "@/domain/room/roomWalls";
 import { clipBeams, cutBand, rectsGeometry } from "./wallCut";
+import { buildKitWall } from "./kit/wallKit";
+import { useKitMaterials } from "./kit/kitMaterials";
 
 const noRaycast = () => {};
 const NO_OPENINGS: WallOpening[] = [];
@@ -17,8 +18,10 @@ export default function RoomWall({ length, height, preview, openings = NO_OPENIN
   const cameraPoint = useMemo(() => new Vector3(), []);
   const texture = useMemo(() => createRoomTexture("wall", length / C.panelWidth, 1), [length]);
   useEffect(() => () => texture.dispose(), [texture]);
-  // Light-grey painted panels (in-house PBR); flat procedural fallback on the performance tier.
-  const pbr = useRoomMaps("wall", length, height);
+  const kitMaterials = useKitMaterials();
+  // Enviroment wall kit (glb bays, UVs and material); the procedural bands/frame below are the fallback.
+  const kit = useMemo(() => (kitMaterials && !preview ? buildKitWall(length, height, openings) : null), [kitMaterials, preview, length, height, openings]);
+  useEffect(() => () => kit?.dispose(), [kit]);
   const baseHeight = Math.min(0.9, height * 0.22);
   const windowBottom = height * 0.67;
   const windowHeight = height * 0.22;
@@ -78,19 +81,22 @@ export default function RoomWall({ length, height, preview, openings = NO_OPENIN
       group.current.visible = cameraPoint.z >= 0;
     }
   });
+  if (kit && kitMaterials) {
+    return (
+      <group ref={group}>
+        <mesh geometry={kit} material={kitMaterials.wall} />
+      </group>
+    );
+  }
   return (
     <group ref={group}>
       <mesh geometry={surfaces.wall} raycast={preview ? noRaycast : undefined}>
-        {pbr && !preview ? (
-          <meshStandardMaterial key="pbr" {...pbr} color="#ffffff" roughness={1} metalness={0} />
-        ) : (
-          <meshStandardMaterial key="flat" map={texture} color={preview ? "#02dfef" : C.wallColor} roughness={0.75} transparent={preview} opacity={0.35} depthWrite={!preview} />
-        )}
+        <meshStandardMaterial map={texture} color={preview ? "#02dfef" : C.wallColor} roughness={0.75} transparent={preview} opacity={0.35} depthWrite={!preview} />
       </mesh>
       {!preview && <>
         <mesh geometry={surfaces.base} position={[0, 0, 0.008]} raycast={noRaycast}>
           {/* Dado band: flat panels, no ribs. */}
-          <meshStandardMaterial map={pbr ? null : texture} color={C.baseColor} roughness={0.65} metalness={pbr ? 0.2 : 0} />
+          <meshStandardMaterial map={texture} color={C.baseColor} roughness={0.65} metalness={0} />
         </mesh>
         <mesh geometry={surfaces.window} position={[0, 0, 0.012]} raycast={noRaycast}>
           <meshStandardMaterial color="#dcebf0" emissive="#b9d4e0" emissiveIntensity={0.3} roughness={0.25} metalness={0.15} />
@@ -100,7 +106,7 @@ export default function RoomWall({ length, height, preview, openings = NO_OPENIN
           <meshBasicMaterial color="#eef3f5" />
         </mesh>
         <RoomFrame beams={frameBeams} />
-        {pbr && <RoomFrame beams={jointBeams} color="#8e979b" metalness={0} />}
+        <RoomFrame beams={jointBeams} color="#8e979b" metalness={0} />
       </>}
     </group>
   );

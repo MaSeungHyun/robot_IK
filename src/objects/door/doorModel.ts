@@ -1,4 +1,5 @@
-import { BoxGeometry, CanvasTexture, Group, Mesh, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace } from "three";
+import { BoxGeometry, BufferGeometry, CanvasTexture, Group, Mesh, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace } from "three";
+import type { Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { DOOR_CONFIG as D } from "@/constants/door";
 
@@ -30,7 +31,10 @@ export type DoorModel = { group: Group; setOpen: (fraction: number) => void; dis
  * jambs + shutter box merged into one mesh, the slatted curtain a second mesh. `setOpen(0..1)`
  * rolls the curtain up into the box (scale + offset; texture repeat keeps the slat pitch).
  */
-export function createDoorModel(width: number, height: number): DoorModel {
+/** door.glb panel at its native size (width x height m) hanging from its top edge (y 0..-height), facing +Z. */
+export type DoorPanel = { geometry: BufferGeometry; material: Material; width: number; height: number };
+
+export function createDoorModel(width: number, height: number, panel?: DoorPanel | null): DoorModel {
   const parts = [
     new BoxGeometry(D.jamb, height, D.frameDepth).translate(-(width + D.jamb) / 2, height / 2, 0),
     new BoxGeometry(D.jamb, height, D.frameDepth).translate((width + D.jamb) / 2, height / 2, 0),
@@ -43,15 +47,19 @@ export function createDoorModel(width: number, height: number): DoorModel {
 
   const map = slats().clone();
   const curtainMaterial = new MeshStandardMaterial({ map, metalness: 0.3, roughness: 0.55 });
-  const curtainGeometry = new BoxGeometry(width, 1, 0.04).translate(0, -0.5, 0); // hangs from its top edge
-  const curtain = new Mesh(curtainGeometry, curtainMaterial);
+  // door.glb panel when available, else the procedural slatted box; both hang from their top edge.
+  // The glb panel is never resized: callers pass its native width/height (see Door.tsx).
+  const curtainGeometry = panel ? panel.geometry.clone() : new BoxGeometry(width, 1, 0.04).translate(0, -0.5, 0);
+  const unit = panel ? panel.height : 1;
+  const curtain = new Mesh(curtainGeometry, panel ? panel.material : curtainMaterial);
   curtain.position.y = height;
 
   const group = new Group();
   group.add(frame, curtain);
   const setOpen = (fraction: number) => {
-    const closed = Math.max(0.02, height * (1 - Math.min(1, Math.max(0, fraction))));
-    curtain.scale.y = closed;
+    // Fully "open" rolls up only D.openRatio of the height (the curtain never disappears entirely).
+    const closed = Math.max(0.02, height * (1 - D.openRatio * Math.min(1, Math.max(0, fraction))));
+    curtain.scale.y = closed / unit; // roll-up animation only (1 = native panel when closed)
     curtain.visible = closed > 0.021;
     map.repeat.set(1, closed / D.slat);
   };

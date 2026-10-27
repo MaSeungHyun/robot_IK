@@ -6,7 +6,8 @@ import type { EquipmentPose, FloorSize } from "@/types/layout";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { doorShape, wallOpenings } from "@/domain/room/roomWalls";
 import { createRoomTexture } from "@/objects/room/roomTextures";
-import { useRoomMaps } from "@/objects/room/roomMaterials";
+import { useKitMaterials } from "@/objects/room/kit/kitMaterials";
+import { buildKitFloor } from "@/objects/room/kit/floorKit";
 import RoomWall from "./RoomWall";
 import RoomRoof from "./RoomRoof";
 
@@ -14,12 +15,15 @@ const noRaycast = () => {};
 /** `interactive={false}`: floor, walls and roof ignore pointer rays (simulation mode). */
 type Props = FloorSize & { preview?: boolean; interactive?: boolean; /** World pose of the room; doors standing in its wall planes cut openings. */ pose?: EquipmentPose };
 /** A drawn footprint owns its finishes, perimeter frame and connected roof. */
-export default function FloorRoom({ width, depth, wallHeight, preview = false, interactive = true, pose }: Props) {
+export default function FloorRoom({ width, depth, wallHeight, roof = true, preview = false, interactive = true, pose }: Props) {
   const openings = useWallOpenings(pose, width, depth, wallHeight);
   const floor = useMemo(() => createRoomTexture("floor", width / C.floorTileSize, depth / C.floorTileSize), [width, depth]);
   useEffect(() => () => floor.dispose(), [floor]);
-  // Grey concrete slabs (in-house PBR); flat procedural fallback on the performance tier.
-  const pbr = useRoomMaps("floor", width, depth);
+  // Enviroment BG_Floor kit (glb material, world-space glb UVs); flat procedural fallback on the performance tier.
+  const kit = useKitMaterials();
+  const px = pose?.x ?? 0, pz = pose?.z ?? 0, pyaw = pose?.yaw ?? 0;
+  const kitFloor = useMemo(() => (kit && !preview ? buildKitFloor(width, depth, { x: px, z: pz, yaw: pyaw }) : null), [kit, preview, width, depth, px, pz, pyaw]);
+  useEffect(() => () => kitFloor?.dispose(), [kitFloor]);
   const room = useRef<Group>(null);
   // Walls, frame and roof carry baked shading: no shadows at all (cut-away walls and the roof would
   // darken the interior). Only the floor receives the moving equipment shadows.
@@ -33,21 +37,25 @@ export default function FloorRoom({ width, depth, wallHeight, preview = false, i
   });
   return (
     <group ref={room}>
+      {kitFloor && kit ? (
+        <mesh geometry={kitFloor} material={kit.floor} position={[0, 0.003, 0]} userData={{ shadowFloor: true }} receiveShadow>
+          <Edges color="#87979d" />
+        </mesh>
+      ) : (
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.003, 0]} raycast={preview ? noRaycast : undefined} userData={{ shadowFloor: true }} receiveShadow>
         <planeGeometry args={[width, depth]} />
-        {pbr && !preview ? (
-          <meshStandardMaterial key="pbr" {...pbr} color="#ffffff" roughness={1} metalness={0} normalScale={[0.6, 0.6]} />
-        ) : (
+        {(
           <meshStandardMaterial key="flat" map={preview ? null : floor} color={preview ? "#02dfef" : C.floorColor} transparent={preview} opacity={preview ? 0.25 : 1} depthWrite={!preview} roughness={0.42} metalness={0.08} />
         )}
         <Edges color={preview ? "#02dfef" : "#87979d"} />
       </mesh>
+      )}
       {wallHeight > 0 && <>
         <group position={[0, 0, -depth / 2]}><RoomWall length={width} height={wallHeight} preview={preview} openings={openings?.[0]} /></group>
         <group position={[0, 0, depth / 2]} rotation={[0, Math.PI, 0]}><RoomWall length={width} height={wallHeight} preview={preview} openings={openings?.[1]} /></group>
         <group position={[-width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}><RoomWall length={depth} height={wallHeight} preview={preview} openings={openings?.[2]} /></group>
         <group position={[width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}><RoomWall length={depth} height={wallHeight} preview={preview} openings={openings?.[3]} /></group>
-        {!preview && <RoomRoof width={width} depth={depth} wallHeight={wallHeight} />}
+        {!preview && roof && <RoomRoof width={width} depth={depth} wallHeight={wallHeight} />}
       </>}
     </group>
   );

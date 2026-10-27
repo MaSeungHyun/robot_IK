@@ -2,22 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { LinearSRGBColorSpace, NoColorSpace, RepeatWrapping, SRGBColorSpace, TextureLoader } from "three";
 import type { Texture } from "three";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
-import floorColor from "@/assets/textures/room/floor_color.webp?url";
-import floorNormal from "@/assets/textures/room/floor_normal.webp?url";
-import floorRoughness from "@/assets/textures/room/floor_roughness.webp?url";
-import wallColor from "@/assets/textures/room/wall_color.webp?url";
-import wallNormal from "@/assets/textures/room/wall_normal.webp?url";
-import wallRoughness from "@/assets/textures/room/wall_roughness.webp?url";
+// Ceiling deck maps only: floors and walls use the factory.glb Enviroment kit (objects/room/kit).
 import ceilingColor from "@/assets/textures/room/ceiling_color.webp?url";
 import ceilingNormal from "@/assets/textures/room/ceiling_normal.webp?url";
 import ceilingRoughness from "@/assets/textures/room/ceiling_roughness.webp?url";
 
 /** In-house PBR sets (see assets/textures/room/CREDITS.md) and the metres one tile covers (x × y). */
 const SETS = {
-  // Grey concrete with fine cracks; one 6 m slab per tile, saw-cut joint drawn on the tile edge.
-  floor: { tileX: 6, tileY: 6, map: floorColor, normalMap: floorNormal, roughnessMap: floorRoughness },
-  // Light-grey painted panel with a fine, non-directional grain: 3 m tile (grain stays a few mm).
-  wall: { tileX: 3, tileY: 3, map: wallColor, normalMap: wallNormal, roughnessMap: wallRoughness },
   // Ribbed steel deck: 23 parallel lines per tile along the texture's U axis → ~22 cm pitch at 5 m.
   ceiling: { tileX: 5, tileY: 5, map: ceilingColor, normalMap: ceilingNormal, roughnessMap: ceilingRoughness },
 } as const;
