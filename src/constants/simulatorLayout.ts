@@ -41,7 +41,7 @@ export const FLOOR_CONFIG = {
   cell: 1,
   wallStep: 0.5,
   maxWallHeight: 15,
-  maxSize: 100,
+  maxSize: 150,
   floorColor: "#1b2a3a",
   wallColor: "#8ea9cf",
 };

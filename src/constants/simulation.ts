@@ -21,6 +21,8 @@ export const PALLET_STACKING = {
   layers: Math.max(1, Math.floor((shelfPitch - (PALLET_MODEL.max[1] - PALLET_MODEL.min[1]) - RACK_LIFT_CLEARANCE) / (BOX_MODEL.max[1] - BOX_MODEL.min[1]))),
   /** Hover/retreat stays this far (m) above the tallest placed box on the pallet. */
   clearance: 0.05,
+  /** Default boxes stacked on every simulator pallet (per-belt override: settings.palletBoxes). */
+  defaultBoxes: 4,
 };
 export const STREAM_CONFIG = {
   // pallet.glb as authored (see modelPoints.generated.ts); no rescaling.

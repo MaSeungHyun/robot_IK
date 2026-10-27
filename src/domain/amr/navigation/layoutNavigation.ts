@@ -1,5 +1,5 @@
 import { Vector3 } from "three";
-import type { FactoryLayout,EquipmentKind,EquipmentPose,ConveyorTurn } from "@/types/layout";
+import type { FactoryLayout,EquipmentKind,EquipmentPose } from "@/types/layout";
 import { SIMULATOR_CONFIG as C,AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { AMR_AXIS_PATH } from "@/constants/amr";
 import { findPathBetween } from "@/domain/amr/navigation/pathfinding";
@@ -9,6 +9,10 @@ import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
 import { RACK_CONFIG } from "@/constants/rack";
 import { SCAN_TUNNEL } from "@/domain/conveyor/scanTunnel";
 import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
+import { isStraightBelt, straightLength, type BeltShape } from "@/domain/conveyor/conveyorLayout";
+import { pathBounds, pathDistance, pathPoints } from "@/domain/conveyor/conveyorPaths";
+/** Belts whose obstacle is not the default straight rail.glb box (turns, spline paths, custom lengths). */
+const customBelt=(kind:EquipmentKind,pose:BeltShape)=>kind==="conveyor"&&(!isStraightBelt(pose)||!!pose.conveyorLength);
 
 export function footprint(kind:EquipmentKind):[number,number]{
   return kind==="conveyor"?[BELT.width,BELT.length]:kind==="scanner"?[SCAN_TUNNEL.width,SCAN_TUNNEL.length]:kind==="pallet"?[STREAM_CONFIG.palletWidth,STREAM_CONFIG.palletDepth]:kind==="dock"?F.amr:kind==="rack"?RACK_CONFIG.footprint:kind==="amr"?F.amr:F.robot;
@@ -16,8 +20,16 @@ export function footprint(kind:EquipmentKind):[number,number]{
 export function clearanceAt(x:number,z:number,kind:keyof FactoryLayout,layout:FactoryLayout){
   return clearancePose(x,z,kind,layout[kind]);
 }
-export function clearancePose(x:number,z:number,kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn}){
+export function clearancePose(x:number,z:number,kind:EquipmentKind,pose:EquipmentPose&BeltShape){
   const dx=x-pose.x,dz=z-pose.z,c=Math.cos(pose.yaw),s=Math.sin(pose.yaw);
+  if(kind==="conveyor"&&pose.conveyorPath){
+    const lx=dx*c-dz*s,lz=dx*s+dz*c;
+    return Math.max(0,pathDistance(pose.conveyorPath,lx,lz)-BELT.width/2);
+  }
+  if(kind==="conveyor"&&pose.conveyorLength&&isStraightBelt(pose)){
+    const px=Math.max(0,Math.abs(dx*c-dz*s)-BELT.width/2),pz=Math.max(0,Math.abs(dx*s+dz*c)-straightLength(pose)/2);
+    return Math.hypot(px,pz);
+  }
   if(kind==="conveyor"&&pose.conveyorTurn&&pose.conveyorTurn!=="straight"){
     const side=pose.conveyorTurn==="left"?-1:1,lx=dx*c-dz*s,lz=dx*s+dz*c;
     const angle=Math.atan2(lz+BELT.radius,BELT.radius-side*lx);
@@ -48,7 +60,7 @@ export function validateLayout(layout:FactoryLayout):string[]{
   return errors;
 }
 export type NavigationObstacle={kind:EquipmentKind;pose:EquipmentPose;radius?:number;path?:readonly Vector3[]};
-function loadedOverlaps(x:number,z:number,yaw:number,kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn}){
+function loadedOverlaps(x:number,z:number,yaw:number,kind:EquipmentKind,pose:EquipmentPose&BeltShape){
   const [width,depth]=footprint(kind),[palletWidth,palletDepth]=footprint("pallet");
   const ac=Math.cos(yaw),as=Math.sin(yaw),bc=Math.cos(pose.yaw),bs=Math.sin(pose.yaw);
   const axes=[[ac,-as],[as,ac],[bc,-bs],[bs,bc]];
@@ -73,7 +85,7 @@ function wallBlocker(o:NavigationObstacle,loaded:boolean,palletYaw:number):(x:nu
 }
 function navigationClear(layout:FactoryLayout,x:number,z:number,loaded:boolean,extra:NavigationObstacle[]){
   const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius;
-  const clears=(kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn})=>loaded&&!(kind==="conveyor"&&pose.conveyorTurn&&pose.conveyorTurn!=="straight")?!loadedOverlaps(x,z,layout.pallet.yaw,kind,pose)&&clearancePose(x,z,kind,pose)>=AMR_TRAFFIC.emptyRadius-1e-8:clearancePose(x,z,kind,pose)>=radius-1e-8;
+  const clears=(kind:EquipmentKind,pose:EquipmentPose&BeltShape)=>loaded&&!customBelt(kind,pose)?!loadedOverlaps(x,z,layout.pallet.yaw,kind,pose)&&clearancePose(x,z,kind,pose)>=AMR_TRAFFIC.emptyRadius-1e-8:clearancePose(x,z,kind,pose)>=radius-1e-8;
   return clears("robot",layout.robot)&&clears("conveyor",layout.conveyor)&&!extra.some(o=>o.kind==="floor"&&o.path?.length?wallBlocker(o,loaded,layout.pallet.yaw)(x,z):o.radius!==undefined||o.path?.length?obstacleClearance(x,z,o)<radius-1e-8:!clears(o.kind,o.pose));
 }
 /** Same result as navigationClear, but each point only tests obstacles whose conservative bound can reach it
@@ -93,10 +105,28 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
       const k=key(cx,cz);let list=buckets.get(k);if(!list){list=[];buckets.set(k,list);}list.push(entry);
     }
   };
-  const addPose=(kind:EquipmentKind,pose:EquipmentPose&{conveyorTurn?:ConveyorTurn})=>{
-    const turned=kind==="conveyor"&&!!pose.conveyorTurn&&pose.conveyorTurn!=="straight";
-    const [width,depth]=footprint(kind),half=turned?2*BELT.radius+BELT.width:Math.hypot(width,depth)/2;
+  const addPose=(kind:EquipmentKind,pose:EquipmentPose&BeltShape)=>{
+    const turned=customBelt(kind,pose);
+    const [width,depth]=footprint(kind);
+    const bounds=kind==="conveyor"&&pose.conveyorPath?pathBounds(pose.conveyorPath):null;
+    const half=bounds?Math.max(-bounds.minX,bounds.maxX,-bounds.minZ,bounds.maxZ)*Math.SQRT2+BELT.width:kind==="conveyor"&&pose.conveyorLength&&isStraightBelt(pose)?Math.hypot(width,straightLength(pose))/2:turned?2*BELT.radius+BELT.width:Math.hypot(width,depth)/2;
     const px=pose.x,pz=pose.z;
+    if(kind==="conveyor"&&pose.conveyorPath){
+      // Spline belt: one entry per centreline segment with its own tight bound (clearancePose is the minimum over
+      // segments, so the belt blocks exactly when one segment does) instead of one entry spanning the whole rail.
+      const pts=pathPoints(pose.conveyorPath),c=Math.cos(pose.yaw),s=Math.sin(pose.yaw),w=BELT.width/2;
+      for(let i=1;i<pts.length;i++){
+        const ax=pts[i-1].x,az=pts[i-1].z,dx=pts[i].x-ax,dz=pts[i].z-az,l2=dx*dx+dz*dz||1;
+        const wx=(lx:number,lz:number)=>px+lx*c+lz*s,wz=(lx:number,lz:number)=>pz-lx*s+lz*c;
+        const xs=[wx(ax,az),wx(pts[i].x,pts[i].z)],zs=[wz(ax,az),wz(pts[i].x,pts[i].z)];
+        add(Math.min(...xs),Math.max(...xs),Math.min(...zs),Math.max(...zs),radius+w,(x,z)=>{
+          const ddx=x-px,ddz=z-pz,lx=ddx*c-ddz*s,lz=ddx*s+ddz*c;
+          const t=Math.max(0,Math.min(1,((lx-ax)*dx+(lz-az)*dz)/l2));
+          return Math.max(0,Math.hypot(lx-ax-dx*t,lz-az-dz*t)-w)<limit;
+        });
+      }
+      return;
+    }
     let blocks:(x:number,z:number)=>boolean;
     if(turned)blocks=(x,z)=>clearancePose(x,z,kind,pose)<limit;
     else if(loaded){

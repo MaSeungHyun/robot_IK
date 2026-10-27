@@ -51,6 +51,7 @@ import { AMR_DECK, ROLLER_DECK } from "@/constants/cycle";
 import { isPalletInbound, palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
 import { createPalletModel } from "@/lib/three/palletModel";
 import { planStack } from "@/domain/pallet/packing/stacking";
+import { withScannerBelts } from "@/domain/conveyor/scannerBelt";
 
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
 function mulberry32(seed: number) {
@@ -108,7 +109,7 @@ const FEED_CLEAR_MARGIN = 0.6;
 type HeldPallet = { group: Group; boxes: Cargo[]; distance: number; agent: FactoryAgent | null };
 /** Pallet-inbound belt: loaded pallets spawn on its interval, queue nose-to-tail and stop at the end stopper. */
 type PalletHold = {
-  belt: SceneEquipment; timer: number; pallets: HeldPallet[]; warned: string | null;
+  belt: SceneEquipment; timer: number; pallets: HeldPallet[]; warned: string | null; routeRetryAt?: number;
   /** AMR that just took the lead pallet; the queued AMR enters the receive pose once it has cleared it. */
   leaving: FactoryAgent | null;
   fed?: number; arrivals: number[];
@@ -316,6 +317,8 @@ export class FactorySimulator {
     random?: () => number,
     links: readonly SceneLink[] = [],
   ) {
+    // Free-standing ScanTunnel scanners run boxes on their own belt (sim-only conveyor; see scannerBelt.ts).
+    ({ objects, getSettings } = withScannerBelts(objects, getSettings));
     this.links = new LinkIndex(links);
     this.rackRandom = mulberry32(sceneSeed(objects));
     // Seeded from the layout and timed by the sim clock: identical scan results/signals at every speed and run.
@@ -770,6 +773,8 @@ export class FactorySimulator {
       }
     }
     if (!best) {
+      // Route search is expensive (every candidate × dock × approach): retry a failed one at most once per second.
+      hold.routeRetryAt = this.elapsed + 1;
       this.holdWarn(hold, "route", "AMR가 받는 위치/하역 위치로 갈 경로가 없습니다", "컨베이어 끝 앞(0.95 m)과 하역 위치 주변을 비워 주세요");
       return;
     }
@@ -842,6 +847,7 @@ export class FactorySimulator {
       best = { agent, layout, park, cost, routes: { pickup, dispatch, returning: [home.clone()], feed: { heading: receive.yaw, lane: approach }, hold: { busy: () => true, emptyHome: () => {} } } };
     }
     if (!best) {
+      hold.routeRetryAt = this.elapsed + 1;
       this.holdWarn(hold, "route", `${missing} · AMR가 받는 위치로 갈 경로가 없습니다`, "컨베이어 끝 앞(0.95 m)을 비워 주세요");
       return;
     }
@@ -872,7 +878,8 @@ export class FactorySimulator {
     const group = new Group();
     group.add(createPalletModel(this.palletAsset));
     const size = new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
-    const total = planStack(1, size, BOX_SIZES[0], 0).capacity * PALLET_STACKING.layers;
+    const max = planStack(1, size, BOX_SIZES[0], 0).capacity * PALLET_STACKING.layers;
+    const total = Math.max(1, Math.min(max, Math.round(this.settings()[hold.belt.id]?.palletBoxes ?? PALLET_STACKING.defaultBoxes)));
     const boxes = planStack(total, size, BOX_SIZES[0], 0).slots.map((slot) => {
       const node = new Group();
       node.add(this.boxAsset.clone(true));
@@ -912,7 +919,7 @@ export class FactorySimulator {
       }
       // One AMR per station: the next receiver is sent only after the previous one has fully left the receive pose.
       const lead = hold.pallets[0];
-      if (lead && !lead.agent && this.receiveClear(hold)) this.dispatchFeed(hold, lead, settings);
+      if (lead && !lead.agent && this.elapsed >= (hold.routeRetryAt ?? 0) && this.receiveClear(hold)) this.dispatchFeed(hold, lead, settings);
       const length = beltLength(hold.belt), stop = length - STREAM_CONFIG.palletDepth / 2;
       const receive = this.receivePoint(hold.belt), end = beltPoint(hold.belt, length);
       const transfer = length + Math.hypot(receive.x - end.x, receive.z - end.z);
