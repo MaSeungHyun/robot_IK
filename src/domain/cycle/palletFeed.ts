@@ -10,7 +10,7 @@ import { CYCLE_CONFIG } from "@/constants/cycle";
  */
 export function palletFeeds(objects: readonly SceneEquipment[], settings: Record<string, EquipmentSettings>, feedTo: (beltId: string) => readonly string[] = () => []) {
   const feeds = new Map<string, SceneEquipment>();
-  const shuttles = objects.filter((o) => o.kind === "amr" && settings[o.id]?.amrRole === "shuttle");
+  const shuttles = objects.filter((o) => o.kind === "amr" && settings[o.id]?.amrRole === "shuttle" && settings[o.id]?.amrCargo !== "box");
   const belts = objects.filter((belt) => belt.kind === "conveyor" && isPalletInbound(settings, belt.id));
   // Linked first, so a proximity match never steals a linked AMR.
   for (const belt of belts) {

@@ -35,6 +35,9 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** AMR role: "forklift" = rack-unloading forklift (ForkliftController; legacy "rack" means the same); default pallet AMR.
    * Pallet cycle (domain/cycle): "shuttle" = AMR carrying a pallet on its deck (robot loads it in place), "agv" = Rack_m lifting AGV. */
   amrRole?:"pallet"|"forklift"|"rack"|"shuttle"|"agv";
+  /** AMR (not forklift / AGV) cargo type: "pallet" (default) = served by pallet-inbound conveyors, carries pallets;
+   * "box" = box AMR, served only by box conveyors (carries loose boxes). */
+  amrCargo?:"pallet"|"box";
   /** Forklift only, pallet cycle: "service" = swaps pallets on shuttle AMRs (full → Rack_m, empty → AMR), "rack" = Rack_m → Rack and Rack → 출하,
    * "carrier" = holds a pallet on its forks at the pallet in front of it (the robot loads it there) and carries it to an unload dock robot. */
   forkliftTask?:"service"|"rack"|"carrier";

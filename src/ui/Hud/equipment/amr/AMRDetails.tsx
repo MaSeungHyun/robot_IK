@@ -74,6 +74,18 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
               ? [{ value: "agv", label: "AGV (Rack_m 운반)" }]
               : [{ value: "pallet", label: "팔레트 AMR (출고 운반)" }, { value: "shuttle", label: "셔틀 AMR (팔레트 순환)" }]}
         />
+        {!forklift && role !== "agv" && (
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="amrCargo"
+            label="AMR 유형"
+            fallback="pallet"
+            options={[
+              { value: "pallet", label: "팔레트 AMR" },
+              { value: "box", label: "박스 AMR" },
+            ]}
+          />
+        )}
         <DeckBaseSetting id={object.id} />
         {forklift && (
           <EquipmentChoiceSetting

@@ -8,10 +8,10 @@ import InfoTip from "@/components/InfoTip";
 import { PLAY_LOCK_TEXT, usePlayLocked } from "@/ui/Hud/equipment/details/_components/playLockState";
 import { CHOICE_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
 
-type ChoiceField = "pickFilter" | "grade" | "acceptGrade" | "conveyorRole" | "dockRole" | "robotRole" | "inboundUnit" | "amrRole" | "forkliftTask" | "forkliftRole" | "emptyPallet" | "rackType" | "rackStorage" | "initialPallet";
+type ChoiceField = "pickFilter" | "grade" | "acceptGrade" | "conveyorRole" | "dockRole" | "robotRole" | "inboundUnit" | "amrRole" | "amrCargo" | "forkliftTask" | "forkliftRole" | "emptyPallet" | "rackType" | "rackStorage" | "initialPallet";
 
 /** Read when Play starts (simulator construction): changing them mid-run would desync the run. */
-const PLAY_LOCKED: ReadonlySet<ChoiceField> = new Set(["conveyorRole", "dockRole", "robotRole", "inboundUnit", "amrRole", "forkliftTask", "forkliftRole", "emptyPallet", "rackType", "rackStorage", "initialPallet"]);
+const PLAY_LOCKED: ReadonlySet<ChoiceField> = new Set(["conveyorRole", "dockRole", "robotRole", "inboundUnit", "amrRole", "amrCargo", "forkliftTask", "forkliftRole", "emptyPallet", "rackType", "rackStorage", "initialPallet"]);
 
 type Props<F extends ChoiceField> = {
   id: string;

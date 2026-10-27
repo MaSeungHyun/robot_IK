@@ -251,7 +251,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   },
   remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const gone=new Set([id,...mountedPallets(state.objects,state.settings,new Set([id])).map(o=>o.id)]);const next={...state.settings};for(const g of gone)delete next[g];return {...history(state),objects:state.objects.filter(object=>!gone.has(object.id)),links:state.links.filter(link=>!gone.has(link.from)&&!gone.has(link.to)),settings:next,selected:state.selected&&gone.has(state.selected)?null:state.selected,selection:state.selection.filter(s=>!gone.has(s)),errors:[]};});},
   edit:()=>{if(get().editing)return;useSimulationStore.getState().reset();set({editing:true,errors:[],inspected:null});},
-  complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
+  complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings,state.links);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
   clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,editing:true,errors:[]});},
   loadTemplate: (template) => {
     const state = get();

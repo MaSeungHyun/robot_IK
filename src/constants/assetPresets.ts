@@ -61,6 +61,7 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
       { id: "default", label: "기본", description: "완성 팔레트를 출고 구역·랙으로 운반합니다." },
       { id: "forklift", label: "지게차", description: "포크로 랙의 팔레트를 들어 꺼내 문 밖으로 반출합니다.", settings: { amrRole: "forklift" } },
       { id: "shuttle", label: "셔틀 AMR", description: "팔레트를 싣고 로봇 적재 위치와 서비스 도크를 오갑니다. 에디터에서 팔레트를 AMR 위에 놓으면 장착됩니다.", settings: { amrRole: "shuttle" }, thumbnail: "shuttle" },
+      { id: "boxAmr", label: "박스 AMR", description: "낱개 박스를 싣고 박스 컨베이어에서만 받습니다.", settings: { amrCargo: "box" } },
       { id: "agv", label: "AGV (Rack_m 운반)", description: "Rack_m 아래로 들어가 들어 올려 랙 구역으로 옮깁니다.", settings: { amrRole: "agv" }, thumbnail: "agv" },
       { id: "serviceForklift", label: "서비스 지게차", description: "셔틀의 적재 팔레트를 Rack_m에 싣고 빈 팔레트를 셔틀에 올립니다.", settings: { amrRole: "forklift", forkliftTask: "service" } },
       { id: "rackForklift", label: "랙 지게차", description: "Rack_m의 팔레트를 랙에 보관하고 랙에서 출하 스테이지로 꺼냅니다.", settings: { amrRole: "forklift", forkliftTask: "rack" } },
