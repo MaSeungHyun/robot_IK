@@ -13,9 +13,14 @@ export function createScannerModel(source: Group) {
   model.updateMatrixWorld(true);
 
   const scanPoint = model.getObjectByName(SCANNER_CONFIG.scanPointName);
-  if (!scanPoint) throw new Error(`ScanTunnel.glb: ${SCANNER_CONFIG.scanPointName}가 없습니다.`);
-
-  const localPoint = model.worldToLocal(scanPoint.getWorldPosition(new Vector3()));
+  // Re-exported glb may lack the empty: fall back to the model origin (its pivot, Y included) and warn instead of throwing.
+  let world: Vector3;
+  if (scanPoint) world = scanPoint.getWorldPosition(new Vector3());
+  else {
+    console.warn(`ScanTunnel.glb: ${SCANNER_CONFIG.scanPointName} 없음 - 모델 원점을 스캔 기준점으로 사용`);
+    world = (asset.children[0] ?? asset).getWorldPosition(new Vector3());
+  }
+  const localPoint = model.worldToLocal(world);
   const signals: { material: MeshStandardMaterial; color: MeshStandardMaterial["color"]; emissive: MeshStandardMaterial["emissive"] }[] = [];
 
   model.traverse((node) => {
