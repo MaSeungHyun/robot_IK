@@ -715,6 +715,13 @@ export class FactorySimulator {
         return;
       }
     }
+    // An AMR homed at this belt's receive pose owns the station: any other AMR would wait behind it forever.
+    const station = this.receivePoint(hold.belt);
+    const owner = this.agents.find((a) => Math.hypot(a.dispatch.home.x - station.x, a.dispatch.home.z - station.z) < 1.5);
+    if (owner && !linkedIds.length) {
+      candidates = candidates.filter((a) => a === owner);
+      if (!candidates.length) { this.holdWarn(hold, "owner", `받는 위치 전용 AMR(${owner.object.name})이 작업 중 · 비면 받으러 갑니다`); return; }
+    }
     // Inbound boxes must pass the scanner: only docks a scan-line start robot unloads (🔗-linked robot/dock first).
     const starts = this.depalletizers.filter((r) => settings[r.object.id]?.enabled && this.scanStart(r, settings));
     // Box AMR (amrCargo "box", boxUnload "self", default): drives to a scanner line's belt start (a scanner's own
@@ -769,11 +776,25 @@ export class FactorySimulator {
           const path = layoutPath(layout, layout.amr, { x: approach.x, z: approach.z }, false, obstacles);
           if (path) { pickup = back ? [...path, receive.v.clone()] : path; break; }
         }
+        // Already parked at the receive pose (inside the belt clearance, so no path starts there): receive in place,
+        // then leave through the first approach point that reaches the dock.
+        let leave: Vector3[] | null = null;
+        if (!pickup && Math.hypot(from.x - receive.x, from.z - receive.z) < 1.5) {
+          pickup = [new Vector3(from.x, 0, from.z)];
+          for (const back of [0, 0.5, 1, 1.5, 2, 2.5]) {
+            approach = at(back);
+            leave = layoutPath(layout, approach, dock, true, obstacles);
+            if (leave) break;
+          }
+        }
         if (!pickup) continue;
         const cost = length(pickup);
-        const leave = layoutPath(layout, approach, dock, true, obstacles);
+        leave ??= layoutPath(layout, approach, dock, true, obstacles);
         const outbound = leave && (approach.equals(receive.v) ? leave : [receive.v.clone(), ...leave]);
-        const returning = outbound && layoutPath(layout, dock, agent.dispatch.home, false, obstacles);
+        // A home parked at the receive pose (inside the belt clearance): drive back to the approach point, then creep in.
+        const home = agent.dispatch.home, homeAtBelt = Math.hypot(home.x - receive.x, home.z - receive.z) < 1.5;
+        const back = outbound && homeAtBelt ? layoutPath(layout, dock, { x: approach.x, z: approach.z }, false, obstacles) : null;
+        const returning = outbound && (layoutPath(layout, dock, home, false, obstacles) ?? (back && [...back, home.clone()]));
         if (!outbound || !returning) continue;
         // Load balancing: a dock with nobody booked beats any busy one (then shortest drive); a busy dock only takes
         // the next AMR (to its staging point) when every eligible dock is booked.

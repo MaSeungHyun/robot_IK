@@ -11,7 +11,7 @@
       "yaw": -1.5708,
       "elevation": 1.192,
       "settings": {
-        "robotRole": "depalletize"
+        "robotRole": "depalletize", "reach": 3
       }
     },
     {
@@ -45,7 +45,7 @@
       "yaw": -1.5708,
       "elevation": 1.192,
       "settings": {
-        "robotRole": "depalletize"
+        "robotRole": "depalletize", "reach": 3
       }
     },
     {
@@ -55,7 +55,7 @@
       "yaw": -1.5708,
       "elevation": 1.192,
       "settings": {
-        "robotRole": "depalletize"
+        "robotRole": "depalletize", "reach": 3
       }
     },
     {
