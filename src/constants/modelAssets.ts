@@ -29,3 +29,10 @@ export const railUrl = modelUrl("rail.glb");
 export const railCUrl = modelUrl("rail_c.glb");
 export const robotArmUrl = modelUrl("RobotArm.glb");
 export const scanTunnelUrl = modelUrl("ScanTunnel.glb");
+// Robot pedestals: optimized set only; resolved optionally so models_original builds still work.
+const pedestalFiles = import.meta.glob<string>(["/src/assets/models/robot_base.glb", "/src/assets/models/robot_arm_place.glb"], { query: "?url", import: "default", eager: true });
+/** Pedestal GLB per RobotPedestalKind (undefined when the file is missing). */
+export const robotPedestalUrls: Record<"base" | "place", string | undefined> = {
+  base: pedestalFiles["/src/assets/models/robot_base.glb"],
+  place: pedestalFiles["/src/assets/models/robot_arm_place.glb"],
+};

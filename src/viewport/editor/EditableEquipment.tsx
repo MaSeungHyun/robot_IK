@@ -16,6 +16,7 @@ import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
 import { LINKABLE_KINDS } from "@/types/links";
 import DropInGroup from "@/viewport/editor/DropInGroup";
+import { robotElevation } from "@/domain/layout/robotPedestals";
 
 export default function EditableEquipment({
   entity,
@@ -35,6 +36,7 @@ export default function EditableEquipment({
     })),
   );
   const pose = entity;
+  const pedestal = useSceneStore((s) => (entity.kind === "robot" ? s.settings[entity.id]?.robotPedestal : undefined));
   const [object, setObject] = useState<Group | null>(null);
   const modal = useModalTransformStore((s) => s.session?.id === entity.id);
   const linking = useLinkModeStore((s) => s.active);
@@ -86,7 +88,7 @@ export default function EditableEquipment({
       <group
         ref={setObject}
         userData={{ sceneId: entity.id }}
-        position={[pose.x, entity.elevation ?? 0, pose.z]}
+        position={[pose.x, robotElevation(entity, pedestal), pose.z]}
         rotation={[0, pose.yaw, 0]}
         onClick={(event) => {
           if (!isSelectionClick(event) || !editing || useSceneStore.getState().pending) return;

@@ -17,7 +17,7 @@ export type TemplateEquipment = EquipmentPose & {
 
 /** Static decor: a named root node of a template source GLB, drawn at its authored transform (not simulated, not editable). */
 export type TemplateProp = {
-  source: "factory" | "railInOut" | "agv";
+  source: "factory" | "railInOut" | "agv" | "robotBase" | "robotArmPlace";
   node: string;
   /** World position override (default: the node's authored transform); yaw in radians about +Y. */
   position?: readonly [number, number, number];

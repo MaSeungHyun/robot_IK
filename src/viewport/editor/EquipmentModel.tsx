@@ -11,6 +11,7 @@ import { AgvBody, RackMobile } from "@/objects/rack/RackMobile";
 import Door from "@/objects/door/Door";
 import Pallet from "@/objects/pallet/index";
 import RobotPreview from "@/objects/robot/RobotPreview";
+import RobotPedestal from "@/objects/robot/RobotPedestal";
 import FloorRoom from "@/objects/room/FloorRoom";
 import { isForkliftRole, type SceneEquipment } from "@/types/layout";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
@@ -19,7 +20,7 @@ import ConveyorExtensionControls from "@/viewport/editor/ConveyorExtensionContro
 export default function EquipmentModel({ object }: { object: SceneEquipment }) {
   switch (object.kind) {
     case "robot":
-      return <RobotPreview />;
+      return <><RobotPreview /><EditorRobotPedestal id={object.id} /></>;
 
     case "pallet":
       return <PalletModel id={object.id} />;
@@ -59,6 +60,11 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
 }
 
 /** Floors, walls and roof are not link targets: they ignore pointer rays while link mode is on. */
+function EditorRobotPedestal({ id }: { id: string }) {
+  const kind = useSceneStore((state) => state.settings[id]?.robotPedestal);
+  return kind && kind !== "none" ? <RobotPedestal kind={kind} /> : null;
+}
+
 function EditorFloor({ object }: { object: SceneEquipment }) {
   const linking = useLinkModeStore((state) => state.active);
   return <FloorRoom {...(object.floor ?? { width: 1, depth: 1, wallHeight: 0 })} interactive={!linking} pose={object} />;

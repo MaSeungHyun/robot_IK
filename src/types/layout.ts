@@ -84,7 +84,9 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
    * "rackDrop" = Rack_m drop point in the rack zone, "stage" = floor spot next to the outbound robot (rack pallet → ship belt). */
   dockRole?:"ship"|"unload"|"service"|"palletSource"|"rackDrop"|"stage";
   /** Robot role: "palletize" = belt -> pallet (default), "depalletize" = unload-dock pallet -> belt. */
-  robotRole?:"palletize"|"depalletize"};
+  robotRole?:"palletize"|"depalletize";
+  /** Pedestal under the arm (absent = "none", floor). */
+  robotPedestal?:"none"|"base"|"place"};
 export type ConveyorRole="box"|"inbound"|"fed"|"outbound"|"ship";
 
 /** Forklift role, including the legacy "rack" value saved by older scenes. */

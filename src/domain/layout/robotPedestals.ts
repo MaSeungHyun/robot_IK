@@ -1,0 +1,70 @@
+import { Box3, Vector3, type Object3D } from "three";
+import { ROBOT_PEDESTALS, type RobotPedestalKind } from "@/constants/robotPedestal";
+
+/** Arm base height: the chosen pedestal's *_point height, else the stored elevation (decor pedestal / floor). */
+export function robotElevation(object: { elevation?: number }, pedestal: RobotPedestalKind | undefined): number {
+  return pedestal && pedestal !== "none" ? ROBOT_PEDESTALS[pedestal].elevation : object.elevation ?? 0;
+}
+
+/**
+ * Robot pedestals (robot_base / robot_arm_place GLB props): world-space footprint + top surface.
+ * A robot added (or moved) over one stands on its "*_point" empty (robot_arm_point / robot_base_point) when the GLB
+ * has one; otherwise on the bbox top face (SceneEquipment.elevation).
+ *  - robot_base: arm pedestal -> robot snaps to its XZ centre on add.
+ *  - robot_arm_place: larger work platform -> robot keeps the cursor XZ (clamped inside the top), only lifted.
+ */
+export type RobotPedestal = { kind: "base" | "place"; minX: number; maxX: number; minZ: number; maxZ: number; top: number; cx: number; cz: number; point?: { x: number; y: number; z: number } };
+
+const PEDESTAL_RE = /^(robot_?(arm_?)?base|robot_arm_place)/i;
+const pedestals = new Map<string, RobotPedestal>();
+const box = new Box3();
+const listeners = new Set<() => void>();
+/** Called whenever a pedestal is registered/unregistered (GLB props load asynchronously after the scene). */
+export function onRobotPedestalsChange(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
+// Deferred + coalesced: registration runs inside GlbProps' render (useMemo), where store updates are not allowed.
+let queued = false;
+const notify = () => { if (queued) return; queued = true; queueMicrotask(() => { queued = false; listeners.forEach((listener) => listener()); }); };
+
+export function isRobotPedestalName(name: string) { return PEDESTAL_RE.test(name); }
+
+/** Registers the pedestal(s) under `root` (world transform must be current). Returns the keys for unregister. */
+export function registerRobotPedestal(root: Object3D, name: string): string | null {
+  if (!isRobotPedestalName(name)) return null;
+  root.updateMatrixWorld(true);
+  box.setFromObject(root);
+  if (box.isEmpty()) return null;
+  const key = root.uuid;
+  let empty: Object3D | undefined;
+  root.traverse((o) => { if (!empty && o !== root && /_point$/i.test(o.name)) empty = o; });
+  const p = empty?.getWorldPosition(new Vector3());
+  pedestals.set(key, {
+    kind: /place/i.test(name) ? "place" : "base",
+    minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z, top: box.max.y,
+    cx: (box.min.x + box.max.x) / 2, cz: (box.min.z + box.max.z) / 2,
+    point: p ? { x: p.x, y: p.y, z: p.z } : undefined,
+  });
+  notify();
+  return key;
+}
+export function unregisterRobotPedestal(key: string) { if (pedestals.delete(key)) notify(); }
+
+/** Smallest pedestal whose footprint contains (x, z). */
+export function robotPedestalAt(x: number, z: number): RobotPedestal | undefined {
+  let best: RobotPedestal | undefined, area = Infinity;
+  for (const p of pedestals.values()) {
+    if (x < p.minX || x > p.maxX || z < p.minZ || z > p.maxZ) continue;
+    const a = (p.maxX - p.minX) * (p.maxZ - p.minZ);
+    if (a < area) { area = a; best = p; }
+  }
+  return best;
+}
+
+/** Robot pose on a pedestal: `centre` snaps XZ to a robot_base centre (used on add). Floor -> elevation 0. */
+export function robotMountAt(x: number, z: number, centre: boolean): { x: number; z: number; elevation: number } {
+  const p = robotPedestalAt(x, z);
+  if (!p) return { x, z, elevation: 0 };
+  // Authored mount point: snap to it on add, keep its height while dragging over the pedestal.
+  if (p.point) return centre ? { x: p.point.x, z: p.point.z, elevation: p.point.y } : { x, z, elevation: p.point.y };
+  if (centre && p.kind === "base") return { x: p.cx, z: p.cz, elevation: p.top };
+  return { x, z, elevation: p.top };
+}

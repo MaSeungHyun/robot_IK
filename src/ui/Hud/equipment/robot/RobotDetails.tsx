@@ -15,6 +15,7 @@ import { useSimulationStore } from "@/stores/useSimulationStore";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { EQUIPMENT_REPORT_INTERVAL_MS, MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
 import { OPERATION_LABEL } from "@/domain/state/equipmentState";
+import { ROBOT_PEDESTAL_OPTIONS } from "@/constants/robotPedestal";
 
 const metric = (value: number | undefined, unit: string) => (
   <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
@@ -106,6 +107,13 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
             { value: "depalletize", label: "하역 (하역 도크 팔레트 → 컨베이어)" },
           ]}
         />
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="robotPedestal"
+            label="받침대"
+            fallback="none"
+            options={ROBOT_PEDESTAL_OPTIONS}
+          />
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>
       }

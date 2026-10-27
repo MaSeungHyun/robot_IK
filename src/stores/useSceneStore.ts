@@ -14,6 +14,7 @@ import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { DOOR_CONFIG } from "@/constants/door";
 import { snapDoorToWall } from "@/domain/room/roomWalls";
 import { applyPalletMounts, releaseMounts } from "@/domain/layout/palletMount";
+import { onRobotPedestalsChange, robotMountAt } from "@/domain/layout/robotPedestals";
 import { arrayPoses, type ArrayOptions } from "@/domain/layout/arrayPlacement";
 
 /** select: pick only (no gizmo); translate/rotate: gizmo mode on the selection. */
@@ -68,7 +69,7 @@ interface SceneState{
   updateSettingsMany:(ids:string[],values:Partial<EquipmentSettings>|((config:EquipmentSettings,id:string)=>Partial<EquipmentSettings>))=>number;
   /** One undo step: several pose changes (group move). */
   updatePoses:(changes:{id:string;pose:Partial<EquipmentPose>}[])=>void;setPending:(kind:EquipmentKind|null,preset?:Partial<EquipmentSettings>|null)=>void;setTool:(tool:EditorTool)=>void;
-  add:(kind:EquipmentKind,pose:Partial<EquipmentPose>&{floor?:FloorSize})=>void;updateFloor:(id:string,size:Partial<FloorSize>)=>void;updatePose:(id:string,pose:Partial<EquipmentPose>)=>void;
+  add:(kind:EquipmentKind,pose:Partial<EquipmentPose>&{floor?:FloorSize;elevation?:number})=>void;updateFloor:(id:string,size:Partial<FloorSize>)=>void;updatePose:(id:string,pose:Partial<EquipmentPose>)=>void;
   extendConveyor:(id:string,turn:ConveyorTurn)=>void;
   /** Adds a copy (new id/name, same pose/props/settings) and selects it; returns its id. */
   duplicate:(object:SceneEquipment,settings:EquipmentSettings)=>string|null;
@@ -138,6 +139,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       const pose=byId.get(object.id);if(!pose)return object;
       if(Object.entries(pose).every(([key,value])=>Math.abs(object[key as keyof EquipmentPose]-value)<1e-8))return object;
       changed=true;const moved={...object,...pose};
+      if(object.kind==="robot"){const m=robotMountAt(moved.x,moved.z,false);return {...snapFloor(moved),elevation:m.elevation||undefined};}// [pedestal] lift onto / drop off a robot pedestal
       return object.kind==="conveyor"?snapBelt(moved,state.objects):object.kind==="door"?snapDoor(moved,state.settings[object.id],state.objects):snapFloor(moved);
     });
     if(changed)set({...history(state),...applyPalletMounts({objects,settings:state.settings},changes.map(c=>c.id)),errors:[]});
@@ -148,7 +150,9 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
       const config=settingsFor(kind,{...(kind==="conveyor"?{autoSpawn:false}:{}),...(state.pending===kind?state.pendingPreset:null)});
-      const object=kind==="conveyor"?snapBelt(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
+      let object=kind==="conveyor"?snapBelt(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
+      // [pedestal] a robot added over robot_base / robot_arm_place sits on its top face (base: XZ centre).
+      if(kind==="robot"&&pose.elevation===undefined){const m=robotMountAt(object.x,object.z,true);object={...object,x:m.x,z:m.z,...(m.elevation?{elevation:m.elevation}:{})};}
       const scene=applyPalletMounts({objects:[...state.objects,object],settings:{...state.settings,[id]:config}},[id]);
       // A new shuttle AMR comes with its pallet mounted on the deck (the cycle swaps it, it never starts empty).
       if(kind==="amr"&&config.amrRole==="shuttle"){
@@ -300,3 +304,24 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     get().select(get().objects[0]?.id ?? null);
   },
 }));
+
+/**
+ * Pedestal GLB props (robot_base / robot_arm_place) register after their GLB loads, i.e. after a template/scene is set:
+ * re-seat every robot then. Over a pedestal the arm stands on its *_point height (x/z untouched); elsewhere on the floor.
+ * Editing only (Play builds the simulator from the poses at start); not an undo step.
+ */
+onRobotPedestalsChange(()=>{
+  const state=useSceneStore.getState();
+  if(!state.editing)return;
+  let changed=false;
+  const objects=state.objects.map(object=>{
+    if(object.kind!=="robot"||(state.settings[object.id]?.robotPedestal??"none")!=="none")return object;
+    const elevation=robotMountAt(object.x,object.z,false).elevation||undefined;
+    if(elevation===object.elevation)return object;
+    changed=true;
+    const next={...object,elevation};
+    if(elevation===undefined)delete next.elevation;
+    return next;
+  });
+  if(changed)useSceneStore.setState({objects});
+});

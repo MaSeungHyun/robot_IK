@@ -4,14 +4,14 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useShallow } from "zustand/react/shallow";
 import { ApplyAllButton } from "@/ui/Hud/object/BulkField";
 import { amrModelOf, type EquipmentSettings } from "@/types/layout";
-import InfoTip from "@/components/InfoTip";
+import InfoTip, { InfoText } from "@/components/InfoTip";
 import { PLAY_LOCK_TEXT, usePlayLocked } from "@/ui/Hud/equipment/details/_components/playLockState";
 import { CHOICE_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
 
-type ChoiceField = "pickFilter" | "grade" | "acceptGrade" | "conveyorRole" | "dockRole" | "robotRole" | "inboundUnit" | "amrRole" | "amrCargo" | "boxUnload" | "forkliftTask" | "forkliftRole" | "emptyPallet" | "rackType" | "rackStorage" | "initialPallet";
+type ChoiceField = "pickFilter" | "grade" | "acceptGrade" | "conveyorRole" | "dockRole" | "robotRole" | "robotPedestal" | "inboundUnit" | "amrRole" | "amrCargo" | "boxUnload" | "forkliftTask" | "forkliftRole" | "emptyPallet" | "rackType" | "rackStorage" | "initialPallet";
 
 /** Read when Play starts (simulator construction): changing them mid-run would desync the run. */
-const PLAY_LOCKED: ReadonlySet<ChoiceField> = new Set(["conveyorRole", "dockRole", "robotRole", "inboundUnit", "amrRole", "amrCargo", "boxUnload", "forkliftTask", "forkliftRole", "emptyPallet", "rackType", "rackStorage", "initialPallet"]);
+const PLAY_LOCKED: ReadonlySet<ChoiceField> = new Set(["conveyorRole", "dockRole", "robotRole", "robotPedestal", "inboundUnit", "amrRole", "amrCargo", "boxUnload", "forkliftTask", "forkliftRole", "emptyPallet", "rackType", "rackStorage", "initialPallet"]);
 
 type Props<F extends ChoiceField> = {
   id: string;
@@ -49,9 +49,21 @@ export default function EquipmentChoiceSetting<F extends ChoiceField>({
   const locked = playLocked && PLAY_LOCKED.has(field);
   const mixed = values.some((entry) => entry !== String(value));
 
+  // Nothing to choose (e.g. forklift/AGV role): flat read-only text, no dropdown or generic (i). Legacy values
+  // outside the list (old "rack" forklift role) display as the single option; the stored value is left untouched.
+  if (options.length <= 1) {
+    const shown = options.find((option) => option.value === value)?.label ?? options[0]?.label ?? String(value);
+    return (
+      <div className="mt-2 block min-w-0 text-xs text-text-secondary">
+        <p className="mb-1">{label}</p>
+        <p className="truncate py-1 text-text-primary">{shown}</p>
+      </div>
+    );
+  }
+
   return (
     <fieldset disabled={locked} className="mt-2 block min-w-0 text-xs text-text-secondary">
-      <p className="mb-1 flex items-center">{label}{mixed && " (혼합)"}<InfoTip text={<>{CHOICE_INFO[field]}{info && <><br />{info}</>}{locked && <><br />{PLAY_LOCK_TEXT}</>}</>} label={`${label} 설명`} /></p>
+      <p className="mb-1 flex items-center">{label}{mixed && " (혼합)"}<InfoTip text={<><InfoText text={CHOICE_INFO[field]} />{info && <><br />{info}</>}{locked && <><br />{PLAY_LOCK_TEXT}</>}</>} label={`${label} 설명`} /></p>
       <div className={`flex items-center gap-1${locked ? " opacity-40" : ""}`}>
         <div className="min-w-0 flex-1">
           <Select

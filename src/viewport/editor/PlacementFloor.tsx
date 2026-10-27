@@ -22,6 +22,7 @@ import { DOOR_CONFIG } from "@/constants/door";
 import { snapDoorToWall } from "@/domain/room/roomWalls";
 import { mountCarrierAt } from "@/domain/layout/palletMount";
 import { AMR_DECK } from "@/constants/cycle";
+import { robotMountAt } from "@/domain/layout/robotPedestals";
 
 const KINDS: readonly EquipmentKind[] = [
   "robot",
@@ -233,7 +234,9 @@ export default function PlacementFloor() {
           ? { x: (Math.floor(point.x) + 0.5) * FLOOR_CONFIG.cell, z: (Math.floor(point.z) + 0.5) * FLOOR_CONFIG.cell, yaw: 0 }
           : poseAt(kind, point.x, point.z);
       const mounted = kind === "pallet" && Boolean(mountCarrierAt(useSceneStore.getState(), point.x, point.z));
-      ghost.current.position.set(pose.x, mounted ? AMR_DECK : 0, pose.z);
+      // [pedestal] robot ghost previews the pedestal mount (same rule as add()).
+      const robotMount = kind === "robot" ? robotMountAt(pose.x, pose.z, true) : null;
+      ghost.current.position.set(robotMount?.x ?? pose.x, robotMount ? robotMount.elevation : mounted ? AMR_DECK : 0, robotMount?.z ?? pose.z);
       ghost.current.rotation.y = pose.yaw;
       ghost.current.visible = true;
     };

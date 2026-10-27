@@ -9,9 +9,10 @@
       "x": -21.018,
       "z": 20.438,
       "yaw": -1.5708,
-      "elevation": 1.192,
       "settings": {
-        "robotRole": "depalletize", "reach": 3
+        "robotRole": "depalletize",
+        "reach": 3,
+        "robotPedestal": "base"
       }
     },
     {
@@ -43,9 +44,10 @@
       "x": 3.904,
       "z": 20.438,
       "yaw": -1.5708,
-      "elevation": 1.192,
       "settings": {
-        "robotRole": "depalletize", "reach": 3
+        "robotRole": "depalletize",
+        "reach": 3,
+        "robotPedestal": "base"
       }
     },
     {
@@ -53,9 +55,10 @@
       "x": 23.608,
       "z": 20.438,
       "yaw": -1.5708,
-      "elevation": 1.192,
       "settings": {
-        "robotRole": "depalletize", "reach": 3
+        "robotRole": "depalletize",
+        "reach": 3,
+        "robotPedestal": "base"
       }
     },
     {
@@ -64,7 +67,8 @@
       "z": 37.0651,
       "yaw": 1.5708,
       "settings": {
-        "capacity": 2, "mountedOn": "amr-97"
+        "capacity": 2,
+        "mountedOn": "amr-97"
       }
     },
     {
@@ -72,21 +76,27 @@
       "x": -18.6785,
       "z": 37.1353,
       "yaw": 0,
-      "elevation": 1.192
+      "settings": {
+        "robotPedestal": "place"
+      }
     },
     {
       "kind": "robot",
       "x": 1.2541,
       "z": 37.1353,
       "yaw": 0,
-      "elevation": 1.192
+      "settings": {
+        "robotPedestal": "place"
+      }
     },
     {
       "kind": "robot",
       "x": 21.2598,
       "z": 37.1353,
       "yaw": 0,
-      "elevation": 1.192
+      "settings": {
+        "robotPedestal": "place"
+      }
     },
     {
       "kind": "amr",
@@ -136,7 +146,8 @@
       "z": 37.0651,
       "yaw": 1.5708,
       "settings": {
-        "capacity": 2, "mountedOn": "amr-98"
+        "capacity": 2,
+        "mountedOn": "amr-98"
       }
     },
     {
@@ -145,7 +156,8 @@
       "z": 37.0651,
       "yaw": 1.5708,
       "settings": {
-        "capacity": 2, "mountedOn": "amr-99"
+        "capacity": 2,
+        "mountedOn": "amr-99"
       }
     },
     {
@@ -154,7 +166,8 @@
       "z": 37.0651,
       "yaw": 1.5708,
       "settings": {
-        "capacity": 2, "mountedOn": "amr-100"
+        "capacity": 2,
+        "mountedOn": "amr-100"
       }
     },
     {
@@ -721,7 +734,8 @@
       "z": 48,
       "yaw": 0,
       "settings": {
-        "amrRole": "forklift", "forkliftTask": "service"
+        "amrRole": "forklift",
+        "forkliftTask": "service"
       }
     },
     {
@@ -730,7 +744,8 @@
       "z": 48,
       "yaw": 0,
       "settings": {
-        "amrRole": "forklift", "forkliftTask": "service"
+        "amrRole": "forklift",
+        "forkliftTask": "service"
       }
     }
   ],
@@ -792,19 +807,7 @@
     },
     {
       "source": "factory",
-      "node": "Robot_base"
-    },
-    {
-      "source": "factory",
       "node": "column"
-    },
-    {
-      "source": "factory",
-      "node": "Robot_base.001"
-    },
-    {
-      "source": "factory",
-      "node": "Robot_base.002"
     },
     {
       "source": "factory",
@@ -813,10 +816,6 @@
     {
       "source": "factory",
       "node": "barrier"
-    },
-    {
-      "source": "factory",
-      "node": "robot_arm_place"
     },
     {
       "source": "factory",

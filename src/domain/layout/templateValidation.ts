@@ -32,7 +32,7 @@ export function templateErrors(data: unknown): string[] {
     if (from.kind !== rule.from || !rule.to.includes(to.kind as EquipmentKind)) errors.push(`links[${i}]: ${link.type} cannot link ${from.kind} -> ${to.kind}`);
   });
   if (data.lighting !== undefined && data.lighting !== "factory") errors.push("lighting must be \"factory\" when set");
-  if (data.props !== undefined && (!Array.isArray(data.props) || data.props.some((p: unknown) => !record(p) || (p.source !== "factory" && p.source !== "railInOut" && p.source !== "agv") || typeof p.node !== "string" || !p.node)))
+  if (data.props !== undefined && (!Array.isArray(data.props) || data.props.some((p: unknown) => !record(p) || (p.source !== "factory" && p.source !== "railInOut" && p.source !== "agv" && p.source !== "robotBase" && p.source !== "robotArmPlace") || typeof p.node !== "string" || !p.node)))
     errors.push("props must be an array of { source: \"factory\" | \"railInOut\" | \"agv\", node, position?, yaw? }");
   return errors;
 }

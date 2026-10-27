@@ -1,4 +1,5 @@
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo } from "react";
+import { registerRobotPedestal, unregisterRobotPedestal } from "@/domain/layout/robotPedestals";
 import { Group, Mesh, type BufferGeometry, type Material, type Object3D } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { useGLTF } from "@/lib/three/gltfLoader";
@@ -11,14 +12,18 @@ import factoryGlbUrl from "@/constants/templates/factory.glb?url";
 const railInOutUrl = Object.entries(import.meta.glob<string>("/src/assets/models/rail_in_out.glb", { query: "?url", import: "default", eager: true }))[0]?.[1];
 // AGV.glb: root node "AGV" (pivot = vehicle centre, y 0.208 like factory.glb, scale 1, 1.08 × 1.19 m footprint).
 const agvUrl = Object.entries(import.meta.glob<string>("/src/assets/models/AGV.glb", { query: "?url", import: "default", eager: true }))[0]?.[1];
+// Robot pedestals (root "Robot_base" / "robot_arm_place", each with a *_point empty where the robot stands).
+const robotBaseUrl = Object.entries(import.meta.glob<string>("/src/assets/models/robot_base.glb", { query: "?url", import: "default", eager: true }))[0]?.[1];
+const robotArmPlaceUrl = Object.entries(import.meta.glob<string>("/src/assets/models/robot_arm_place.glb", { query: "?url", import: "default", eager: true }))[0]?.[1];
 
 /** Template prop sources (lazy: the 34 MB factory.glb only loads when a template lists props). */
-const SOURCES: Partial<Record<TemplateProp["source"], string>> = { factory: factoryGlbUrl, railInOut: railInOutUrl, agv: agvUrl };
+const SOURCES: Partial<Record<TemplateProp["source"], string>> = { factory: factoryGlbUrl, railInOut: railInOutUrl, agv: agvUrl, robotBase: robotBaseUrl, robotArmPlace: robotArmPlaceUrl };
 
 function PropSource({ url, nodes }: { url: string; nodes: readonly TemplateProp[] }) {
   const { scene } = useGLTF(url) as unknown as { scene: Object3D };
   const clones = useMemo(() => {
     const out: Object3D[] = [];
+    const pedestalKeys: string[] = [];
     for (const prop of nodes) {
       const name = prop.node;
       const node = findGlbNode(scene, name, true);
@@ -45,10 +50,14 @@ function PropSource({ url, nodes }: { url: string; nodes: readonly TemplateProp[
         mesh.castShadow = false;
       });
       out.push(clone);
+      // [pedestal] robot_base / robot_arm_place: world bbox top -> robots placed on it sit on top.
+      const key = registerRobotPedestal(clone, name);
+      if (key) pedestalKeys.push(key);
     }
-    return mergeStatic(out);
+    return { roots: mergeStatic(out), pedestalKeys };
   }, [scene, url, nodes]);
-  return <>{clones.map((clone) => <primitive key={clone.uuid} object={clone} />)}</>;
+  useEffect(() => () => clones.pedestalKeys.forEach(unregisterRobotPedestal), [clones]);
+  return <>{clones.roots.map((clone) => <primitive key={clone.uuid} object={clone} />)}</>;
 }
 
 /**
