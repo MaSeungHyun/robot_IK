@@ -72,7 +72,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
     const clock = new SimulationClock();
     for (const robot of world.robots) {
       const model = robotGltf.scene.clone(true);
-      const holder = new THREE.Group(); holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw;
+      const holder = new THREE.Group(); holder.position.set(robot.object.x, robot.object.elevation ?? 0, robot.object.z); holder.rotation.y = robot.object.yaw;
       holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
       const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach, getKeepOut: () => conveyorKeepOut(useSceneStore.getState().objects),
         getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status) });

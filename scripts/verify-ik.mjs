@@ -953,7 +953,7 @@ const makeRobot = (useGLTF, useMemo, useRef, useFrame, Group, Quaternion, Vector
   controller.dispose();console.log('Base turns: idle home returns by the nearest hand00 heading without multi-turn spin and wraps hand00 into ±180° at rest passed');
 }
 {
-  const ik=createRobotIK(load('robot'),1,'none');
+  const ik=createRobotIK(load('robot'),'none');
   const target=ik.grip.getWorldPosition(new T.Vector3()).add(new T.Vector3(0,.05,0));
   const search=ik.prepareShoulderTransfer(target,target.clone().add(new T.Vector3(-.2,0,0)),target.clone().add(new T.Vector3(-.2,-.1,0)));
   const controls=[ik.baseControl,...ik.controls];
@@ -970,7 +970,7 @@ const makeRobot = (useGLTF, useMemo, useRef, useFrame, Group, Quaternion, Vector
   console.log('Background transfer planning preserves the current moving arm at every yield and cancellation');
 }
 {
-  const ik=createRobotIK(load('robot'),1,'none');
+  const ik=createRobotIK(load('robot'),'none');
   ik.collisions.collision=()=>{throw Error('Disabled collision detector was called');};
   const wrist=ik.controls[2],start=wrist.angle;
   for(const offset of [.2,-.2,.2]){
@@ -985,7 +985,7 @@ const makeRobot = (useGLTF, useMemo, useRef, useFrame, Group, Quaternion, Vector
   console.log('Collision disabled: hand04 reverses between targets without full turns');
 }
 {
-  const ik=createRobotIK(load('robot'),1,'held-box-hand03');
+  const ik=createRobotIK(load('robot'),'held-box-hand03');
   const pose={baseYaw:ik.baseControl.angle+0.4,angles:ik.controls.map(c=>c.angle),error:0,reachable:true};
   const initial=ik.controls.map(c=>c.angle);
   pose.angles[0]+=.15;pose.angles[1]+=.1;pose.angles[2]-=.2;
