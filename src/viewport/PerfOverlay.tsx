@@ -72,6 +72,8 @@ export function PerfCollector() {
   // Read gl inside the effect (via get) rather than mutating a hook-returned value.
   const get = useThree((state) => state.get);
   const active = enabled && baked;
+  // Dev-only handle for scripted renderer.info profiling (PerfCollector is mounted only in DEV).
+  useEffect(() => { (window as unknown as { __sfThree?: typeof get }).__sfThree = get; }, [get]);
   // Before the composer renders; a single boolean check while the overlay is off.
   useFrame(() => {
     if (active) renderPhase.start = profileStart();
