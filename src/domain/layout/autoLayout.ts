@@ -128,7 +128,7 @@ const ROBOT_FOOTPRINT = F.robot[0];
 /** Belt gap per box (m) the spacing needs: box length + 0.325 m spawn gap. */
 const BOX_PITCH = Math.max(BOX_SIZES[0].x, BOX_SIZES[0].z) + 0.325;
 /** AMR start pitch along an aisle (bodies never touch). */
-const AMR_PITCH = 2 * (AMR_TRAFFIC.emptyRadius + AMR_TRAFFIC.safetyMargin);
+const AMR_PITCH = 2 * (AMR_TRAFFIC.emptyRadius + AMR_TRAFFIC.layoutGap);
 /** Dock row half depth + margin to the aisle edge. */
 const DOCK_EDGE = F.amr[1] / 2 + 0.2;
 export const LAYOUT_RULES = {
@@ -141,7 +141,7 @@ export const LAYOUT_RULES = {
    * Robot spacing along a line (the old 2.5 m segment pitch). Rails (rail.glb) are much longer than this, so
    * robots are placed by distance along the chain, not one per segment.
    */
-  robotPitch: 2 * (AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.safetyMargin),
+  robotPitch: 2 * (AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.layoutGap),
   /** R-AISLE: loaded AMR envelope + ISO 3691-4 0.5 m each side. */
   aisle: aisleWidth(),
   /** R-WALL. */
@@ -317,7 +317,7 @@ function buildFacing(constraints: LayoutConstraints, params: LayoutParams, facin
   const racksForUnit = (u: number) => (lineEnd ? Math.floor(params.racks / units) + (u < params.racks % units ? 1 : 0) : 0);
   const rackPitch = rules.footprint.rack[0] + 0.6;
   // Rack access aisle: never narrower than the loaded AMR stopped at the rack standoff (rack.ts) plus its margin.
-  const rackAccess = Math.max(aisle, rackStandoff(0) + AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.safetyMargin);
+  const rackAccess = Math.max(aisle, rackStandoff(0) + AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.layoutGap);
   const rackRowPitch = rules.footprint.rack[1] + rackAccess + 0.3;
   const extraRackItems: number[] = [];
   const crossBands: { z: number }[] = [];

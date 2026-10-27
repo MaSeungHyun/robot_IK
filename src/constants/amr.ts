@@ -21,7 +21,7 @@ export const AMR_STALL_REPLAN = {
   /** Stall replans allowed per sim step (all AMRs). */
   perStep: 2,
   /** Extra clearance (m) around other AMRs / forklifts so the detour avoids gaps narrower than the body. */
-  inflate: 0.08,
+  inflate: 0.03,
 };
 /** Traffic replans (stall / detour / side step / fallback route) follow the grid axes instead of any-angle diagonals. */
 /**

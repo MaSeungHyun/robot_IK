@@ -78,7 +78,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       return { model, controller };
     });
     const began = performance.now();
-    while (clock.stats.simTime < seconds - 1e-9) clock.frame(1 / 60, speed, world, Infinity);
+    while (clock.stats.simTime < seconds - 1e-9) { clock.frame(1 / 60, speed, world, Infinity); options.onFrame?.(world); }
     return { world, models, clock, template, ms: performance.now() - began };
   }
   return { run, close: () => server.close() };

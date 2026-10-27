@@ -16,7 +16,11 @@ export const AMR_TRAFFIC = {
   emptyRadius: F.amrRadius,
   /** Body or carried pallet, whichever reaches farther (the pallet sits inside the AMR body). */
   loadedRadius: Math.max(F.amrRadius, F.palletRadius),
-  safetyMargin: 0.1,
+  /** Gap (m) kept between moving bodies in traffic control, replans, move guards and joint plans, on top of the
+   *  footprints (was 0.1; the footprint discs are already the body's circumscribed circle). */
+  safetyMargin: 0.05,
+  /** Spacing gap (m) of authored / auto layouts (unchanged 0.1 so existing layouts keep their positions). */
+  layoutGap: 0.1,
 };
 /** Belt centre -> robot, robot -> pallet centre (AMR body at the pallet clears the robot base), from model footprints. */
 const beltToRobot = BELT.width / 2 + F.robotRadius + 0.05, robotToPallet = F.robotRadius + AMR_TRAFFIC.loadedRadius + 0.05;
@@ -24,8 +28,8 @@ export const DEFAULT_LAYOUT: Record<EquipmentKind, EquipmentPose> = {
   robot: { x: 0, z: 0, yaw: 0 },
   pallet: { x: -robotToPallet, z: 0, yaw: 0 },
   conveyor: { x: beltToRobot, z: 0, yaw: 0 },
-  amr: { x: -robotToPallet, z: -2 * AMR_TRAFFIC.loadedRadius - AMR_TRAFFIC.safetyMargin, yaw: 0 },
-  dock: { x: -robotToPallet, z: 2 * AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.safetyMargin, yaw: 0 },
+  amr: { x: -robotToPallet, z: -2 * AMR_TRAFFIC.loadedRadius - AMR_TRAFFIC.layoutGap, yaw: 0 },
+  dock: { x: -robotToPallet, z: 2 * AMR_TRAFFIC.loadedRadius + AMR_TRAFFIC.layoutGap, yaw: 0 },
   scanner: { x: beltToRobot, z: 0, yaw: 0 },
   floor: { x: 0.5, z: 0.5, yaw: 0 },
   rack: { x: -3.2, z: -3.2, yaw: 0 },
