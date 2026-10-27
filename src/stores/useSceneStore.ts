@@ -4,6 +4,7 @@ import { DEFAULT_LAYOUT,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG 
 import { useSimulationStore } from "./useSimulationStore";
 import { validateScene } from "@/domain/amr/navigation/sceneValidation";
 import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/conveyor/conveyorLayout";
+import { scannerExtension,scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate, TemplateLighting, TemplateProp } from "@/types/sceneTemplate";
 import { migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
@@ -185,11 +186,14 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     return ids;
   },
   extendConveyor:(id,turn)=>{
-    const state=get(),source=state.objects.find(o=>o.id===id&&o.kind==="conveyor");
-    if(!state.editing||!source||beltConnections(state.objects).next.has(id))return;
-    const pose=extendBelt(source,turn);
+    const state=get(),source=state.objects.find(o=>o.id===id&&(o.kind==="conveyor"||o.kind==="scanner"));
+    if(!state.editing||!source)return;
+    // A scanner extends from its tunnel exit (rail.glb at native length), like a conveyor from its end.
+    const scanner=source.kind==="scanner";
+    if(scanner?scannerOutletTaken(source,state.objects):beltConnections(state.objects).next.has(id))return;
+    const pose=scanner?scannerExtension(source,turn):extendBelt(source,turn);
     const nextId=`conveyor-${state.nextId}`,object={...pose,id:nextId,kind:"conveyor" as const,name:`컨베이어 ${state.nextId}`};
-    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
+    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:scanner?settingsFor("conveyor",{autoSpawn:false}):{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
   },
   updatePose:(id,pose)=>{
     if(!get().editing)return;

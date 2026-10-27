@@ -36,7 +36,12 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
       return <AMRModel id={object.id} />;
 
     case "scanner":
-      return <Scanner entity={object} />;
+      return (
+        <>
+          <Scanner entity={object} />
+          <ConveyorExtensionControls entity={object} />
+        </>
+      );
 
     case "dock":
       return <DockModel id={object.id} />;

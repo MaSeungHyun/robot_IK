@@ -9,7 +9,7 @@
 import { SCAN_TUNNEL_MODEL as T } from "@/constants/modelPoints.generated";
 import { CONVEYOR_LAYOUT as C } from "@/constants/conveyorLayoutConfig";
 import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
-import type { EquipmentPose, EquipmentSettings, SceneEquipment } from "@/types/layout";
+import type { ConveyorTurn, EquipmentPose, EquipmentSettings, SceneEquipment } from "@/types/layout";
 
 /** A rail end/start this close to the tunnel entry/exit (and heading the same way) joins the tunnel belt. */
 export const SCANNER_JOIN_REACH = 1.0;
@@ -24,6 +24,16 @@ export const scannerExit = (scanner: EquipmentPose) => local(scanner, T.beltZ[1]
 /** Pose of a straight rail.glb (native length) starting at the tunnel exit. */
 export function scannerOutletPose(scanner: EquipmentPose): EquipmentPose {
   return local(scanner, T.beltZ[1] + C.length / 2);
+}
+
+/** Rail.glb (native length) laid from the tunnel exit in a direction, like extending a conveyor. */
+export function scannerExtension(scanner: EquipmentPose, turn: ConveyorTurn) {
+  return { ...scannerOutletPose(scanner), conveyorTurn: turn };
+}
+/** True when a rail already starts at the tunnel exit (the line continues; no extension offered). */
+export function scannerOutletTaken(scanner: EquipmentPose, objects: readonly SceneEquipment[]) {
+  const end = scannerExit(scanner);
+  return objects.some((b) => b.kind === "conveyor" && near(beltPoint(b, 0), end, 0.05) && Math.cos(beltPoint(b, 0).yaw - scanner.yaw) > 0.98);
 }
 
 const aligned = (a: number, b: number) => Math.cos(a - b) > 0.98;

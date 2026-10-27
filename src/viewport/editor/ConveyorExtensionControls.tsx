@@ -11,8 +11,13 @@ import {
   extendBelt,
 } from "@/domain/conveyor/conveyorLayout";
 import ConveyorGhost from "@/viewport/editor/ConveyorGhost";
+import { scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
+import { SCAN_TUNNEL_MODEL } from "@/constants/modelPoints.generated";
+import { CONVEYOR_LAYOUT } from "@/constants/conveyorLayoutConfig";
 
+/** Direction buttons at a conveyor end or a scanner's tunnel exit: add a rail.glb (native length) there. */
 export default function ConveyorExtensionControls({ entity }: { entity: SceneEquipment }) {
+  const scanner = entity.kind === "scanner";
   const length = beltLength(entity),
     turn = entity.conveyorTurn;
   const [hover, setHover] = useState<ConveyorTurn | null>(null);
@@ -29,14 +34,20 @@ export default function ConveyorExtensionControls({ entity }: { entity: SceneEqu
       selected: state.editing && state.selected === entity.id,
       connected:
         state.selected === entity.id &&
-        beltConnections(state.objects).next.has(entity.id),
+        (scanner
+          ? scannerOutletTaken(entity, state.objects)
+          : beltConnections(state.objects).next.has(entity.id)),
       extend: state.extendConveyor,
     })),
   );
-  const end = beltLocalPoint(entity, length);
-  const extension = hover
-    ? extendBelt({ x: 0, z: 0, yaw: 0, conveyorTurn: turn }, hover)
-    : null;
+  const end = scanner
+    ? { x: 0, z: SCAN_TUNNEL_MODEL.beltZ[1], yaw: 0 }
+    : beltLocalPoint(entity, length);
+  const extension = !hover
+    ? null
+    : scanner
+      ? { x: 0, z: end.z + CONVEYOR_LAYOUT.length / 2, yaw: 0 }
+      : extendBelt({ x: 0, z: 0, yaw: 0, conveyorTurn: turn }, hover);
   const directions: {
     turn: ConveyorTurn;
     label: string;
@@ -69,7 +80,7 @@ export default function ConveyorExtensionControls({ entity }: { entity: SceneEqu
   ];
   return (
     <group userData={{ noOutline: true }}>
-      {selected && <Line points={points} color="#02dfef" lineWidth={3} />}
+      {selected && !scanner && <Line points={points} color="#02dfef" lineWidth={3} />}
       {selected && !connected && hover && extension && (
         <group
           position={[extension.x, 0, extension.z]}
