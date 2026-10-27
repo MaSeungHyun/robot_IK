@@ -10,6 +10,8 @@ import ScannerSettings from "@/ui/Hud/equipment/scanner/ScannerSettings";
 import { formatDefectRate, scannerResults } from "@/ui/Hud/equipment/scanner/scannerResults";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import Button from "@/components/Button";
+import { scannerOutletPose } from "@/domain/conveyor/scannerBelt";
 
 export default function ScannerDetails({ object }: EquipmentDetailProps) {
   const scanner = useSimulationStore((state) =>
@@ -17,6 +19,8 @@ export default function ScannerDetails({ object }: EquipmentDetailProps) {
   );
   const running = useSimulationStore((state) => state.running);
   const enabled = useSceneStore((state) => state.settings[object.id]?.enabled) !== false;
+  const editing = useSceneStore((state) => state.editing);
+  const add = useSceneStore((state) => state.add);
   const { total, ok, ng, defectRate } = scannerResults(scanner);
 
   // Equipment state only (not the last box's result): results are the cumulative counts below.
@@ -51,6 +55,14 @@ export default function ScannerDetails({ object }: EquipmentDetailProps) {
             showResults={false}
           />
           <EquipmentEnabledSetting id={object.id} />
+          <Button
+            className="mt-2 w-full"
+            disabled={!editing}
+            title="스캐너 자체 벨트 출구에 rail.glb 컨베이어(원본 길이)를 이어 깝니다. 더 길게는 컨베이어 연장 버튼을 쓰세요."
+            onClick={() => add("conveyor", scannerOutletPose(object))}
+          >
+            스캐너 출구에 컨베이어(rail.glb) 깔기
+          </Button>
         </DetailSection>
       }
     ></EquipmentDetailLayout>

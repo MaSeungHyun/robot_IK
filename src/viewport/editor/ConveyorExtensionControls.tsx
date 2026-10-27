@@ -19,7 +19,7 @@ export default function ConveyorExtensionControls({ entity }: { entity: SceneEqu
   const points = useMemo(
     () =>
       Array.from({ length: 41 }, (_, i) => {
-        const p = beltLocalPoint({ conveyorTurn: turn }, (length * i) / 40);
+        const p = beltLocalPoint(entity, (length * i) / 40);
         return [p.x, 0.256, p.z] as [number, number, number];
       }),
     [length, turn],

@@ -1,13 +1,20 @@
 import type { ConveyorTurn, EquipmentPose, SceneEquipment } from "@/types/layout";
 import { CONVEYOR_LAYOUT as C } from "@/constants/conveyorLayoutConfig";
+import { pathLength, pathLocalPoint, type ConveyorPathId } from "@/domain/conveyor/conveyorPaths";
 
-type BeltPose = EquipmentPose & { conveyorTurn?: ConveyorTurn };
-export function beltLength(belt: BeltPose) {
-  return !belt.conveyorTurn || belt.conveyorTurn === "straight" ? C.length : Math.PI * C.radius / 2;
+type BeltPose = EquipmentPose & { conveyorTurn?: ConveyorTurn; conveyorPath?: ConveyorPathId; conveyorLength?: number };
+/** Shape-only belt fields; a pose may be passed along (ignored). */
+export type BeltShape = Pick<BeltPose,"conveyorTurn"|"conveyorPath"|"conveyorLength"> & Partial<EquipmentPose>;
+/** Straight belt length (configurable; default = rail.glb belt). */
+export const straightLength = (belt: BeltShape) => belt.conveyorLength && belt.conveyorLength > 0 ? belt.conveyorLength : C.length;
+export function beltLength(belt: BeltShape) {
+  if (belt.conveyorPath) return pathLength(belt.conveyorPath);
+  return !belt.conveyorTurn || belt.conveyorTurn === "straight" ? straightLength(belt) : Math.PI * C.radius / 2;
 }
-export function beltLocalPoint(belt: Pick<BeltPose,"conveyorTurn">, distance: number) {
+export function beltLocalPoint(belt: BeltShape, distance: number) {
+  if (belt.conveyorPath) return pathLocalPoint(belt.conveyorPath, distance);
   const turn = belt.conveyorTurn ?? "straight";
-  if (turn === "straight") return { x: 0, z: distance - C.length / 2, yaw: 0 };
+  if (turn === "straight") { const length = straightLength(belt); return { x: 0, z: distance - length / 2, yaw: 0 }; }
   const angle = distance / C.radius, side = turn === "left" ? -1 : 1;
   return { x: side * C.radius * (1 - Math.cos(angle)), z: -C.radius + C.radius * Math.sin(angle), yaw: side * angle };
 }
@@ -29,6 +36,10 @@ export function beltConnections(objects: SceneEquipment[]) {
 export function extendBelt(belt: BeltPose, turn: ConveyorTurn): BeltPose {
   const end = beltPoint(belt,beltLength(belt));
   return { x:end.x+Math.sin(end.yaw)*C.length/2, z:end.z+Math.cos(end.yaw)*C.length/2, yaw:end.yaw, conveyorTurn:turn };
+}
+/** Straight-belt body (not a turn or spline path). */
+export function isStraightBelt(belt: BeltShape) {
+  return !belt.conveyorPath && (belt.conveyorTurn ?? "straight") === "straight";
 }
 export function connectedBeltIds(objects: SceneEquipment[], id: string) {
   const { next } = beltConnections(objects);
