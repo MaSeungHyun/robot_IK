@@ -24,6 +24,15 @@ export const SIMULATION_CLOCK = {
   maxSteps: 400,
   /** Backlog kept when the budget runs out (s of sim time); beyond it time is dropped instead of spiralling. */
   maxBacklog: 0.5,
+  /** At high speeds the kept backlog also covers this much REAL time (s) times the speed, so a single slow frame
+   *  (GC, React commit) is caught up later instead of being dropped (0.5 s of sim time is only 5 ms at 100x). */
+  highSpeedBacklogRealSeconds: 0.1,
+  /** At high speeds, while behind, the step budget grows to fill a frame of this length (ms) after the measured
+   *  non-stepping work of the previous frame (render, React, other useFrame), i.e. ~30 fps floor. A fixed 14 ms
+   *  budget left most of each frame to rendering, which capped 100x well below target. */
+  highSpeedTargetFrameMs: 33,
+  /** Upper bound for that adaptive budget (ms), so the UI never freezes. */
+  highSpeedMaxBudgetMs: 28,
 } as const;
 
 /** A robot (or any per-step system) advanced by the shared clock. */
@@ -45,6 +54,8 @@ export class SimulationClock {
   private readonly participants = new Set<SimulationParticipant>();
   private accumulator = 0;
   private frameKey = 0;
+  /** Wall ms spent stepping in the previous frame (adaptive high-speed budget). */
+  private lastStepMs = 0;
   /** Diagnostics: smoothed achieved sim-seconds per real second, steps of the last frame, total sim time. */
   readonly stats = { achievedSpeed: 0, steps: 0, dt: SIMULATION_CLOCK.dt, droppedSeconds: 0, simTime: 0 };
 
@@ -54,6 +65,7 @@ export class SimulationClock {
   }
   reset() {
     this.accumulator = 0;
+    this.lastStepMs = 0;
     Object.assign(this.stats, { achievedSpeed: 0, steps: 0, droppedSeconds: 0, simTime: 0 });
   }
   /** One fixed step of the whole simulation (also used directly by headless runs). */
@@ -74,7 +86,14 @@ export class SimulationClock {
    */
   frame(realDelta: number, speed: number, world: SimulationWorld, budgetMs?: number) {
     const high = speed >= SIMULATION_CLOCK.highSpeed;
-    budgetMs ??= high ? SIMULATION_CLOCK.highSpeedBudgetMs : SIMULATION_CLOCK.frameBudgetMs;
+    if (budgetMs === undefined) {
+      if (high) {
+        // Non-stepping work of the last frame = real frame interval minus our own stepping time.
+        const other = Number.isFinite(realDelta) ? Math.max(0, realDelta * 1000 - this.lastStepMs) : 0;
+        budgetMs = Math.min(SIMULATION_CLOCK.highSpeedMaxBudgetMs,
+          Math.max(SIMULATION_CLOCK.highSpeedBudgetMs, SIMULATION_CLOCK.highSpeedTargetFrameMs - other));
+      } else budgetMs = SIMULATION_CLOCK.frameBudgetMs;
+    }
     const key = ++this.frameKey, began = performance.now(), dt = SIMULATION_CLOCK.dt;
     for (const participant of this.participants) participant.beginFrame(key);
     let steps = 0, dropped = 0;
@@ -87,8 +106,10 @@ export class SimulationClock {
         this.accumulator -= dt;
         steps++;
       }
-      if (this.accumulator > SIMULATION_CLOCK.maxBacklog) { dropped = this.accumulator - SIMULATION_CLOCK.maxBacklog; this.accumulator = SIMULATION_CLOCK.maxBacklog; }
+      const backlog = high ? Math.max(SIMULATION_CLOCK.maxBacklog, speed * SIMULATION_CLOCK.highSpeedBacklogRealSeconds) : SIMULATION_CLOCK.maxBacklog;
+      if (this.accumulator > backlog) { dropped = this.accumulator - backlog; this.accumulator = backlog; }
     } else this.accumulator = 0;
+    this.lastStepMs = performance.now() - began;
     // Paused frames still let robots apply manual joint edits. Running frames without a step do nothing, so the
     // sequence of controller updates is identical at every playback speed.
     if (steps === 0 && !(speed > 0)) for (const participant of this.participants) participant.step(0);
