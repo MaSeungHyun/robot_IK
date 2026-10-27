@@ -18,6 +18,7 @@ import { SPEED_LIMITS } from "@/domain/simulation/equipmentSpeeds";
 import type { ConveyorTurn } from "@/types/layout";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
+import { robotServesBelt } from "@/domain/amr/navigation/sceneValidation";
 
 const metric = (value: number | undefined, unit: string) => (
   <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
@@ -49,6 +50,8 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
   );
   // Every inbound flow must pass a robot: warn when the scene has none.
   const noRobot = useMemo(() => inbound && !objects.some((o) => o.kind === "robot"), [inbound, objects]);
+  // Box outbound: a robot within reach depalletizes onto it; prompt to place one.
+  const shipNoRobot = useMemo(() => settings[object.id]?.conveyorRole === "ship" && !robotServesBelt(object, objects, settings), [object, objects, settings]);
   const running = useSimulationStore((state) => state.running);
   const telemetry = useEquipmentTelemetry(object.id);
 
@@ -92,6 +95,7 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
           ]}
           info="출하 컨베이어 종류: 팔레트 전용은 AMR 상부 롤러가 팔레트째 넘기고(로봇 불필요), 박스는 지게차가 둔 팔레트(또는 AMR 위 팔레트)에서 로봇이 박스를 하나씩 올립니다."
         />
+        {shipNoRobot && <p style={{ color: "#f59e0b" }}>⚠ 박스 출하 컨베이어에는 로봇이 필요합니다. 로봇이 팔레트에서 박스를 내려 올리도록 컨베이어 옆(도달 거리 안)에 로봇을 배치하세요.</p>}
         {noRobot && <p style={{ color: "#f59e0b" }}>⚠ 입하 흐름에 로봇이 없습니다. 입하 박스·팔레트는 반드시 로봇을 거쳐야 합니다. 로봇을 배치하고 연결하세요.</p>}
         {inbound && (
           <EquipmentChoiceSetting

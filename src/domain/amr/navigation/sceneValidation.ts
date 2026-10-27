@@ -1,5 +1,12 @@
 import type { EquipmentSettings, SceneEquipment } from "@/types/layout";
 import type { SceneLink } from "@/types/links";
+import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
+
+/** A robot whose reach covers some point of the belt (it can set boxes on it). */
+export function robotServesBelt(belt: SceneEquipment, objects: readonly SceneEquipment[], settings: Record<string, EquipmentSettings>) {
+  const length = beltLength(belt), points = Array.from({ length: Math.max(2, Math.ceil(length / 0.25) + 1) }, (_, i) => beltPoint(belt, (length * i) / Math.max(1, Math.ceil(length / 0.25))));
+  return objects.some((r) => r.kind === "robot" && settings[r.id]?.enabled !== false && points.some((p) => Math.hypot(p.x - r.x, p.z - r.z) <= (settings[r.id]?.reach ?? 2.5)));
+}
 
 export function validateScene(
   objects: SceneEquipment[],
@@ -26,6 +33,12 @@ export function validateScene(
     if (belt.kind !== "conveyor" || settings[belt.id]?.enabled === false) continue;
     if (settings[belt.id]?.conveyorRole === "inbound" && settings[belt.id]?.inboundUnit === "pallet" && !depalletizer)
       errors.push(`${belt.name}: 팔레트 AMR이 실어 온 박스는 로봇이 하역해야 합니다 · 스캐너 라인 시작에 하역(depalletize) 로봇을 배치해 주세요.`);
+  }
+
+  // Box outbound ("ship"): a robot must depalletize the boxes onto it, so one has to stand within reach.
+  for (const belt of objects) {
+    if (belt.kind !== "conveyor" || settings[belt.id]?.enabled === false || settings[belt.id]?.conveyorRole !== "ship") continue;
+    if (!robotServesBelt(belt, objects, settings)) errors.push(`${belt.name}: 박스 출하 컨베이어는 로봇이 팔레트에서 박스를 내려 올립니다 · 컨베이어 옆(로봇 도달 거리 안)에 로봇을 배치해 주세요.`);
   }
 
   for (const object of objects) {
