@@ -472,6 +472,7 @@ export class FactorySimulator {
       this.palletHolds.push({ belt, timer: spawnIntervalOf(this.settings()[belt.id] ?? {}), pallets: [], warned: null, leaving: null, arrivals: [] });
     }
     this.palletAsset = pallet;
+    for (const rack of this.racks) this.seedRackContents(rack);
     // Without the pallet cycle the simulator keeps the empty-pallet stacks itself (the cycle owns them otherwise).
     if (!this.cycle)
       for (const dock of objects)
@@ -1006,7 +1007,7 @@ export class FactorySimulator {
       unloadBusy: (dockId) => this.unloadLoads.some((l) => l.dock.id === dockId),
       rackFree: (booked, accept) => {
         for (const rack of this.racks) {
-          if (accept && !accept(rack)) continue;
+          if ((accept && !accept(rack)) || !this.acceptsPallets(rack)) continue;
           const stored = this.rackStored.get(rack.id)!;
           const slots = RACK_CONFIG.slots.map((_, i) => i).sort((a, b) => RACK_CONFIG.slots[a].y - RACK_CONFIG.slots[b].y);
           for (const slot of slots)
@@ -1021,7 +1022,7 @@ export class FactorySimulator {
         for (const rack of this.racks)
           if (!accept || accept(rack)) this.rackPallets.get(rack.id)!.forEach((record, slot) => {
             const key = `${rack.id}:${slot}`;
-            if (record && this.rackGroups.get(rack.id)![slot] && !claimed.has(key) && !this.unloadClaims.has(key) && (!best || record.storedAt < best.at))
+            if (record && this.rackGroups.get(rack.id)![slot] && this.rackContent.get(rack.id)?.[slot] !== "boxes" && !claimed.has(key) && !this.unloadClaims.has(key) && (!best || record.storedAt < best.at))
               best = { rack, slot, at: record.storedAt };
           });
         return best;
@@ -1081,8 +1082,50 @@ export class FactorySimulator {
   private wallObstacles: NavigationObstacle[] = [];
   /** Pallets taken out of racks and shipped through a door. */
   unloaded = 0;
+  /** What each filled slot holds (pallet-in = "pallet"/"palletBoxes", loose boxes on the shelf = "boxes"). */
+  private rackContent = new Map<string, ("pallet" | "palletBoxes" | "boxes" | undefined)[]>();
+  /** Rack takes whole pallets in (rackStorage "pallet" default or "both"); "boxes" racks only hold loose boxes. */
+  private acceptsPallets(rack: SceneEquipment) {
+    return (this.settings()[rack.id]?.rackStorage ?? "pallet") !== "boxes";
+  }
+  /** Initial slot contents (settings.rackContents): static stored pallets / loose boxes, stacked with the pallet stacking layout. */
+  private seedRackContents(rack: SceneEquipment) {
+    const contents = this.settings()[rack.id]?.rackContents ?? [];
+    const kinds = RACK_CONFIG.slots.map(() => undefined as "pallet" | "palletBoxes" | "boxes" | undefined);
+    this.rackContent.set(rack.id, kinds);
+    const size = new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
+    const max = planStack(1, size, BOX_SIZES[0], 0).capacity * PALLET_STACKING.layers;
+    for (const content of contents) {
+      const slot = content.slot;
+      if (!RACK_CONFIG.slots[slot] || this.rackStored.get(rack.id)![slot]) continue;
+      const total = Math.max(0, Math.min(max, Math.round(content.boxes)));
+      if (!content.pallet && !total) continue;
+      const group = new Group();
+      if (content.pallet) group.add(createPalletModel(this.palletAsset));
+      const base = (content.pallet ? STREAM_CONFIG.palletHeight : 0) + BOX_SIZES[0].y;
+      const boxes = total ? planStack(total, size, BOX_SIZES[0], 0).slots.map((s) => {
+        const node = new Group();
+        node.add(this.boxAsset.clone(true));
+        node.userData.cargo = true;
+        node.position.copy(s.position).add(new Vector3(0, base, 0));
+        group.add(node);
+        return node;
+      }) : [];
+      group.position.copy(rackSlotPoint(rack, slot));
+      group.rotation.set(0, rack.yaw, 0);
+      group.userData.instanceStatic = true;
+      this.root.add(group);
+      this.render(group);
+      for (const box of boxes) this.render(box);
+      this.rackStored.get(rack.id)![slot] = true;
+      kinds[slot] = !content.pallet ? "boxes" : total ? "palletBoxes" : "pallet";
+      this.rackPallets.get(rack.id)![slot] = { id: `${rack.name}-${RACK_CONFIG.slots[slot].name}`, grade: "normal", boxes: total, storedAt: 0 };
+      this.rackGroups.get(rack.id)![slot] = { group, boxes };
+    }
+  }
   /** First PalletPoint that is neither filled nor booked by a delivery in progress. */
   private freeSlot(rack: SceneEquipment) {
+    if (!this.acceptsPallets(rack)) return -1;
     const stored = this.rackStored.get(rack.id) ?? [];
     return stored.findIndex(
       (filled, slot) =>
@@ -2751,6 +2794,7 @@ export class FactorySimulator {
     const yaw = new Euler().setFromQuaternion(payload.quaternion, "YXZ").y;
     payload.rotation.set(0, rack.yaw + (Math.PI / 2) * Math.round((yaw - rack.yaw) / (Math.PI / 2)), 0);
     this.rackStored.get(rack.id)![target.slot] = true;
+    { const kinds = this.rackContent.get(rack.id); if (kinds) kinds[target.slot] = handoff.boxes.length ? "palletBoxes" : "pallet"; }
     // Stored for the rest of its stay: re-register so the instancer treats it as static.
     payload.userData.instanceStatic = true;
     this.unrender(payload);
@@ -2775,6 +2819,7 @@ export class FactorySimulator {
     if (!groups || !stored) return null;
     groups[slot] = undefined;
     this.rackStored.get(rack.id)![slot] = false;
+    { const kinds = this.rackContent.get(rack.id); if (kinds) kinds[slot] = undefined; }
     const record = this.rackPallets.get(rack.id)![slot];
     this.rackPallets.get(rack.id)![slot] = undefined;
     stored.group.userData.instanceStatic = false;
@@ -2901,7 +2946,7 @@ export class FactorySimulator {
         slots: (this.rackStored.get(rack.id) ?? []).map((filled, slot) => {
           const stored = this.rackPallets.get(rack.id)?.[slot];
           if (filled)
-            return { state: "stored" as const, palletId: stored?.id, boxes: stored?.boxes, grade: stored?.grade, storedAt: stored?.storedAt };
+            return { state: "stored" as const, content: this.rackContent.get(rack.id)?.[slot] ?? ("palletBoxes" as const), palletId: stored?.id, boxes: stored?.boxes, grade: stored?.grade, storedAt: stored?.storedAt };
           const shipment = this.shipments.find((s) => s.dock.id === rack.id && s.slot === slot);
           const record = this.cargo.pallet(shipment?.palletId);
           return shipment

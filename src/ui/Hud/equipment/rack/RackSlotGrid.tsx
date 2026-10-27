@@ -6,6 +6,7 @@ import { cn } from "@/lib/style";
 import { fmtTime } from "@/ui/Hud/dashboard/full/format";
 
 const GRADE_LABEL = { normal: "정상", defect: "불량" } as const;
+const CONTENT_LABEL = { pallet: "빈 팔레트", palletBoxes: "팔레트+박스", boxes: "박스만" } as const;
 
 type Slot = NonNullable<
   NonNullable<ReturnType<typeof useSimulationStore.getState>["equipment"]>["racks"]
@@ -59,6 +60,7 @@ export default function RackSlotGrid({ rackId }: { rackId: string }) {
           const detail = [
             `슬롯 ${index + 1} · ${level}단`,
             STATE_LABEL[slot.state],
+            slot.content && CONTENT_LABEL[slot.content],
             slot.palletId && `팔레트 ${slot.palletId}`,
             slot.boxes !== undefined && `박스 ${slot.boxes}개`,
             slot.grade && GRADE_LABEL[slot.grade],

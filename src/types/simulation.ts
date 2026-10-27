@@ -15,5 +15,5 @@ export type EquipmentSnapshot={cycle?:CycleSnapshot[];
     category?:EquipmentCategory;operation?:OperationState}[];
   pallets:{id:string;name:string;count:number;capacity:number;shipping:boolean}[];
   /** Per rack, one entry per PalletPoint (RACK_CONFIG.slots order). Display only. */
-  racks?:{id:string;slots:{state:"empty"|"reserved"|"stored";palletId?:string;boxes?:number;grade?:"normal"|"defect";storedAt?:number}[]}[];
+  racks?:{id:string;slots:{state:"empty"|"reserved"|"stored";content?:"pallet"|"palletBoxes"|"boxes";palletId?:string;boxes?:number;grade?:"normal"|"defect";storedAt?:number}[]}[];
 };

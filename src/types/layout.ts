@@ -13,6 +13,9 @@ export type CargoGrade="normal"|"defect";
 /** Which boxes a robot picks; "all" keeps the original behaviour. */
 export type PickFilter="all"|CargoGrade;
 /** Pallet grades a dock receives; "any" keeps the original behaviour. */
+export type RackStorageMode="pallet"|"boxes"|"both";
+/** One rack slot's initial contents: an empty pallet (boxes 0), a loaded pallet, or loose boxes on the shelf (pallet false). */
+export type RackSlotContent={slot:number;pallet:boolean;boxes:number};
 export type DockAcceptGrade="any"|CargoGrade;
 export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** Conveyor inlet: seconds between boxes (real time once `beltSpeed` is set; legacy = scaled by `speed`). */
@@ -55,6 +58,10 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   deckFeedInterval?:number;
   /** Rack only: "mobile" = Rack_m (2 levels, carried by an AGV); default fixed Rack.glb. */
   rackType?:"fixed"|"mobile";
+  /** Fixed rack only: what its slots receive. "pallet" (default): a loaded pallet is put in by a forklift / AMR; "boxes": loose boxes only (on the shelf or onto a pallet already in the slot), no pallet-in; "both". */
+  rackStorage?:RackStorageMode;
+  /** Fixed rack only: slot contents at simulation start (index into RACK_CONFIG.slots); boxes use the pallet stacking layout. */
+  rackContents?:RackSlotContent[];
   /** Pallet only: id of the AMR it is mounted on (editor snap; the pallet rides on that shuttle AMR). */
   mountedOn?:string;
   /** Inbound conveyor unit: "box" (default, boxes are palletized onto the AMR pallet) or "pallet" (loaded pallets roll onto a roller-top AMR). */

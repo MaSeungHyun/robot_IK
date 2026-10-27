@@ -13,6 +13,7 @@ export const CHOICE_INFO: Record<string, string> = {
   emptyPallet: "로봇 하역이 끝난 AMR 위 빈 팔레트 처리입니다. 지게차 회수: 적치장에 쌓음 · 반송 라인: 팔레트째 반송 컨베이어로 보냄.",
   rackType: "고정 랙: 지게차가 칸에 보관 · 이동식 랙(Rack_m): AGV가 랙째 옮기는 순환 구성에 사용합니다.",
   initialPallet: "시작 시 AMR 상단 상태입니다.",
+  rackStorage: "팔레트: 지게차·AMR이 적재 팔레트째 입고 · 박스: 칸(선반 또는 칸의 팔레트)에 낱개 박스만 보관, 팔레트 입고 안 받음 · 혼합: 둘 다.",
 };
 
 export const NUMBER_INFO: Record<string, string> = {
