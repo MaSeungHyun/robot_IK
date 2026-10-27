@@ -108,6 +108,29 @@ function GlbLights() {
   );
 }
 
+/**
+ * Checksum of everything a shadow map depends on: every visible object's local transform (or its world matrix when
+ * it is not auto-updated), caster flags, geometry identity, instance matrices, light settings. Skinned meshes force
+ * a redraw. Index-weighted so moves that cancel out still change the key.
+ */
+function shadowKey(scene: Object3D) {
+  let key = 0, i = 0;
+  scene.traverseVisible((o) => {
+    const w = ++i * 1.0000001;
+    const p = o.position, q = o.quaternion, s = o.scale;
+    key += w * (p.x + 3.1 * p.y + 7.3 * p.z + 11.7 * q.x + 13.1 * q.y + 17.9 * q.z + 19.3 * q.w + 23.1 * s.x + 29.3 * s.y + 31.7 * s.z);
+    if (!o.matrixAutoUpdate || !o.matrixWorldAutoUpdate) { const e = o.matrixWorld.elements; key += w * (e[0] + 2.3 * e[5] + 4.1 * e[10] + 5.9 * e[12] + 7.7 * e[13] + 9.1 * e[14] + 1.7 * e[1] + 2.9 * e[8]); }
+    const mesh = o as Mesh & { isSkinnedMesh?: boolean; isInstancedMesh?: boolean; instanceMatrix?: { version: number }; count?: number };
+    if (mesh.isMesh) {
+      if (mesh.isSkinnedMesh) key = NaN;
+      key += w * ((mesh.castShadow ? 37 : 41) + mesh.geometry.id * 0.013 + (mesh.isInstancedMesh ? mesh.instanceMatrix!.version * 0.37 + mesh.count! * 0.11 : 0) + (Array.isArray(mesh.material) ? 0 : ((mesh.material as { id?: number }).id ?? 0) * 0.007));
+    }
+    const light = o as SpotLight & { isLight?: boolean };
+    if (light.isLight) key += w * ((light.castShadow ? 43 : 47) + (light.shadow?.mapSize.x ?? 0) * 0.001 + (light.shadow?.map ? 53 : 59));
+  });
+  return key;
+}
+
 /** Renderer, environment and shadow-flag setup while the factory lighting is active; restored on unmount. */
 function LightingSetup() {
   const gl = useThree((state) => state.gl);
@@ -147,6 +170,21 @@ function LightingSetup() {
       scene.environmentIntensity = intensity;
     };
   }, [scene]);
+
+  // Shadow maps depend only on the shadow casters (the lights and the sun's shadow box are fixed, not camera-bound):
+  // redraw them only when a transform / visibility / caster flag in the scene changed. Same maps, no idle passes.
+  const shadowState = useMemo(() => ({ key: NaN }), []);
+  useEffect(() => {
+    if (isWebGPURenderer(gl)) return;
+    gl.shadowMap.autoUpdate = false;
+    gl.shadowMap.needsUpdate = true;
+    return () => { gl.shadowMap.autoUpdate = true; };
+  }, [gl]);
+  useFrame(() => {
+    if (isWebGPURenderer(gl) || gl.shadowMap.autoUpdate) return;
+    const key = shadowKey(scene);
+    if (key !== shadowState.key || Number.isNaN(key)) { shadowState.key = key; gl.shadowMap.needsUpdate = true; }
+  });
 
   // Every opaque mesh casts and receives shadows (transparent ghosts/highlights are left alone).
   const sweep = useMemo(() => ({ t: SHADOW_SWEEP_S }), []);
