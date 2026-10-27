@@ -70,7 +70,7 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
           fallback="pallet"
           info="역할을 바꿔도 모델은 바뀌지 않습니다. 지게차·AGV는 에셋 목록에서 해당 장비로 배치하세요."
           options={model === "forklift"
-            ? [{ value: "forklift", label: "지게차" }, ...(role === "rack" ? [{ value: "rack" as const, label: "지게차 (구버전 값)" }] : [])]
+            ? [{ value: "forklift", label: "지게차" }]
             : model === "agv"
               ? [{ value: "agv", label: "AGV (Rack_m 운반)" }]
               : [{ value: "pallet", label: "팔레트 AMR (출고 운반)" }, { value: "shuttle", label: "셔틀 AMR (팔레트 순환)" }]}

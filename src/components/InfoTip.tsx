@@ -2,9 +2,21 @@ import { Info } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { INFO_TIP_LIST } from "@/constants/hud";
+
 const WIDTH = 240;
 const GAP = 6;
 const MARGIN = 8;
+
+/** Renders a string with \n as one block per line (option lists); other nodes pass through unchanged. */
+export function InfoText({ text }: { text: React.ReactNode }) {
+  if (typeof text !== "string" || !text.includes("\n")) return <>{text}</>;
+  return (
+    <span className="flex flex-col" style={{ gap: INFO_TIP_LIST.itemGap, lineHeight: INFO_TIP_LIST.lineHeight }}>
+      {text.split("\n").map((line, index) => <span key={index} className="block">{line}</span>)}
+    </span>
+  );
+}
 
 /**
  * (i) icon next to an option label: muted, white on hover/focus; the explanation shows in a floating card on
@@ -12,7 +24,9 @@ const MARGIN = 8;
  * positioning (never clipped by scrolling panels / overflow-hidden rows), flips above when there is no room below
  * and shifts horizontally to stay inside the viewport. Real warnings stay inline, not in here.
  */
-export default function InfoTip({ text, label = "설명" }: { text: React.ReactNode; label?: string }) {
+/** Card heading: explicit `title`, else the aria label minus its trailing suffix (labels are "<name> SUFFIX"). */
+export default function InfoTip({ text, label = "설명", title }: { text: React.ReactNode; label?: string; title?: React.ReactNode }) {
+  const heading = title ?? (label.endsWith(" 설명") ? label.slice(0, -" 설명".length) : undefined);
   const id = useId();
   const anchor = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLSpanElement>(null);
@@ -69,7 +83,8 @@ export default function InfoTip({ text, label = "설명" }: { text: React.ReactN
           style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, width: Math.min(WIDTH, typeof window === "undefined" ? WIDTH : window.innerWidth - MARGIN * 2), zIndex: 10000 }}
           className={`pointer-events-none block rounded-md border border-white/10 bg-bg-primary px-2.5 py-2 text-left text-[11px] leading-4 font-normal whitespace-normal text-text-primary transition-opacity ${open && pos ? "visible opacity-100" : "invisible opacity-0"}`}
         >
-          {text}
+          {heading && <span className="mb-1 block font-semibold text-brand-primary">{heading}</span>}
+          <InfoText text={text} />
         </span>,
         document.body,
       )}

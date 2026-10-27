@@ -11,3 +11,6 @@ export const INSPECTOR_TABS = [
 
 /** Header Sim Time readout: DOM write interval (~30 Hz) and max extrapolation past the last snapshot (s, x speed). */
 export const HEADER_CLOCK = { updateMs: 33, maxExtrapolationS: 0.3 } as const;
+
+/** InfoTip card: text split on \n renders one option per line with this line-height and gap (px) between lines. */
+export const INFO_TIP_LIST = { lineHeight: 1.6, itemGap: 4 } as const;
