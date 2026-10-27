@@ -6,13 +6,13 @@ import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
 //  - "wall"     (Enviroment wall primitive): baseColor 15, normal 14, metallicRoughness 16, emission 13 x strength 3
 //  - "BG_Floor" (Enviroment floor primitive): baseColor 20, normal 19, metallicRoughness 21, KHR_texture_transform scale 5, offset (0,-4)
 // glTF textures are not flipped (flipY = false), so kit geometry carries the glb's raw UVs.
-import wallColor from "@/assets/textures/room/factory_wall_atlas_color.png?url";
-import wallNormal from "@/assets/textures/room/factory_wall_atlas_normal.png?url";
-import wallMr from "@/assets/textures/room/factory_wall_atlas_mr.png?url";
-import wallEmissive from "@/assets/textures/room/factory_wall_atlas_emissive.png?url";
-import floorColor from "@/assets/textures/room/factory_floor_color.png?url";
-import floorNormal from "@/assets/textures/room/factory_floor_normal.png?url";
-import floorMr from "@/assets/textures/room/factory_floor_mr.png?url";
+import wallColor from "@/assets/textures/room/factory_wall_atlas_color.webp?url";
+import wallNormal from "@/assets/textures/room/factory_wall_atlas_normal.webp?url";
+import wallMr from "@/assets/textures/room/factory_wall_atlas_mr.webp?url";
+import wallEmissive from "@/assets/textures/room/factory_wall_atlas_emissive.webp?url";
+import floorColor from "@/assets/textures/room/factory_floor_color.webp?url";
+import floorNormal from "@/assets/textures/room/factory_floor_normal.webp?url";
+import floorMr from "@/assets/textures/room/factory_floor_mr.webp?url";
 
 export type KitMaterials = { wall: MeshStandardMaterial; floor: MeshStandardMaterial };
 
