@@ -6,15 +6,15 @@
  *    x = -5.42 (z 0.80..12.56); both corners are 90° arcs of radius ≈ 2.17 (strip ends 2.15–2.18 m from the corner).
  *  - rail.001 (factory.glb, node mirrored: world = t + (-x, y, z)): strips at x = 3.785 (z -16.37..-7.35),
  *    z = -5.18, x = -7.05 (z -3.0..8.75); same corner radius. Points here are already mirrored (x negated).
- * Flow runs from the first point to the last (both end at the robot side, z max).
+ * Flow runs from the first point to the last: from the robot side (z max, the scanner exit) toward z min.
  */
 export type ConveyorPathId = "rail_c" | "rail_001";
 
 type Sample = { x: number; z: number; yaw: number; s: number };
 const RADIUS = 2.17;
 const CORNERS: Record<ConveyorPathId, readonly (readonly [number, number])[]> = {
-  rail_c: [[5.42, -12.56], [5.42, -1.375], [-5.42, -1.375], [-5.42, 12.56]],
-  rail_001: [[-3.785, -16.37], [-3.785, -5.18], [7.05, -5.18], [7.05, 8.75]],
+  rail_c: [[-5.42, 12.56], [-5.42, -1.375], [5.42, -1.375], [5.42, -12.56]],
+  rail_001: [[7.05, 8.75], [7.05, -5.18], [-3.785, -5.18], [-3.785, -16.37]],
 };
 
 function build(corners: readonly (readonly [number, number])[]) {

@@ -39,7 +39,7 @@ function linkFlow() {
   const across = abs(uv().y.mul(2).sub(1));
   const core = float(1).sub(smoothstep(emphasis.mul(0.06).add(0.08), emphasis.mul(0.08).add(0.2), across));
   const glow = exp(across.mul(across).mul(-7)).mul(0.45);
-  const phase = fract(uv().x.mul(length).div(0.9).sub(time.mul(emphasis.mul(0.8).add(1.2)).div(0.9)));
+  const phase = fract(float(1).sub(uv().x).mul(length).div(0.9).sub(time.mul(emphasis.mul(0.8).add(1.2)).div(0.9)));
   const streak = smoothstep(0, 0.75, phase).mul(float(1).sub(smoothstep(0.75, 0.82, phase)));
   const ends = smoothstep(0, 0.04, uv().x).mul(float(1).sub(smoothstep(0.96, 1, uv().x)));
   const alpha = clamp(core.mul(0.95).add(glow.mul(0.9)).add(streak.mul(core.add(glow.mul(0.8)))), 0, 1).mul(ends).mul(opacity);

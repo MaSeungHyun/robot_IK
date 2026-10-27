@@ -13,7 +13,7 @@ import {
 import ConveyorGhost from "@/viewport/editor/ConveyorGhost";
 import { scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
 import { SCAN_TUNNEL_MODEL } from "@/constants/modelPoints.generated";
-import { CONVEYOR_LAYOUT } from "@/constants/conveyorLayoutConfig";
+import { CONVEYOR_LAYOUT, SCANNER_FLOW_YAW } from "@/constants/conveyorLayoutConfig";
 
 /** Direction buttons at a conveyor end or a scanner's tunnel exit: add a rail.glb (native length) there. */
 export default function ConveyorExtensionControls({ entity }: { entity: SceneEquipment }) {
@@ -41,12 +41,12 @@ export default function ConveyorExtensionControls({ entity }: { entity: SceneEqu
     })),
   );
   const end = scanner
-    ? { x: 0, z: SCAN_TUNNEL_MODEL.beltZ[1], yaw: 0 }
+    ? { x: 0, z: SCAN_TUNNEL_MODEL.beltZ[0], yaw: SCANNER_FLOW_YAW }
     : beltLocalPoint(entity, length);
   const extension = !hover
     ? null
     : scanner
-      ? { x: 0, z: end.z + CONVEYOR_LAYOUT.length / 2, yaw: 0 }
+      ? { x: 0, z: end.z - CONVEYOR_LAYOUT.length / 2, yaw: SCANNER_FLOW_YAW }
       : extendBelt({ x: 0, z: 0, yaw: 0, conveyorTurn: turn }, hover);
   const directions: {
     turn: ConveyorTurn;

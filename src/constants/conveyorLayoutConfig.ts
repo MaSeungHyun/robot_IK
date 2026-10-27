@@ -16,3 +16,9 @@ export const CONVEYOR_LAYOUT = {
   connectionTolerance: .025,
   samples: 40,
 };
+
+/**
+ * Free-standing ScanTunnel.glb (factory.glb layout) carries boxes toward its mesh -z: entry at beltZ[1], exit at
+ * beltZ[0]. Its own belt and an extension rail laid from the exit head this far from the scanner yaw (rad).
+ */
+export const SCANNER_FLOW_YAW = Math.PI;

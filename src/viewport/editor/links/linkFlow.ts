@@ -34,8 +34,8 @@ export function createLinkFlowMaterial(color: string) {
         float across=abs(vUv.y*2.0-1.0);
         float core=1.0-smoothstep(0.08+0.06*emphasis,0.2+0.08*emphasis,across);
         float glow=exp(-across*across*7.0)*0.45;
-        // Streaks every 0.9 m of path, moving start -> end at 1.2 m/s (faster when selected).
-        float phase=fract(vUv.x*length/0.9-time*(1.2+0.8*emphasis)/0.9);
+        // Streaks every 0.9 m of path, moving end -> start (reversed) at 1.2 m/s (faster when selected).
+        float phase=fract((1.0-vUv.x)*length/0.9-time*(1.2+0.8*emphasis)/0.9);
         float streak=smoothstep(0.0,0.75,phase)*(1.0-smoothstep(0.75,0.82,phase));
         // Fade the ends so the strip meets the equipment softly.
         float ends=smoothstep(0.0,0.04,vUv.x)*(1.0-smoothstep(0.96,1.0,vUv.x));
