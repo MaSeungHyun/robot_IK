@@ -38,6 +38,8 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** AMR (not forklift / AGV) cargo type: "pallet" (default) = served by pallet-inbound conveyors, carries pallets;
    * "box" = box AMR, served only by box conveyors (carries loose boxes). */
   amrCargo?:"pallet"|"box";
+  /** Box AMR unloading: "self" (default) = rolls its boxes straight onto the scanner line start; "robot" = a scan-start robot picks them. */
+  boxUnload?:"self"|"robot";
   /** Forklift only, pallet cycle: "service" = swaps pallets on shuttle AMRs (full → Rack_m, empty → AMR), "rack" = Rack_m → Rack and Rack → 출하,
    * "carrier" = holds a pallet on its forks at the pallet in front of it (the robot loads it there) and carries it to an unload dock robot. */
   forkliftTask?:"service"|"rack"|"carrier";

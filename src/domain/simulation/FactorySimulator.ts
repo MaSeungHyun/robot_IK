@@ -717,16 +717,19 @@ export class FactorySimulator {
     }
     // Inbound boxes must pass the scanner: only docks a scan-line start robot unloads (🔗-linked robot/dock first).
     const starts = this.depalletizers.filter((r) => settings[r.object.id]?.enabled && this.scanStart(r, settings));
-    // No scan-start robot: the AMR drives to a scanner line's belt start and rolls the boxes off its own deck.
-    const selfFeed = starts.length ? [] : this.selfFeedDocks(settings);
+    // Box AMR (amrCargo "box", boxUnload "self", default): drives to a scanner line's belt start (a scanner's own
+    // tunnel belt included) and rolls the boxes off its deck straight onto it; boxUnload "robot" uses the robot instead.
+    // Pallet AMR: boxes on a pallet always need a scan-start robot (no self-unload; validation warns without one).
+    const selfUnloads = (a: FactoryAgent) => settings[a.object.id]?.amrCargo === "box" && (settings[a.object.id]?.boxUnload ?? "self") === "self";
+    const selfFeed = candidates.some(selfUnloads) ? this.selfFeedDocks(settings) : [];
     if (!starts.length && !selfFeed.length) {
       // Partial layout: the receive step still runs; the AMR keeps the pallet on its deck at home (next stage missing).
-      this.parkFeed(hold, held, candidates, "스캐너 시작 로봇·스캐너 라인 없음");
+      this.parkFeed(hold, held, candidates, candidates.some(selfUnloads) ? "스캐너 라인 없음" : "팔레트 AMR 하역 로봇(스캐너 시작) 없음");
       return;
     }
     const served = (d: SceneEquipment) => starts.some((r) => distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5);
     const linkedTargets = new Set(linkedIds);
-    const scanDocks = starts.length ? this.unloadDocks.filter(served) : selfFeed;
+    const scanDocks = [...(starts.length ? this.unloadDocks.filter(served) : []), ...selfFeed];
     const preferred = scanDocks.filter((d) => linkedTargets.has(d.id) || starts.some((r) => linkedTargets.has(r.object.id) && distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5));
     // One AMR at the dock (booked until it has unloaded and driven clear) plus one waiting at the staging distance.
     const docks = (preferred.length ? preferred : scanDocks).filter((d) => settings[d.id]?.enabled !== false && !this.shipments.some((sh) => sh.dock.id === d.id) && (this.feedDockQueue.get(d.id)?.length ?? 0) < FEED_DOCK_BOOKINGS);
@@ -753,6 +756,7 @@ export class FactorySimulator {
         ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
       ];
       for (const agent of candidates) {
+        if (dock.id.startsWith("deckfeed:") !== selfUnloads(agent)) continue;
         const from = agent.dispatch.carrier.position;
         const layout: FactoryLayout = { robot: robot?.object ?? { x: 1e4, z: 1e4, yaw: 0 }, conveyor: hold.belt, pallet: { x: receive.x, z: receive.z, yaw: receive.yaw }, amr: { x: from.x, z: from.z, yaw: 0 }, dock };
         // The receive pose hugs the belt end (inside the belt's nav clearance): route to an approach point straight out

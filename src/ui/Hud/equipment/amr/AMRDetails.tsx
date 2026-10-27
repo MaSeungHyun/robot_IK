@@ -34,6 +34,7 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
   const agent = useSimulationStore((state) => state.equipment?.agents.find((agent) => agent.id === object.id));
   const telemetry = useEquipmentTelemetry(object.id);
   const role = useSceneStore((state) => state.settings[object.id]?.amrRole);
+  const boxAmr = useSceneStore((state) => state.settings[object.id]?.amrCargo === "box");
   const forklift = isForkliftRole(role);
   const model = amrModelOf(role);
   const history = useDerivedMetricsStore((state) => state.agents[object.id]);
@@ -83,6 +84,18 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
             options={[
               { value: "pallet", label: "팔레트 AMR" },
               { value: "box", label: "박스 AMR" },
+            ]}
+          />
+        )}
+        {!forklift && role !== "agv" && boxAmr && (
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="boxUnload"
+            label="박스 하역"
+            fallback="self"
+            options={[
+              { value: "self", label: "스캐너에 직접" },
+              { value: "robot", label: "로봇 보조" },
             ]}
           />
         )}
