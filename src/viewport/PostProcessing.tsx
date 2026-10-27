@@ -1,9 +1,10 @@
 import {
   SelectiveBloom,
   EffectComposer,
+  ToneMapping,
   selectionContext,
 } from "@react-three/postprocessing";
-import type { EffectComposer as EffectComposerImpl, SelectiveBloomEffect } from "postprocessing";
+import { ToneMappingMode, type EffectComposer as EffectComposerImpl, type SelectiveBloomEffect } from "postprocessing";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useContext, useRef, useState } from "react";
 import type { RefObject } from "react";
@@ -26,8 +27,11 @@ const BLOOM_IDLE_MS = 400;
 
 export default function PostProcessing({
   lights,
+  toneMapping,
 }: {
   lights: RefObject<AmbientLight | null>[];
+  /** The composer forces the renderer to NoToneMapping; "agx" adds an AgX pass at the end (factory lighting). */
+  toneMapping?: "agx";
 }) {
   const renderQuality = useViewportSettingsStore(selectRenderQuality);
   const bloomEnabled = useViewportSettingsStore(selectBloomEnabled);
@@ -107,6 +111,7 @@ export default function PostProcessing({
           radius={0.7}
         />
       )}
+      {toneMapping === "agx" ? <ToneMapping mode={ToneMappingMode.AGX} /> : <></>}
     </EffectComposer>
   );
 }
