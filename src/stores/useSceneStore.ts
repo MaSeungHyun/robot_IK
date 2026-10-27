@@ -5,7 +5,7 @@ import { useSimulationStore } from "./useSimulationStore";
 import { validateScene } from "@/domain/amr/navigation/sceneValidation";
 import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/conveyor/conveyorLayout";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
-import type { SceneTemplate } from "@/types/sceneTemplate";
+import type { SceneTemplate, TemplateLighting, TemplateProp } from "@/types/sceneTemplate";
 import { migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
 import { log } from "@/stores/useLogStore";
 import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
@@ -78,6 +78,10 @@ interface SceneState{
   setCarriedPallet:(amrId:string,on:boolean)=>void;
   edit:()=>void;complete:()=>void;clear:()=>void;example:()=>void;
   loadTemplate: (template: SceneTemplate) => boolean;
+  /** GLB props of the last loaded template (static decor, not part of undo history); cleared by clear(). */
+  props: readonly TemplateProp[];
+  /** Lighting preset of the last loaded template (null = default lights); cleared by clear(). */
+  lighting: TemplateLighting | null;
   /** Equipment relations (🔗); see docs/linking-design.md. */
   links:SceneLink[];nextLinkId:number;
   /** Adds a link (edit mode, valid kind pair, no duplicate); returns whether it was added. */
@@ -91,7 +95,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   inspected:null,inspect:id=>set(id?{inspected:id,selected:id}:{inspected:null}),
   undo:()=>{const state=get();if(!state.editing||!state.past.length)return;set({...state.past[state.past.length-1],past:state.past.slice(0,-1),future:[snapshot(state),...state.future],pending:null,errors:[]});},
   redo:()=>{const state=get();if(!state.editing||!state.future.length)return;set({...state.future[0],past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:state.future.slice(1),pending:null,errors:[]});},
-  objects:[],settings:{},links:[],nextLinkId:1,selected:null,selection:[],pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
+  props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,selected:null,selection:[],pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
   select:selected=>{const state=get();if(state.selected!==selected||state.inspected!==null||state.selection.length>1)set({selected,selection:selected?[selected]:[],inspected:null});},
   toggleSelect:id=>{
     const state=get(),ids=selectedIds(state);
@@ -248,12 +252,13 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const gone=new Set([id,...mountedPallets(state.objects,state.settings,new Set([id])).map(o=>o.id)]);const next={...state.settings};for(const g of gone)delete next[g];return {...history(state),objects:state.objects.filter(object=>!gone.has(object.id)),links:state.links.filter(link=>!gone.has(link.from)&&!gone.has(link.to)),settings:next,selected:state.selected&&gone.has(state.selected)?null:state.selected,selection:state.selection.filter(s=>!gone.has(s)),errors:[]};});},
   edit:()=>{if(get().editing)return;useSimulationStore.getState().reset();set({editing:true,errors:[],inspected:null});},
   complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
-  clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,editing:true,errors:[]});},
+  clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,editing:true,errors:[]});},
   loadTemplate: (template) => {
     const state = get();
     if (!state.editing) return false;
     const objects = template.equipment.map((entry, index) => ({
       kind: entry.kind, x: entry.x, z: entry.z, yaw: entry.yaw, conveyorTurn: entry.conveyorTurn,
+      ...(entry.conveyorPath ? { conveyorPath: entry.conveyorPath } : {}), ...(entry.conveyorLength ? { conveyorLength: entry.conveyorLength } : {}), ...(entry.elevation ? { elevation: entry.elevation } : {}),
       ...(entry.floor ? { floor: { ...entry.floor } } : {}),
       id: `${entry.kind}-${index + 1}`, name: `${EQUIPMENT_NAMES[entry.kind]} ${index + 1}`,
     }));
@@ -271,7 +276,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       links.push({ id: `L-${String(links.length + 1).padStart(3, "0")}`, type: entry.type, from: from.id, to: to.id });
     }
     useLinkModeStore.getState().setSource(null);
-    set({ ...history(state), objects, settings: configs, links, nextLinkId: links.length + 1, selected: null, inspected: null,
+    set({ ...history(state), props: template.props ?? [], lighting: template.lighting ?? null, objects, settings: configs, links, nextLinkId: links.length + 1, selected: null, inspected: null,
       pending: null, errors: [], nextId: objects.length + 1 });
     return true;
   },

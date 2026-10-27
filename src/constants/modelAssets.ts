@@ -25,5 +25,7 @@ export const forkliftUrl = modelUrl("Forklift.glb");
 export const palletUrl = modelUrl("pallet.glb");
 export const rackUrl = modelUrl("Rack.glb");
 export const railUrl = modelUrl("rail.glb");
+/** rail_c.glb: S lane shift built from two 90° corners; turn segments reuse its first corner. */
+export const railCUrl = modelUrl("rail_c.glb");
 export const robotArmUrl = modelUrl("RobotArm.glb");
 export const scanTunnelUrl = modelUrl("ScanTunnel.glb");

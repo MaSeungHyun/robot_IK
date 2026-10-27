@@ -3,6 +3,7 @@ import SceneEditor from "@/viewport/editor/SceneEditor";
 import FactoryRun from "@/viewport/simulation/FactoryRun";
 import { useSceneStore } from "@/stores/useSceneStore";
 import type { SimulatorRunProps } from "@/viewport/simulation/types";
+import GlbProps from "@/viewport/props/GlbProps";
 import ObjectTrackingTarget from "@/viewport/tracking/ObjectTrackingTarget";
 
 type Props = SimulatorRunProps & { simulationRun: number };
@@ -13,6 +14,7 @@ export default function SimulatorScene({ simulationRun, ...props }: Props) {
   return (
     <InstancedScene>
       {editing ? <SceneEditor /> : <FactoryRun key={simulationRun} {...props} />}
+      <GlbProps />
       <ObjectTrackingTarget />
     </InstancedScene>
   );

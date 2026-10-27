@@ -24,6 +24,14 @@ const CLIP_MARGIN = 200;
 /** Gizmo view directions below the horizon (the -Y axis head) are ignored. */
 const MIN_VIEW_Y = -1e-3;
 const PANEL_WIDTH = 320 + 16;
+/** Lens and start view per template lighting preset (factory.glb "Camera"); near never below 0.5 (FloorMarking z-fighting). */
+const TEMPLATE_VIEW = {
+  factory: {
+    lens: { fov: 25.2, near: 0.5, far: 2000 },
+    position: [37.52, 20.5, 65.84] as const,
+    target: [13.67, 7.42, 23.89] as const,
+  },
+};
 
 function createOrtho() {
   const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, ORTHO_DISTANCE * 20);
@@ -63,6 +71,7 @@ export default function CameraRig() {
     (state) => state.editing && state.pending === "floor",
   );
   const [initialCamera] = useState(() => get().camera as PerspectiveCamera);
+  const [defaultLens] = useState(() => ({ fov: initialCamera.fov, near: initialCamera.near, far: initialCamera.far }));
   const perspectiveRef = useRef(initialCamera);
   // A ref (not memo/state): the handlers below mutate it after render.
   const orthoRef = useRef<OrthographicCamera | null>(null);
@@ -443,6 +452,25 @@ export default function CameraRig() {
       toPerspective();
     }
   }, [tracking, toPerspective, cancelTween]);
+
+  // A template lighting preset brings its own lens and start view; reloading the template (new props) re-applies it.
+  const lighting = useSceneStore((state) => state.lighting);
+  const templateProps = useSceneStore((state) => state.props);
+  useEffect(() => {
+    const view = lighting ? TEMPLATE_VIEW[lighting] : null;
+    const c = controls.current, perspective = perspectiveRef.current, lens = lensRef.current!;
+    if (view) { cancelTween(); toPerspective(); }
+    Object.assign(lens, view ? view.lens : defaultLens);
+    perspective.fov = lens.fov;
+    perspective.near = lens.near;
+    perspective.far = lens.far;
+    if (view && c) {
+      perspective.position.set(...view.position);
+      c.target.set(...view.target);
+      c.update();
+    }
+    perspective.updateProjectionMatrix();
+  }, [lighting, templateProps, defaultLens, toPerspective, cancelTween]);
 
   return (
     <>

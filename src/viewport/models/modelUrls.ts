@@ -1,7 +1,7 @@
 import { useGLTF } from "@/lib/three/gltfLoader";
-import { amrUrl, forkliftUrl, boxUrl, palletUrl, rackUrl, robotArmUrl as robotUrl, railUrl, scanTunnelUrl as scannerUrl } from "@/constants/modelAssets";
+import { amrUrl, forkliftUrl, boxUrl, palletUrl, rackUrl, robotArmUrl as robotUrl, railUrl, railCUrl, scanTunnelUrl as scannerUrl } from "@/constants/modelAssets";
 
-export const MODEL = { robot: robotUrl, pallet: palletUrl, box: boxUrl, amr: amrUrl, scanner: scannerUrl, rack: rackUrl, rail: railUrl, forklift: forkliftUrl };
+export const MODEL = { robot: robotUrl, pallet: palletUrl, box: boxUrl, amr: amrUrl, scanner: scannerUrl, rack: rackUrl, rail: railUrl, railC: railCUrl, forklift: forkliftUrl };
 export const MODEL_URLS = Object.values(MODEL);
 // Parse and decode every GLB at app load, long before it is first needed.
 for (const url of MODEL_URLS) useGLTF.preload(url);

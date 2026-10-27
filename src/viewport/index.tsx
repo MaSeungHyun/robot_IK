@@ -29,6 +29,7 @@ import PerfReadout, { PerfCollector } from "./PerfOverlay";
 import Minimap from "@/viewport/minimap/Minimap";
 import MinimapProbe from "@/viewport/minimap/MinimapProbe";
 import WalkControls from "@/viewport/walk/WalkControls";
+import FactoryLighting from "@/viewport/lighting/FactoryLighting";
 
 const CAMERA = { position: [5, 4.5, 6] as [number, number, number], fov: 45 };
 
@@ -38,6 +39,8 @@ export default function Viewport() {
   const wantWebGPU = useViewportSettingsStore((s) => s.webgpu && !s.webgpuFailed);
   const webgpu = useViewportSettingsStore((s) => s.activeRenderer === "webgpu");
   const ambientLight = useRef<AmbientLight>(null);
+  // Template lighting preset (factory.glb lights + HDR) replaces the default ambient + key light.
+  const lighting = useSceneStore((state) => state.lighting);
   const bloomLights = useMemo(() => [ambientLight], []);
   const { transferMode, run, running, setStats, setProgress } =
     useSimulationStore(
@@ -107,8 +110,8 @@ export default function Viewport() {
           <MinimapProbe />
           <Selection>
             {/* <color attach="background" args={["#101820"]} /> */}
-            <ambientLight ref={ambientLight} intensity={2} />
-            <ShadowLight />
+            <ambientLight ref={ambientLight} intensity={2} visible={!lighting} />
+            {lighting === "factory" ? <FactoryLighting /> : <ShadowLight />}
 
             <ModelLoader />
             <ModelWarmup />
@@ -123,7 +126,7 @@ export default function Viewport() {
                 onProgress={onProgress}
               />
             </Suspense>
-            {webgpu ? <WebGPUFrame /> : <PostProcessing lights={bloomLights} />}
+            {webgpu ? <WebGPUFrame /> : <PostProcessing lights={bloomLights} toneMapping={lighting === "factory" ? "agx" : undefined} />}
           </Selection>
         </Canvas>
       </SceneBoundary>

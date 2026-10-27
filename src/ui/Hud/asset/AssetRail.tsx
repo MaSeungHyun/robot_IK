@@ -7,6 +7,7 @@ import { ASSET_PRESETS, thumbnailKey } from "@/constants/assetPresets";
 import type { AssetPreset } from "@/constants/assetPresets";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import { applySceneTemplate } from "@/stores/actions/applySceneTemplate";
+import { downloadSceneTemplate } from "@/stores/actions/exportSceneTemplate";
 import { useSceneStore, EQUIPMENT_NAMES } from "@/stores/useSceneStore";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
 import { useLogStore } from "@/stores/useLogStore";
@@ -193,7 +194,10 @@ function TemplateFlyout({ onDone }: { onDone: () => void }) {
           </button>
         ))}
       </div>
-      <Button className="mt-3 w-full" onClick={clear}>
+      <Button className="mt-3 w-full" onClick={() => downloadSceneTemplate()} title="현재 배치(연결·문·바닥/벽·GLB 소품·조명 포함)를 템플릿 JSON으로 내려받기">
+        현재 배치를 템플릿으로 저장 (JSON)
+      </Button>
+      <Button className="mt-2 w-full" onClick={clear}>
         Clear (전체 배치 지우기)
       </Button>
     </div>

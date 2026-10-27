@@ -11,6 +11,7 @@ import { Vector3 } from "three";
 import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
 import { RACK_CONFIG, RACK_FACE_YAW, rackStandoff } from "@/constants/rack";
 import { beltLength, beltPoint, extendBelt } from "@/domain/conveyor/conveyorLayout";
+import { pathBounds } from "@/domain/conveyor/conveyorPaths";
 import type { ConveyorTurn, EquipmentKind, EquipmentSettings } from "@/types/layout";
 import type { TemplateLink } from "@/types/links";
 import type { SceneTemplate, TemplateEquipment } from "@/types/sceneTemplate";
@@ -167,6 +168,11 @@ const NORMAL = (yaw: number) => ({ x: Math.cos(yaw), z: -Math.sin(yaw) });
 
 function rectOf(item: Item, index: number): Rect {
   const [w, d] = LAYOUT_RULES.footprint[item.kind];
+  if (item.kind === "conveyor" && item.conveyorPath) {
+    const b = pathBounds(item.conveyorPath), c = Math.cos(item.yaw), s = Math.sin(item.yaw), mx = (b.minX + b.maxX) / 2, mz = (b.minZ + b.maxZ) / 2;
+    return { cx: item.x + mx * c + mz * s, cz: item.z - mx * s + mz * c, yaw: item.yaw, w: b.maxX - b.minX + BELT.width, d: b.maxZ - b.minZ + BELT.width, tag: "conveyor-turn", index };
+  }
+  if (item.kind === "conveyor" && item.conveyorLength && !item.conveyorTurn) return { cx: item.x, cz: item.z, yaw: item.yaw, w, d: item.conveyorLength, tag: "conveyor", index };
   if (item.kind === "conveyor" && item.conveyorTurn && item.conveyorTurn !== "straight") {
     // Quarter turn: bounding square of the arc (centre of the arc's chord box).
     const mid = beltPoint(item, beltLength(item) / 2);
