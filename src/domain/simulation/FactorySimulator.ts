@@ -51,7 +51,7 @@ import { AMR_DECK, ROLLER_DECK } from "@/constants/cycle";
 import { isPalletInbound, palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
 import { createPalletModel } from "@/lib/three/palletModel";
 import { planStack } from "@/domain/pallet/packing/stacking";
-import { withScannerBelts } from "@/domain/conveyor/scannerBelt";
+import { scannerBeltId, scannerEntry, scannerExit, withScannerBelts } from "@/domain/conveyor/scannerBelt";
 import { withRobotStops } from "@/domain/layout/robotStops";
 
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
@@ -608,6 +608,24 @@ export class FactorySimulator {
       return false;
     });
   }
+  /**
+   * Why a pallet AMR cannot feed a scanner: boxes on a pallet need a depalletize robot whose reach covers the scanner
+   * belt between its entry (투입구) and the tunnel. Names the 🔗-linked scanner(s) and the nearest robot's distance.
+   */
+  private missingScanRobot(linkedIds: readonly string[], settings: Record<string, EquipmentSettings>) {
+    const linked = this.scanners.filter((sc) => linkedIds.includes(sc.id));
+    const targets = linked.length ? linked : this.scanners;
+    if (!targets.length) return "스캐너 없음 · 팔레트 AMR이 갈 다음 단계가 없습니다";
+    const parts = targets.map((sc) => {
+      const entry = scannerEntry(sc), exit = scannerExit(sc);
+      const robots = this.robots.filter((r) => settings[r.object.id]?.robotRole === "depalletize");
+      const near = robots.map((r) => ({ r, d: Math.hypot(r.object.x - entry.x, r.object.z - entry.z), e: Math.hypot(r.object.x - exit.x, r.object.z - exit.z) })).sort((a, b) => a.d - b.d)[0];
+      const reach = (near ? settings[near.r.object.id]?.reach ?? 2.5 : 2.5) - ROBOT_PICKING.pickReachMargin;
+      const where = !near ? "하역 로봇 없음" : near.e < near.d ? `${near.r.object.name}이(가) 출구 쪽에 있음(입구까지 ${near.d.toFixed(1)} m)` : `가장 가까운 ${near.r.object.name} 입구까지 ${near.d.toFixed(1)} m`;
+      return `${sc.name} 입구에 하역 로봇 없음 (${where}) · 하역 로봇을 스캐너 입구~터널 사이 벨트에서 ${reach.toFixed(2)} m 이내에 두세요`;
+    });
+    return `팔레트 AMR은 로봇이 박스를 내려야 합니다: ${parts.join(" / ")}`;
+  }
   /** Pallet-inbound belts outside the pallet cycle: one full pallet at a time, held at the belt-end stopper until an AMR takes it. */
   private palletHolds: PalletHold[] = [];
   /** Unload docks booked by an AMR carrying a fed pallet. */
@@ -701,7 +719,7 @@ export class FactorySimulator {
     let candidates: FactoryAgent[];
     if (linkedIds.length) {
       candidates = this.agents.filter((a) => linkedIds.includes(a.object.id));
-      if (!candidates.length && linkedIds.some((id) => !this.robots.some((r) => r.object.id === id) && !this.unloadDocks.some((d) => d.id === id))) {
+      if (!candidates.length && linkedIds.some((id) => !this.robots.some((r) => r.object.id === id) && !this.unloadDocks.some((d) => d.id === id) && !this.scanners.some((sc) => sc.id === id))) {
         this.holdWarn(hold, "linkedRole", "🔗 연결된 AMR이 팔레트를 받을 수 없는 역할입니다", "팔레트 AMR(빈 상판)로 바꾸거나 연결을 수정하세요");
         return;
       }
@@ -731,14 +749,26 @@ export class FactorySimulator {
     const selfFeed = candidates.some(selfUnloads) ? this.selfFeedDocks(settings) : [];
     if (!starts.length && !selfFeed.length) {
       // Partial layout: the receive step still runs; the AMR keeps the pallet on its deck at home (next stage missing).
-      this.parkFeed(hold, held, candidates, candidates.some(selfUnloads) ? "스캐너 라인 없음" : "팔레트 AMR 하역 로봇(스캐너 시작) 없음");
+      this.parkFeed(hold, held, candidates, candidates.some(selfUnloads) ? "스캐너 라인 없음" : this.missingScanRobot(linkedIds, settings));
       return;
     }
     const served = (d: SceneEquipment) => starts.some((r) => distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5);
     const linkedTargets = new Set(linkedIds);
     const scanDocks = [...(starts.length ? this.unloadDocks.filter(served) : []), ...selfFeed];
-    const preferred = scanDocks.filter((d) => linkedTargets.has(d.id) || starts.some((r) => linkedTargets.has(r.object.id) && distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5));
+    // 🔗 conveyor → scanner: unload at that scanner (its own tunnel-belt self-feed dock, or a dock its start robot serves).
+    const linkedScanners = this.scanners.filter((sc) => linkedTargets.has(sc.id));
+    // A start robot feeds a scanner when its reach covers that scanner's belt between the entry and the tunnel.
+    const feeds = (r: FactoryRobot, sc: SceneEquipment) => { const e = scannerEntry(sc), reach = (settings[r.object.id]?.reach ?? 0) - ROBOT_PICKING.pickReachMargin; for (let f = 0; f <= 1; f += 0.05) if (Math.hypot(r.object.x - (e.x + (sc.x - e.x) * f), r.object.z - (e.z + (sc.z - e.z) * f)) <= reach) return true; return false; };
+    const atScanner = (d: SceneEquipment) => linkedScanners.some((sc) => d.id === `deckfeed:${scannerBeltId(sc.id)}` || starts.some((r) => feeds(r, sc) && distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5));
+    const preferred = scanDocks.filter((d) => linkedTargets.has(d.id) || atScanner(d) || starts.some((r) => linkedTargets.has(r.object.id) && distance(r.object, d) <= (settings[r.object.id]?.reach ?? 0) + 1.5));
     // One AMR at the dock (booked until it has unloaded and driven clear) plus one waiting at the staging distance.
+    // 🔗 conveyor → scanner: only the linked scanner(s); never fall back to another scanner.
+    if (linkedScanners.length && !preferred.length) {
+      this.holdWarn(hold, "linkedScanner", `🔗 연결된 ${linkedScanners.map((sc) => sc.name).join(", ")} 입구에 쓸 수 있는 하역 로봇/하역 위치가 없어 대기`, this.missingScanRobot(linkedIds, settings));
+      for (const a of candidates) a.waitingReason = this.missingScanRobot(linkedIds, settings);
+      hold.routeRetryAt = this.elapsed + 1;
+      return;
+    }
     const docks = (preferred.length ? preferred : scanDocks).filter((d) => settings[d.id]?.enabled !== false && !this.shipments.some((sh) => sh.dock.id === d.id) && (this.feedDockQueue.get(d.id)?.length ?? 0) < FEED_DOCK_BOOKINGS);
     if (!scanDocks.length) {
       this.parkFeed(hold, held, candidates, "스캐너 시작 로봇 옆 하역 위치(dock) 없음");
@@ -858,9 +888,20 @@ export class FactorySimulator {
     ];
     const fwd = { x: Math.sin(receive.yaw), z: Math.cos(receive.yaw) };
     let best: { agent: FactoryAgent; layout: FactoryLayout; routes: DispatchRoutes; park: SceneEquipment; cost: number } | null = null;
+    // 셔틀 구역: the conveyor's floor zones replace the AMR home (nearest one no other parked AMR is bound for).
+    const taken = this.zoneBookings;
+    const zones = (this.settings()[hold.belt.id]?.shuttleZones ?? []).map((z, i) => ({ ...z, id: `shuttle:${hold.belt.id}:${i}` })).filter((z) => !taken.has(z.id));
+    // Every zone holds a pallet (or is booked): wait at the stopper instead of parking on an AMR deck.
+    if ((this.settings()[hold.belt.id]?.shuttleZones?.length ?? 0) && !zones.length) {
+      this.holdWarn(hold, "zone", "셔틀 구역이 비기를 대기");
+      return;
+    }
+    const zone = zones.sort((a, b) => Math.hypot(a.x - receive.x, a.z - receive.z) - Math.hypot(b.x - receive.x, b.z - receive.z))[0];
     for (const agent of candidates) {
       const home = agent.dispatch.home;
-      const park = { ...agent.object, id: `park:${agent.object.id}`, kind: "dock", name: `${agent.object.name} 보관 위치`, x: home.x, z: home.z } as SceneEquipment;
+      const park = (zone
+        ? { ...agent.object, id: zone.id, kind: "dock", name: `${hold.belt.name} 셔틀 구역`, x: zone.x, z: zone.z }
+        : { ...agent.object, id: `park:${agent.object.id}`, kind: "dock", name: `${agent.object.name} 보관 위치`, x: home.x, z: home.z }) as SceneEquipment;
       const from = agent.dispatch.carrier.position;
       const layout: FactoryLayout = { robot: { x: 1e4, z: 1e4, yaw: 0 }, conveyor: hold.belt, pallet: { x: receive.x, z: receive.z, yaw: receive.yaw }, amr: { x: from.x, z: from.z, yaw: 0 }, dock: park };
       let pickup: Vector3[] | null = null, approach = receive.v;
@@ -869,13 +910,25 @@ export class FactorySimulator {
         const path = layoutPath(layout, layout.amr, { x: approach.x, z: approach.z }, false, obstacles);
         if (path) { pickup = back ? [...path, receive.v.clone()] : path; break; }
       }
+      // Already parked at the receive pose (inside the belt clearance, so no path starts there): receive in place.
+      let leave: Vector3[] | null = null;
+      if (!pickup && Math.hypot(from.x - receive.x, from.z - receive.z) < 1.5) {
+        pickup = [new Vector3(from.x, 0, from.z)];
+        // Home is the receive pose itself (no zone): keep the pallet on the deck right there.
+        if (!zone && Math.hypot(home.x - receive.x, home.z - receive.z) < 1.5) { approach = receive.v; leave = [receive.v.clone()]; }
+        else for (const back of [0, 0.5, 1, 1.5, 2, 2.5]) {
+          approach = new Vector3(receive.x + fwd.x * back, 0, receive.z + fwd.z * back);
+          leave = layoutPath(layout, approach, park, true, obstacles);
+          if (leave) break;
+        }
+      }
       if (!pickup) continue;
-      const leave = layoutPath(layout, approach, park, true, obstacles);
+      leave ??= layoutPath(layout, approach, park, true, obstacles);
       if (!leave) continue;
       const dispatch = approach.equals(receive.v) ? leave : [receive.v.clone(), ...leave];
       const cost = pickup.reduce((sum, p, i) => sum + (i ? p.distanceTo(pickup![i - 1]) : 0), 0);
       if (best && cost >= best.cost) continue;
-      best = { agent, layout, park, cost, routes: { pickup, dispatch, returning: [home.clone()], feed: { heading: receive.yaw, lane: approach }, hold: { busy: () => true, emptyHome: () => {} } } };
+      best = { agent, layout, park, cost, routes: { pickup, dispatch, returning: [home.clone()], feed: { heading: receive.yaw, lane: approach }, hold: zone ? undefined : { busy: () => true, emptyHome: () => {} } } };
     }
     if (!best) {
       hold.routeRetryAt = this.elapsed + 1;
@@ -891,8 +944,31 @@ export class FactorySimulator {
     agent.dispatch.configure(layout, obstacles);
     this.navigation.set(agent.object.id, { layout, obstacles });
     log("warning", `${hold.belt.name}: 다음 단계 없음 (${missing}) · ${agent.object.name}이(가) 팔레트를 받아 보관 위치에서 대기`, "스캐너 라인·하역 로봇·하역 dock을 추가하면 이어서 진행됩니다");
+    if (zone) {
+      // 셔틀 구역: lower the pallet (with its boxes) onto the floor zone, free the AMR; a forklift takes it on.
+      this.zoneBookings.add(park.id);
+      log("info", `${hold.belt.name}: ${agent.object.name}이(가) 입하 팔레트를 ${park.name}에 내려놓으러 이동`, missing);
+      agent.dispatch.request(held.group, () => {
+        const group = held.group;
+        group.parent?.updateWorldMatrix(true, false);
+        this.root.updateWorldMatrix(true, false);
+        this.root.attach(group);
+        group.position.set(park.x, 0, park.z);
+        const yaw = new Euler().setFromQuaternion(group.quaternion, "YXZ").y;
+        group.rotation.set(0, (Math.PI / 2) * Math.round(yaw / (Math.PI / 2)), 0);
+        for (const box of held.boxes) box.state = "placed";
+        this.zonePallets.push({ zoneId: park.id, zone: park, group, boxes: held.boxes.map((b) => b.node), handoff: null });
+        this.zoneDropped++;
+        agent.completed++;
+        agent.target = null;
+        log("info", `${agent.object.name}: 입하 팔레트를 ${park.name}에 내려놓음 · 지게차 대기`, missing);
+      }, routes);
+      return;
+    }
+    agent.waitingReason = missing;
     agent.dispatch.request(held.group, () => {
       agent.target = `${park.name} (보관)`;
+      agent.waitingReason = missing;
       log("info", `${agent.object.name}: 입하 팔레트 보관 중 · 다음 단계 없음`, missing);
     }, routes);
   }
@@ -1103,6 +1179,13 @@ export class FactorySimulator {
   /** Rack slots ("rack:slot") booked for a hand-off pallet until a forklift stores it. */
   private slotBookings = new Set<string>();
   private handoffs: Handoff[] = [];
+  /** 셔틀 구역 ids booked by a feed trip or holding a dropped pallet (freed when a forklift lifts it). */
+  private zoneBookings = new Set<string>();
+  /** Pallets an AMR set down on a 셔틀 구역; each becomes a rack hand-off (handoff) once a rack slot is free. */
+  private zonePallets: { zoneId: string; zone: SceneEquipment; group: Group; boxes: Group[]; handoff: Handoff | null }[] = [];
+  /** Pallets set down on / lifted off 셔틀 구역 (flow-check). */
+  zoneDropped = 0;
+  zonePicked = 0;
   /** Pallets left at hand-off points / stored into racks by forklifts. */
   handedOff = 0;
   forkliftStored = 0;
@@ -2689,6 +2772,16 @@ export class FactorySimulator {
       if (agent.controller.idle) agent.waitingReason = null;
     const idle = this.forkliftAgents.filter((agent) => agent.controller.idle && settings[agent.object.id].enabled);
     if (!idle.length) return;
+    // 셔틀 구역 pallets join the hand-off queue once an enabled pallet rack has a free slot (nearest rack first).
+    for (const zp of this.zonePallets) {
+      if (zp.handoff) continue;
+      const rack = this.racks.filter((r) => settings[r.id]?.enabled && this.freeSlot(r) >= 0).sort((a, b) => distance(a, zp.zone) - distance(b, zp.zone) || (a.id < b.id ? -1 : 1))[0];
+      if (!rack) continue;
+      const slot = this.freeSlot(rack);
+      this.slotBookings.add(`${rack.id}:${slot}`);
+      zp.handoff = { rack, slot, group: zp.group, boxes: zp.boxes, claimed: false };
+      this.handoffs.push(zp.handoff);
+    }
     // Hand-off pallets first (oldest first), each to the nearest idle forklift that can reach it.
     for (const handoff of this.handoffs) {
       if (handoff.claimed || !idle.length) continue;
@@ -2749,10 +2842,18 @@ export class FactorySimulator {
       }
     }
   }
+  /** A forklift lifted a 셔틀 구역 pallet: the zone is free again. */
+  private releaseZone(group: Group) {
+    const index = this.zonePallets.findIndex((z) => z.group === group);
+    if (index < 0) return;
+    this.zoneBookings.delete(this.zonePallets[index].zoneId);
+    this.zonePallets.splice(index, 1);
+    this.zonePicked++;
+  }
   /** One rack hand-off point (floor, in front of the level-1 centre slot) is in use. */
   private handoffBusy(rack: SceneEquipment) {
     return (
-      this.handoffs.some((h) => h.rack.id === rack.id) ||
+      this.handoffs.some((h) => h.rack.id === rack.id && !this.zonePallets.some((z) => z.handoff === h)) ||
       this.shipments.some((s) => s.handoff && s.dock.id === rack.id && !s.stored)
     );
   }
@@ -2810,6 +2911,7 @@ export class FactorySimulator {
       },
       take: () => {
         this.handoffs.splice(this.handoffs.indexOf(handoff), 1);
+        this.releaseZone(handoff.group);
         return handoff.group;
       },
       store: (payload, target) => this.storeFromForklift(handoff, payload, target),
