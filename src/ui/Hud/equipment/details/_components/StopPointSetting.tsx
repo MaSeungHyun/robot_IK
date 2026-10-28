@@ -18,7 +18,7 @@ export default function StopPointSetting({ id, roles }: { id: string; roles: rea
   useEffect(() => { if (!editing && placingRole) setPlacingFor(null); }, [editing, placingRole, setPlacingFor]);
   const remove = (index: number) => useSceneStore.getState().updateSettings(id, { stopPoints: (points ?? []).filter((_, i) => i !== index) });
   return (
-    <div className="flex flex-col gap-1">
+    <div className="mt-2 flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1">
         {roles.map((role) => (
           <button key={role} type="button" disabled={!editing} onClick={() => setPlacingFor(placingRole === role ? null : id, role)} className="rounded border border-white/15 px-2 py-1 text-xs hover:bg-white/10 disabled:opacity-40">
