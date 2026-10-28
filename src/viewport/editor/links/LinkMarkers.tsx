@@ -6,10 +6,11 @@ import type { EquipmentKind, SceneEquipment } from "@/types/layout";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 import { LINK_COLOR, linkPoint } from "@/viewport/editor/links/linkPoints";
 import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
+import { useLinkModeStore } from "@/stores/useLinkModeStore";
 
 /** Marker height above the floor per kind (m): just over the equipment's top. */
-const MARKER_HEIGHT: Partial<Record<EquipmentKind, number>> = { conveyor: 1.3, robot: 2.2, pallet: 0.9, amr: 1.0, dock: 0.8, rack: 2.6 };
-const ABBREV: Partial<Record<EquipmentKind, string>> = { conveyor: "CV", robot: "RB", pallet: "PL", amr: "AMR", dock: "DK", rack: "RK" };
+const MARKER_HEIGHT: Partial<Record<EquipmentKind, number>> = { conveyor: 1.3, robot: 2.2, pallet: 0.9, amr: 1.0, dock: 0.8, rack: 2.6, scanner: 2.4 };
+const ABBREV: Partial<Record<EquipmentKind, string>> = { conveyor: "CV", robot: "RB", pallet: "PL", amr: "AMR", dock: "DK", rack: "RK", scanner: "SC" };
 /** World size per metre of camera distance (perspective) → constant on-screen size. */
 const SCREEN_SCALE = 0.035;
 /** Same on-screen size for the orthographic camera (pixels-ish / zoom). */
@@ -74,7 +75,8 @@ export default function LinkMarkers({ markers }: { markers: MarkerState[] }) {
 
 function Marker({ object, isSource, valid, picking, register }: MarkerState & { register: (group: Group | null) => void }) {
   const [hover, setHover] = useState(false);
-  const p = linkPoint(object), height = MARKER_HEIGHT[object.kind] ?? 1.2;
+  // Mounted equipment (robot on a pedestal): the badge rises with it.
+  const p = linkPoint(object), height = (MARKER_HEIGHT[object.kind] ?? 1.2) + (object.elevation ?? 0);
   const disabled = picking && !valid && !isSource;
   const emphasized = isSource || (picking && valid);
   const color = disabled ? NEUTRAL : emphasized || hover ? LINK_COLOR : NEUTRAL;
@@ -87,6 +89,12 @@ function Marker({ object, isSource, valid, picking, register }: MarkerState & { 
   const pick = disabled ? ignore : Mesh.prototype.raycast;
   // A marker disabled under the cursor never gets pointerout: drop the stale hover with it.
   if (disabled && hover) setHover(false);
+  // Orange outline preview (InstancedScene) on the valid target under the pointer.
+  useEffect(() => {
+    if (!hover || disabled || isSource) return;
+    useLinkModeStore.getState().setHover(object.id);
+    return () => { if (useLinkModeStore.getState().hover === object.id) useLinkModeStore.getState().setHover(null); };
+  }, [hover, disabled, isSource, object.id]);
 
   return (
     <>
