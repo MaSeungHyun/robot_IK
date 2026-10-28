@@ -22,9 +22,13 @@ const legMaterial = new MeshStandardMaterial({ color: "#334155" });
 const SHIP_RED = "#e5484d";
 const accentMaterial = new MeshStandardMaterial({ color: SHIP_RED, roughness: 0.8 });
 const padMaterial = new MeshStandardMaterial({ color: SHIP_RED, transparent: true, opacity: 0.45 });
-/** Edit-mode flow arrows: neutral grey on ordinary belts, red on outbound / ship belts. */
-const arrowMaterial = new MeshStandardMaterial({ color: "#e4e4e7", roughness: 0.8 });
-const shipArrowMaterial = new MeshStandardMaterial({ color: SHIP_RED, roughness: 0.8 });
+/** Edit-mode flow arrow colours by conveyor role: 입하 mint, 출하 red, ordinary belts (incl. rail_c / rail.001) white. */
+export const CONVEYOR_ARROW_COLORS = { normal: "#e4e4e7", inbound: "#02dfef", outbound: SHIP_RED } as const;
+type ArrowKind = keyof typeof CONVEYOR_ARROW_COLORS;
+const arrowMaterials = Object.fromEntries(
+  Object.entries(CONVEYOR_ARROW_COLORS).map(([kind, color]) => [kind, new MeshStandardMaterial({ color, roughness: 0.8 })]),
+) as Record<ArrowKind, MeshStandardMaterial>;
+const arrowKind = (role: ConveyorRole): ArrowKind => (shipsOut(role) ? "outbound" : role === "inbound" ? "inbound" : "normal");
 /** Flat chevron pointing along +z (belt flow), `size` m wide. */
 function chevron(size: number) {
   const shape = new Shape(), w = size / 2, t = size * 0.22;
@@ -40,20 +44,20 @@ function chevron(size: number) {
   geometry.rotateX(Math.PI / 2);
   return geometry;
 }
+function shipsOut(role: ConveyorRole) { return role === "outbound" || role === "ship"; }
 const arrowGeometry = chevron(C.beltWidth * 0.55);
 const arrowTemplates = new Map<string, Group>();
-const shipsOut = (role: ConveyorRole) => role === "outbound" || role === "ship";
 /**
  * Flow arrows centred on the belt (every conveyor, like the former outbound chevrons), kept out of the
  * instanced belt template so the editor can hide them during Play. Red on outbound / ship belts.
  * Shared geometry/materials: callers clone the group.
  */
 export function conveyorArrows(turn: ConveyorTurn = "straight", role: ConveyorRole = "box") {
-  const key = `${turn}:${shipsOut(role) ? "ship" : "flow"}`;
+  const key = `${turn}:${arrowKind(role)}`;
   let group = arrowTemplates.get(key);
   if (group) return group;
   group = new Group();
-  const material = shipsOut(role) ? shipArrowMaterial : arrowMaterial;
+  const material = arrowMaterials[arrowKind(role)];
   const top = C.height + 0.008;
   const length = turn === "straight" ? C.length : beltLength({ x: 0, z: 0, yaw: 0, conveyorTurn: turn });
   const count = Math.max(1, Math.round(length / 4));
@@ -69,6 +73,21 @@ export function conveyorArrows(turn: ConveyorTurn = "straight", role: ConveyorRo
     group.add(mark);
   }
   arrowTemplates.set(key, group);
+  return group;
+}
+/**
+ * Flow arrows along any belt given its local sampler (distance -> point/yaw along the flow), at height `top`:
+ * used for glb belts (rail_in_out.glb straight, rail_c / rail.001 splines). New group per call (cheap, few meshes).
+ */
+export function flowArrows(length: number, top: number, role: ConveyorRole, at: (s: number) => { x: number; z: number; yaw: number }) {
+  const group = new Group(), material = arrowMaterials[arrowKind(role)];
+  const count = Math.max(1, Math.round(length / 4));
+  for (let i = 0; i < count; i++) {
+    const p = at((length * (i + 0.5)) / count), mark = new Mesh(arrowGeometry, material);
+    mark.position.set(p.x, top, p.z);
+    mark.rotation.y = p.yaw;
+    group.add(mark);
+  }
   return group;
 }
 /** Outbound (출하) belt markings on a straight rail.glb (the rail itself is untouched): red side stripes and the AMR transfer pad. */
