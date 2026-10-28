@@ -38,4 +38,4 @@ export function receivePose(belt: SceneEquipment) {
 
 /** True when the conveyor carries pallets (no box spawning, no palletizing from it). */
 export const isPalletInbound = (settings: Record<string, EquipmentSettings>, id: string) =>
-  settings[id]?.conveyorRole === "inbound" && settings[id]?.inboundUnit === "pallet";
+  settings[id]?.conveyorRole === "inbound";

@@ -14,6 +14,8 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { amrModelOf, isForkliftRole } from "@/types/layout";
 import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
 import DeckBaseSetting from "@/ui/Hud/equipment/amr/DeckBaseSetting";
+import ForkliftSettings from "@/ui/Hud/equipment/amr/ForkliftSettings";
+import StopPointSetting from "@/ui/Hud/equipment/details/_components/StopPointSetting";
 import AMRLivePose from "@/ui/Hud/equipment/amr/AMRLivePose";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
@@ -34,7 +36,6 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
   const agent = useSimulationStore((state) => state.equipment?.agents.find((agent) => agent.id === object.id));
   const telemetry = useEquipmentTelemetry(object.id);
   const role = useSceneStore((state) => state.settings[object.id]?.amrRole);
-  const boxAmr = useSceneStore((state) => state.settings[object.id]?.amrCargo === "box");
   const forklift = isForkliftRole(role);
   const model = amrModelOf(role);
   const history = useDerivedMetricsStore((state) => state.agents[object.id]);
@@ -61,90 +62,24 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
         { label: "모터 온도", value: metric(telemetry?.motorTemperatureC, "°C") },
         { label: "소비 전력", value: metric(telemetry?.powerKw, "kW") },
       ]} />
-    } settings={
+    } settings={forklift ? <ForkliftSettings id={object.id} /> : (
       <DetailSection title="AMR 설정">
         <EquipmentChoiceSetting
           id={object.id}
           field="amrRole"
           label="역할"
           fallback="pallet"
-          info="역할을 바꿔도 모델은 바뀌지 않습니다. 지게차·AGV는 에셋 목록에서 해당 장비로 배치하세요."
-          options={model === "forklift"
-            ? [{ value: "forklift", label: "지게차" }]
-            : model === "agv"
+          info="역할을 바꿔도 모델은 바뀌지 않습니다. 지게차·AGV는 에셋 목록에서 해당 장비로 배치하세요. 지게차 옵션은 지게차를 선택하면 '지게차 설정'에 있습니다."
+          options={model === "agv"
               ? [{ value: "agv", label: "AGV (Rack_m 운반)" }]
               : [{ value: "pallet", label: "팔레트 AMR (출고 운반)" }, { value: "shuttle", label: "셔틀 AMR (팔레트 순환)" }]}
         />
-        {!forklift && role !== "agv" && (
-          <EquipmentChoiceSetting
-            id={object.id}
-            field="amrCargo"
-            label="AMR 유형"
-            fallback="pallet"
-            options={[
-              { value: "pallet", label: "팔레트 AMR" },
-              { value: "box", label: "박스 AMR" },
-            ]}
-          />
-        )}
-        {!forklift && role !== "agv" && boxAmr && (
-          <EquipmentChoiceSetting
-            id={object.id}
-            field="boxUnload"
-            label="박스 하역"
-            fallback="self"
-            options={[
-              { value: "self", label: "스캐너에 직접" },
-              { value: "robot", label: "로봇 보조" },
-            ]}
-          />
-        )}
         <DeckBaseSetting id={object.id} />
-        {forklift && (
-          <EquipmentChoiceSetting
-            id={object.id}
-            field="forkliftTask"
-            label="지게차 작업 (팔레트 순환)"
-            fallback="rack"
-            options={[
-              { value: "service", label: "AMR 교체 (만재 → Rack_m, 빈 팔레트 → AMR)" },
-              { value: "rack", label: "랙 (Rack_m → 랙 → 출하)" },
-              { value: "carrier", label: "팔레트 운반 (포크 위 팔레트에 적재 → 하역 로봇)" },
-            ]}
-          />
-        )}
-        {forklift && (
-          <EquipmentChoiceSetting
-            id={object.id}
-            field="forkliftRole"
-            label="지게차 작업 분담"
-            fallback="auto"
-            info="빈 팔레트 회수: 로봇이 다 내린 AMR 위 빈 팔레트를 들어 적치장에 쌓습니다. 🔗 빈 팔레트 회수 연결이 있으면 연결된 지게차가 우선입니다."
-            options={[
-              { value: "auto", label: "자동 (모든 작업)" },
-              { value: "unload", label: "하역 전담 (만재 팔레트 → Rack_m)" },
-              { value: "supply", label: "빈 팔레트 공급·회수 전담" },
-              { value: "emptyReturn", label: "빈 팔레트 회수 전담 (AMR → 적치장)" },
-            ]}
-          />
-        )}
-        {!forklift && role !== "agv" && (
-          <EquipmentChoiceSetting
-            id={object.id}
-            field="emptyPallet"
-            label="빈 팔레트 처리 (하역 후)"
-            fallback="forklift"
-            info="지게차 회수: 지게차가 AMR 위 빈 팔레트를 적치장에 쌓고, AMR은 빈 상태로 다음 팔레트를 받으러 갑니다. 지게차가 없으면 AMR이 대기합니다."
-            options={[
-              { value: "forklift", label: "지게차 회수 → 빈 팔레트 적치장" },
-              { value: "return", label: "반송 라인" },
-            ]}
-          />
-        )}
         <EquipmentNumberSetting id={object.id} field="amrSpeed" label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} />
-
+        <StopPointSetting id={object.id} roles={model === "agv" ? ["rackDrop"] : ["ship"]} />
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
+    )
     }>
     </EquipmentDetailLayout>
   );

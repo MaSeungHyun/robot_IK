@@ -37,19 +37,7 @@ export default function RackDetails({ object }: EquipmentDetailProps) {
             { value: "mobile", label: "이동식 랙 (Rack_m, AGV 운반)" },
           ]}
         />
-        {!mobile && (
-          <EquipmentChoiceSetting
-            id={object.id}
-            field="rackStorage"
-            label="보관 방식"
-            fallback="pallet"
-            options={[
-              { value: "pallet", label: "팔레트 입고" },
-              { value: "boxes", label: "박스만" },
-              { value: "both", label: "팔레트 + 박스" },
-            ]}
-          />
-        )}
+        {!mobile && <p className="text-xs text-slate-500">보관: 만재(박스가 다 찬) 팔레트만 지게차가 입고합니다.</p>}
         <EquipmentChoiceSetting
           id={object.id}
           field="acceptGrade"

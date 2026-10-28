@@ -16,7 +16,7 @@ export const LINK_RULES: Record<LinkType, { from: EquipmentKind; to: readonly Eq
   feed: { from: "conveyor", to: ["robot", "amr", "scanner"], label: "공급" },
   load: { from: "robot", to: ["pallet"], label: "적재" },
   pickup: { from: "amr", to: ["pallet"], label: "픽업" },
-  deliver: { from: "pallet", to: ["dock", "rack", "conveyor"], label: "출고" },
+  deliver: { from: "pallet", to: ["dock", "rack", "conveyor", "robot", "amr"], label: "출고" },
   /** AMR → forklift that lifts its emptied pallet off / palletSource dock it is stacked on (else nearest). */
   emptyReturn: { from: "amr", to: ["amr", "dock"], label: "빈 팔레트 회수" },
 };

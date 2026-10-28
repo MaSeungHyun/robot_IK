@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { migrateTemplateDocks } from "@/domain/layout/dockMigration";
 import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn,FloorSize } from "../types/layout";
 import { DEFAULT_LAYOUT,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG } from "../constants/simulatorLayout";
 import { useSimulationStore } from "./useSimulationStore";
@@ -7,7 +8,7 @@ import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/c
 import { scannerExtension,scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate, TemplateLighting, TemplateProp } from "@/types/sceneTemplate";
-import { migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
+import { DEFAULT_BELT_SPEED, migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
 import { log } from "@/stores/useLogStore";
 import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
@@ -151,7 +152,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     set(state=>{
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
-      const config=settingsFor(kind,{...(kind==="conveyor"?{autoSpawn:false}:{}),...(state.pending===kind?state.pendingPreset:null)});
+      const config=settingsFor(kind,{...(kind==="conveyor"?{autoSpawn:false,beltSpeed:DEFAULT_BELT_SPEED}:{}),...(state.pending===kind?state.pendingPreset:null)});
       let object=kind==="conveyor"?snapBelt(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
       // [pedestal] a robot added over robot_base / robot_arm_place sits on its top face (base: XZ centre).
       if(kind==="robot"&&pose.elevation===undefined){const m=robotMountAt(object.x,object.z,true);object={...object,x:m.x,z:m.z,...(m.elevation?{elevation:m.elevation}:{})};}
@@ -199,7 +200,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(scanner?scannerOutletTaken(source,state.objects):beltConnections(state.objects).next.has(id))return;
     const pose=scanner?scannerExtension(source,turn):extendBelt(source,turn);
     const nextId=`conveyor-${state.nextId}`,object={...pose,id:nextId,kind:"conveyor" as const,name:`컨베이어 ${state.nextId}`};
-    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:scanner?settingsFor("conveyor",{autoSpawn:false}):{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
+    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:scanner?settingsFor("conveyor",{autoSpawn:false,beltSpeed:DEFAULT_BELT_SPEED}):{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
   },
   updatePose:(id,pose)=>{
     if(!get().editing)return;
@@ -263,9 +264,11 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   edit:()=>{if(get().editing)return;useSimulationStore.getState().reset();set({editing:true,errors:[],inspected:null});},
   complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings,state.links);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
   clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,autoConnect:true,selected:null,pending:null,editing:true,errors:[]});},
-  loadTemplate: (template) => {
+  loadTemplate: (source) => {
     const state = get();
     if (!state.editing) return false;
+    // Placed docks other than 빈 팔레트 적치장 become stop points on their equipment (links retargeted).
+    const template = migrateTemplateDocks(source);
     const objects = template.equipment.map((entry, index) => ({
       kind: entry.kind, x: entry.x, z: entry.z, yaw: entry.yaw, conveyorTurn: entry.conveyorTurn,
       ...(entry.conveyorPath ? { conveyorPath: entry.conveyorPath } : {}), ...(entry.conveyorLength ? { conveyorLength: entry.conveyorLength } : {}), ...(entry.elevation ? { elevation: entry.elevation } : {}),

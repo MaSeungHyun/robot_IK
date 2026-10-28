@@ -22,6 +22,8 @@ const createRuntime = () => ({
   preparedShoulder: null as IKPose | null,
   /** Rejected plans in this phase and sim time waited since the last one (retry/abort policy). */
   failures: 0, retryWait: 0,
+  /** Sim seconds spent in the current phase (watchdog: an unsolvable pick is given back, an unsolvable LIFT is skipped). */
+  phaseTime: 0,
   /** Straight-segment lock (LIFT/PLACE/RETREAT): analytic branch+pitch; false = this segment uses the planner. */
   lineLock: null as LineLock | null | false,
   /** PRE_GRASP on a moving box: sim seconds spent waiting for the planner, and the closed-form approach in use. */
@@ -188,7 +190,7 @@ export class SuctionRobotController implements RobotController {
 
   private enter(phase: RobotPhase, job: Transfer): void {
     const r=this.runtime, grip=this.ik.grip;
-    r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null; r.failures=0; r.retryWait=0; r.lineLock=null;
+    r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null; r.failures=0; r.retryWait=0; r.lineLock=null; r.phaseTime=0;
     r.planWait=0; r.approachAnalytic=false; r.approach=null; r.approachAge=0;
     // Contact phases may dip the upper arm below horizontal (box passing close to the base); LIFT climbs out of it.
     this.ik.setContactMode(phase==="GRASP"||phase==="ATTACH"||phase==="LIFT");
@@ -448,10 +450,10 @@ export class SuctionRobotController implements RobotController {
   }
 
   /** Give an un-picked job back to the factory (box keeps moving, slot is released). */
-  private abandon(job: Transfer): void {
+  private abandon(job: Transfer, reason="HOME · 경로 반복 실패로 작업 반환"): void {
     const r=this.runtime;
     this.cargo.delete(job.box);job.onMiss?.();r.index++;r.phase="HOME";r.pose=null;r.planning=null;r.recovery=null;r.failures=0;
-    this.options.onProgress?.(r.index,"HOME · 경로 반복 실패로 작업 반환");
+    this.options.onProgress?.(r.index,reason);
   }
 
   private release(job: Transfer, delta: number): void {
@@ -529,6 +531,18 @@ export class SuctionRobotController implements RobotController {
         this.options.onProgress?.(r.index,"PRE_GRASP · 예상 접점이 도달 범위를 벗어남 · 작업 반환");
         this.abandon(job);return;
       }
+    }
+    r.phaseTime+=dt;
+    if(r.phaseTime>MOTION.approachTimeout&&job.box.parent!==ik.grip&&(r.phase==="PRE_GRASP"||r.phase==="GRASP")){
+      // The arm never got onto the box (IK/pose not solvable there): give the job back instead of freezing.
+      this.model.getWorldPosition(this.origin);
+      const d=Math.hypot(job.pickup.x-this.origin.x,job.pickup.z-this.origin.z);
+      this.abandon(job,`손이 닿지 않음: ${d.toFixed(2)} m · ${r.phase} ${MOTION.approachTimeout}s 동안 자세 해 없음 · 작업 반환`);return;
+    }
+    if(r.phaseTime>MOTION.approachTimeout&&job.box.parent===ik.grip&&r.phase==="LIFT"){
+      // Holding the box but the straight lift has no down-facing solution: continue with the carry planner.
+      this.options.onProgress?.(r.index,"LIFT 해 미발견 · 직선 상승 생략 · 운반 경로로 진행");
+      this.enter(this.transferMode==="base"?"TRANSIT":"SHOULDER_TRANSFER",job);return;
     }
     if(r.phase==="RELEASE"){this.release(job,dt);return;}
     if(r.transferPlanning&&["LIFT","SHOULDER_TRANSFER"].includes(r.phase)){

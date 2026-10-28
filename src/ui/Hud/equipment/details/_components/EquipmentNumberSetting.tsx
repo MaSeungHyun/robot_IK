@@ -5,8 +5,8 @@ import { DETAIL_INPUT_CLASS_NAME } from "@/ui/Hud/equipment/details/styles";
 import { useSceneStore } from "@/stores/useSceneStore";
 
 import {
-  amrSpeedOf, beltSpeedOf, fromBoxesPerHour, fromMetersPerMinute, spawnIntervalOf, speedPatch,
-  toBoxesPerHour, toMetersPerMinute,
+  amrSpeedOf, beltSpeedOf, fromBoxesPerHour, spawnIntervalOf, speedPatch,
+  toBoxesPerHour,
 } from "@/domain/simulation/equipmentSpeeds";
 import type { EquipmentSettings } from "@/types/layout";
 import { deckFeedIntervalOf, stackCapacityOf } from "@/constants/emptyPallet";
@@ -29,8 +29,8 @@ type Props = {
 };
 
 function read(field: Field, config: EquipmentSettings) {
-  // Display units: belt m/min, box feed boxes/h (stored as m/s and seconds).
-  if (field === "beltSpeed") return toMetersPerMinute(beltSpeedOf(config));
+  // Display units: belt m/s (as stored), box feed boxes/h (stored as seconds).
+  if (field === "beltSpeed") return beltSpeedOf(config);
   if (field === "amrSpeed") return amrSpeedOf(config);
   if (field === "spawnInterval") return toBoxesPerHour(spawnIntervalOf(config));
   if (field === "stackCapacity") return stackCapacityOf(config);
@@ -39,7 +39,7 @@ function read(field: Field, config: EquipmentSettings) {
 }
 
 function write(field: Field, value: number, config: EquipmentSettings): Partial<EquipmentSettings> {
-  if (field === "beltSpeed") return speedPatch(field, fromMetersPerMinute(value), config);
+  if (field === "beltSpeed") return speedPatch(field, value, config);
   if (field === "spawnInterval") return speedPatch(field, fromBoxesPerHour(value), config);
   if (field === "amrSpeed") return speedPatch(field, value, config);
   return { [field]: value };

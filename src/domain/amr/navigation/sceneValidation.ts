@@ -1,4 +1,5 @@
 import type { EquipmentSettings, SceneEquipment } from "@/types/layout";
+import { isDepalletizer } from "@/domain/robot/robotRole";
 import type { SceneLink } from "@/types/links";
 import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
 
@@ -21,17 +22,17 @@ export function validateScene(
     if (link.type !== "feed") continue;
     const belt = byId.get(link.from), amr = byId.get(link.to);
     if (belt?.kind !== "conveyor" || amr?.kind !== "amr") continue;
-    const pallets = settings[belt.id]?.conveyorRole === "inbound" && settings[belt.id]?.inboundUnit === "pallet";
+    const pallets = settings[belt.id]?.conveyorRole === "inbound";
     const boxAmr = settings[amr.id]?.amrCargo === "box";
     if (pallets && boxAmr) errors.push(`${belt.name}: 팔레트 입하 컨베이어는 팔레트 AMR만 연결할 수 있습니다 (${amr.name}은 박스 AMR).`);
     if (!pallets && !boxAmr) errors.push(`${belt.name}: 박스 컨베이어는 박스 AMR만 연결할 수 있습니다 (${amr.name}은 팔레트 AMR).`);
   }
 
   // Boxes on a pallet need a depalletizing robot: pallet-inbound lines without one cannot unload.
-  const depalletizer = objects.some((o) => o.kind === "robot" && settings[o.id]?.enabled !== false && settings[o.id]?.robotRole === "depalletize");
+  const depalletizer = objects.some((o) => o.kind === "robot" && settings[o.id]?.enabled !== false && isDepalletizer(settings[o.id]));
   for (const belt of objects) {
     if (belt.kind !== "conveyor" || settings[belt.id]?.enabled === false) continue;
-    if (settings[belt.id]?.conveyorRole === "inbound" && settings[belt.id]?.inboundUnit === "pallet" && !depalletizer)
+    if (settings[belt.id]?.conveyorRole === "inbound" && !depalletizer)
       errors.push(`${belt.name}: 팔레트 AMR이 실어 온 박스는 로봇이 하역해야 합니다 · 스캐너 라인 시작에 하역(depalletize) 로봇을 배치해 주세요.`);
   }
 

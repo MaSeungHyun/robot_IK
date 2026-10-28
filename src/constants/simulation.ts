@@ -101,6 +101,8 @@ export const ROBOT_PICKING = {
   pickLeadSeconds: 4,
   /** Box selection: predicted contact point must lie this far (m) inside the reach and before the belt end. */
   pickReachMargin: 0.15,
+  /** Arm feasibility: belt picks are only assigned within reach minus this (m); the IK cannot solve the last ~0.35 m (04: 2.67 m belt offset at reach 3 fails) with a down-facing tool. */
+  armReachMargin: 0.4,
   /** PRE_GRASP gives the job back early when the box will leave the pickup radius within this many sim seconds. */
   abortLeadSeconds: 2,
   /**

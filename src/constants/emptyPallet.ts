@@ -16,9 +16,10 @@ export const stackCapacityOf = (config: Settings) => Math.max(1, Math.round(conf
 export const deckFeedIntervalOf = (config: Settings) => Math.max(0.2, config?.deckFeedInterval ?? EMPTY_PALLET_DEFAULTS.deckFeedInterval);
 /** Belt allows AMR self-unload (default on). */
 export const selfUnloadOf = (config: Settings) => config?.selfUnload ?? true;
-/** AMR: a forklift lifts its emptied pallet off and stacks it (default) instead of the return line. */
-export const emptyByForkliftOf = (config: Settings) => (config?.emptyPallet ?? "forklift") === "forklift";
+/** AMR: a forklift always lifts its emptied pallet off and stacks it. The old "return" (return line) value was never
+ * modelled; saved layouts with it are migrated to forklift recovery, so this is always true. */
+export const emptyByForkliftOf = (_config: Settings) => true;
 /** Forklift role allows lifting empty pallets off AMRs onto the stack. */
 export const takesEmptyPallets = (config: Settings) => (config?.forkliftRole ?? "auto") !== "unload";
 /** Forklift role allows the other (non empty-return) jobs. */
-export const doesGeneralJobs = (config: Settings) => (config?.forkliftRole ?? "auto") !== "emptyReturn";
+export const doesGeneralJobs = (config: Settings) => !["supply", "emptyReturn"].includes(config?.forkliftRole ?? "auto");

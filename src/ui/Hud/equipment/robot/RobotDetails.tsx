@@ -12,10 +12,12 @@ import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/Equip
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useSceneStore } from "@/stores/useSceneStore";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { EQUIPMENT_REPORT_INTERVAL_MS, MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
 import { OPERATION_LABEL } from "@/domain/state/equipmentState";
 import { ROBOT_PEDESTAL_OPTIONS } from "@/constants/robotPedestal";
+import StopPointSetting from "@/ui/Hud/equipment/details/_components/StopPointSetting";
 
 const metric = (value: number | undefined, unit: string) => (
   <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
@@ -26,6 +28,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
     state.equipment?.robots.find((robot) => robot.id === object.id),
   );
   const telemetry = useEquipmentTelemetry(object.id);
+  const depalletizer = useSceneStore((state) => state.settings[object.id]?.robotRole === "depalletize");
 
   const status = robot ? (
     <RobotStatusBadge state={robot.state} />
@@ -88,25 +91,27 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
           />
           <EquipmentChoiceSetting
             id={object.id}
-            field="pickFilter"
-            label="집기 대상"
-            fallback="all"
+            field="robotRole"
+            label="작업"
+            fallback="palletize"
             options={[
-              { value: "all", label: "전체" },
-              { value: "normal", label: "정상품만" },
-              { value: "defect", label: "불량품만" },
+              { value: "depalletize", label: "적재 (팔레트 → 컨베이어, 미검수품)" },
+              { value: "palletize", label: "하역 (검수 박스 → 팔레트)" },
             ]}
           />
-  <EquipmentChoiceSetting
-          id={object.id}
-          field="robotRole"
-          label="작업"
-          fallback="palletize"
-          options={[
-            { value: "palletize", label: "적재 (컨베이어 → 팔레트)" },
-            { value: "depalletize", label: "하역 (하역 도크 팔레트 → 컨베이어)" },
-          ]}
-        />
+          {!depalletizer && (
+            <EquipmentChoiceSetting
+              id={object.id}
+              field="pickFilter"
+              label="하역 등급"
+              fallback="normal"
+              info="미지정(기존 레이아웃)은 등급 구분 없이 집습니다."
+              options={[
+                { value: "normal", label: "정상" },
+                { value: "defect", label: "불량" },
+              ]}
+            />
+          )}
           <EquipmentChoiceSetting
             id={object.id}
             field="robotPedestal"
@@ -114,6 +119,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
             fallback="none"
             options={ROBOT_PEDESTAL_OPTIONS}
           />
+          <StopPointSetting id={object.id} roles={["unload"]} />
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>
       }

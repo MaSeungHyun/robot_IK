@@ -10,7 +10,7 @@ import {
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import type { SceneEquipment } from "@/types/layout";
-import { beltSpeedOf, formatUnit, toMetersPerMinute } from "@/domain/simulation/equipmentSpeeds";
+import { beltSpeedOf, formatUnit } from "@/domain/simulation/equipmentSpeeds";
 
 type Props = {
   objects: SceneEquipment[];
@@ -73,7 +73,7 @@ const StaticEquipmentItem = memo(function StaticEquipmentItem({
       ? scanner && scanner.scanned > 0
         ? `검사 ${scanner.scanned}개 · 불량 ${((scanner.faults / scanner.scanned) * 100).toFixed(0)}%`
         : "검사 0개"
-      : `속도 ${formatUnit(toMetersPerMinute(speed ?? 0))} m/min`;
+      : `속도 ${formatUnit(speed ?? 0)} m/s`;
 
   return (
     <EquipmentCard

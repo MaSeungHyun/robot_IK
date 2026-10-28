@@ -33,7 +33,7 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
   const autoSpawn = useSceneStore((state) => state.settings[object.id]?.autoSpawn);
   const selfUnload = useSceneStore((state) => state.settings[object.id]?.selfUnload);
   const inbound = useSceneStore((state) => state.settings[object.id]?.conveyorRole === "inbound");
-  const palletUnit = useSceneStore((state) => state.settings[object.id]?.inboundUnit === "pallet");
+  const palletUnit = useSceneStore((state) => state.settings[object.id]?.conveyorRole === "inbound");
   const settings = useSceneStore((state) => state.settings);
   const links = useSceneStore((state) => state.links);
   // Receiving AMR for pallet infeed: a shuttle AMR with a pallet on its deck, linked (🔗 공급) or parked near the belt end.
@@ -81,7 +81,7 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
       ]} />
     } settings={
       <DetailSection title="컨베이어 설정">
-        <EquipmentNumberSetting id={object.id} field="beltSpeed" label="연결 컨베이어 속도" unit="m/min" {...SPEED_LIMITS.beltSpeed} />
+        <EquipmentNumberSetting id={object.id} field="beltSpeed" label="연결 컨베이어 속도" unit="m/s" {...SPEED_LIMITS.beltSpeed} />
         <EquipmentChoiceSetting
           id={object.id}
           field="conveyorRole"
@@ -99,17 +99,7 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
         {shipNoRobot && <p style={{ color: "#f59e0b" }}>⚠ 박스 출하 컨베이어에는 로봇이 필요합니다. 로봇이 팔레트에서 박스를 내려 올리도록 컨베이어 옆(도달 거리 안)에 로봇을 배치하세요.</p>}
         {noRobot && <p style={{ color: "#f59e0b" }}>⚠ 입하 흐름에 로봇이 없습니다. 입하 박스·팔레트는 반드시 로봇을 거쳐야 합니다. 로봇을 배치하고 연결하세요.</p>}
         {inbound && (
-          <EquipmentChoiceSetting
-            id={object.id}
-            field="inboundUnit"
-            label="투입 방식"
-            fallback="box"
-            options={[
-              { value: "box", label: "박스 투입" },
-              { value: "pallet", label: "팔레트 투입 (빈 AMR이 끝에서 받음)" },
-            ]}
-            info={palletUnit ? "적재 팔레트가 투입 간격마다 생성되어 컨베이어 끝(스토퍼)까지 이동합니다. AMR이 받는 위치에서 롤러로 넘겨받고, 다음 AMR은 앞 AMR이 작업을 마치고 받는 위치를 벗어난 뒤에 출발해 같은 각도로 정렬합니다. 받을 AMR이 없으면 스토퍼에서 컨베이어와 생성이 멈추고 뒤 팔레트도 간격을 두고 정지합니다. 받은 팔레트는 스캐너 라인 시작 로봇으로 운반되어 반드시 스캐너를 거칩니다." : "박스가 투입 간격마다 컨베이어에 생성됩니다."}
-          />
+          <p className="text-xs text-slate-500">입하는 적재 팔레트 단위로만 들어옵니다 (스캐너는 박스 단위 검사라 팔레트를 로봇이 풀어 올림).{" "}{palletUnit ? "적재 팔레트가 투입 간격마다 생성되어 컨베이어 끝(스토퍼)까지 이동합니다. AMR이 받는 위치에서 롤러로 넘겨받고, 다음 AMR은 앞 AMR이 작업을 마치고 받는 위치를 벗어난 뒤에 출발해 같은 각도로 정렬합니다. 받을 AMR이 없으면 스토퍼에서 컨베이어와 생성이 멈추고 뒤 팔레트도 간격을 두고 정지합니다. 받은 팔레트는 스캐너 라인 시작 로봇으로 운반되어 반드시 스캐너를 거칩니다." : ""}</p>
         )}
         {inbound && palletUnit && (
           <p style={{ color: receiver ? undefined : "#f59e0b" }}>

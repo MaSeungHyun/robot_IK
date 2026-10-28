@@ -16,6 +16,7 @@ export type PickFilter="all"|CargoGrade;
 export type RackStorageMode="pallet"|"boxes"|"both";
 /** One rack slot's initial contents: an empty pallet (boxes 0), a loaded pallet, or loose boxes on the shelf (pallet false). */
 export type RackSlotContent={slot:number;pallet:boolean;boxes:number};
+export type StopRole = "unload"|"service"|"ship"|"stage"|"rackDrop";
 export type DockAcceptGrade="any"|CargoGrade;
 export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** Conveyor inlet: seconds between boxes (real time once `beltSpeed` is set; legacy = scaled by `speed`). */
@@ -51,7 +52,7 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
    * a forklift lifts it off the AMR and stacks it on the empty-pallet source, then the AMR goes empty for the next pallet; "return" = it rolls off to the
    * return line at the AMR's home; "forklift" = the cell's service forklift lifts it off the AMR at the unload dock and stacks it
    * on the empty-pallet source (palletSource dock), then the AMR goes back for the next loaded pallet. */
-  emptyPallet?:"return"|"forklift";
+  emptyPallet?:"forklift"|"return"; // "return" = legacy, treated as "forklift"
   /** Shuttle AMR only: "mounted" (default) = starts with the pallet on its deck; "forklift" = starts empty and a service
    *  forklift places a pallet from the empty-pallet source (works without a mounted pallet object's position). */
   initialPallet?:"mounted"|"forklift";
@@ -79,6 +80,9 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** Pallet-inbound conveyor only: 셔틀 구역 — floor points where the receiving AMR takes the pallet when no unload stage
    * takes it directly (instead of its own home). Several allowed; the nearest free one is used. */
   shuttleZones?:{x:number;z:number}[];
+  /** Robot/forklift/AGV/AMR: floor-click stop points (replace placed docks): unload = 하역, service = 교체, stage = 출하 대기,
+   * rackDrop = Rack_m 하차, ship = 출고. The sim turns each into a virtual dock (domain/layout/stopPoints). */
+  stopPoints?:{role:StopRole;x:number;z:number;yaw:number;acceptGrade?:DockAcceptGrade}[];
   /** Conveyor role (rail.glb as is): "box" spawns boxes (default), "inbound" = 입하 box feed, "fed" = boxes only come from
    * a depalletizing robot (no spawning), "outbound" = 출하 pallet conveyor (an AMR's top roller hands its pallet over). */
   conveyorRole?:ConveyorRole;

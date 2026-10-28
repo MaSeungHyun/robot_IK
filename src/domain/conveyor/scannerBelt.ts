@@ -9,6 +9,7 @@
 import { SCAN_TUNNEL_MODEL as T } from "@/constants/modelPoints.generated";
 import { CONVEYOR_LAYOUT as C, SCANNER_FLOW_YAW } from "@/constants/conveyorLayoutConfig";
 import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
+import { isDepalletizer } from "@/domain/robot/robotRole";
 import type { ConveyorTurn, EquipmentPose, EquipmentSettings, SceneEquipment } from "@/types/layout";
 
 /** A rail end/start this close to the tunnel entry/exit (and heading the same way) joins the tunnel belt. */
@@ -69,7 +70,7 @@ export function withScannerBelts(objects: SceneEquipment[], getSettings: () => R
     const outlet = belts.find((b) => { const s = beltPoint(b, 0); return aligned(s.yaw, end.yaw) && near(s, end, SCANNER_JOIN_REACH); });
     if (outlet) { const s = beltPoint(outlet, 0); end = { x: s.x, z: s.z, yaw: end.yaw }; }
     const length = Math.hypot(end.x - start.x, end.z - start.z);
-    const depalletizer = objects.some((o) => o.kind === "robot" && base[o.id]?.robotRole === "depalletize" && Math.min(...[0, 0.5, 1].map((f) => Math.hypot(o.x - (start.x + (end.x - start.x) * f), o.z - (start.z + (end.z - start.z) * f)))) <= (base[o.id]?.reach ?? 2.5) + 1);
+    const depalletizer = objects.some((o) => o.kind === "robot" && isDepalletizer(base[o.id]) && Math.min(...[0, 0.5, 1].map((f) => Math.hypot(o.x - (start.x + (end.x - start.x) * f), o.z - (start.z + (end.z - start.z) * f)))) <= (base[o.id]?.reach ?? 2.5) + 1);
     starts.set(scanner.id, !feeder && !depalletizer);
     extra.push({ id: scannerBeltId(scanner.id), kind: "conveyor", name: `${scanner.name} 벨트`, x: (start.x + end.x) / 2, z: (start.z + end.z) / 2, yaw: scannerFlowYaw(scanner), conveyorLength: length });
   }

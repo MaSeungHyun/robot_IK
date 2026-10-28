@@ -11,8 +11,10 @@ export const SPEED_LIMITS = {
 
 /**
  * Display units (storage/simulation stay m/s and seconds; convert only on display and commit):
- * conveyor speed in m/min, box feed as throughput in boxes/h.
+ * conveyor speed in m/s (as stored), box feed as throughput in boxes/h.
  */
+/** Belt speed of a newly placed conveyor (m/s); templates/saved scenes keep their own (legacy default 0.25 m/s). */
+export const DEFAULT_BELT_SPEED = 1;
 export const toMetersPerMinute = (metersPerSecond: number) => metersPerSecond * 60;
 export const fromMetersPerMinute = (metersPerMinute: number) => metersPerMinute / 60;
 export const toBoxesPerHour = (intervalSeconds: number) => 3600 / intervalSeconds;
@@ -37,7 +39,7 @@ export function beltSpeedOf(config: Config) {
 export function unrealisticWarning(kind: EquipmentKind | undefined, values: Partial<EquipmentSettings>): string | null {
   const notes: string[] = [];
   if (values.beltSpeed !== undefined && values.beltSpeed > REALISTIC.beltSpeed)
-    notes.push(`컨베이어 속도 ${formatUnit(toMetersPerMinute(values.beltSpeed))} m/min (> ${toMetersPerMinute(REALISTIC.beltSpeed)} m/min): 박스가 구간/로봇 판정을 건너뛸 수 있습니다`);
+    notes.push(`컨베이어 속도 ${formatUnit(values.beltSpeed)} m/s (> ${REALISTIC.beltSpeed} m/s): 박스가 구간/로봇 판정을 건너뛸 수 있습니다`);
   if (values.spawnInterval !== undefined && kind === "conveyor" && values.spawnInterval < REALISTIC.minSpawnInterval)
     notes.push(`박스 투입량 ${formatUnit(toBoxesPerHour(values.spawnInterval))} 개/h (> ${toBoxesPerHour(REALISTIC.minSpawnInterval)} 개/h): 박스가 과도하게 쌓여 느려질 수 있습니다`);
   if (values.amrSpeed !== undefined && values.amrSpeed > REALISTIC.amrSpeed)
@@ -70,10 +72,40 @@ export function amrSpeedOf(config: Config) {
 export const amrSpeedFactor = (config: Config) => amrSpeedOf(config) / SIMULATOR_CONFIG.amrSpeed;
 
 /**
+ * Simplified options (old layouts/templates keep behaving the same):
+ * - robot: old 하역(depalletize) + 정상/불량 filter was really a belt → pallet picker → palletize with that grade.
+ *   Depalletizers (pallet → belt, unscanned boxes) drop pickFilter; palletize "all" is dropped (unset = legacy any-grade).
+ * - amr: box AMRs → pallet AMRs; boxUnload/emptyPallet removed (empties always go to a forklift);
+ *   forkliftRole emptyReturn merged into supply (빈 팔레트 전담).
+ * - conveyor: inbound always carries pallets. rack: rackStorage removed (full pallets only). pallet: default capacity 4.
+ */
+function migrateSimplified(kind: EquipmentKind, input: EquipmentSettings): EquipmentSettings {
+  const config = { ...input };
+  if (kind === "robot") {
+    const filter = config.pickFilter;
+    if (config.robotRole === "depalletize" && (filter === "normal" || filter === "defect")) config.robotRole = "palletize";
+    if (config.robotRole === "depalletize" || filter === "all") delete config.pickFilter;
+  }
+  if (kind === "amr") {
+    if (config.amrCargo === "box") config.amrCargo = "pallet";
+    delete config.boxUnload;
+    delete config.emptyPallet;
+    if (config.forkliftRole === "emptyReturn") config.forkliftRole = "supply";
+  }
+  if (kind === "conveyor" && config.conveyorRole === "inbound") config.inboundUnit = "pallet";
+  if (kind === "rack") delete config.rackStorage;
+  if (kind === "pallet" && (config.capacity === undefined || config.capacity === 40)) config.capacity = 4;
+  return config;
+}
+
+/**
  * Converts legacy multiplier settings to real units with identical behavior:
  * conveyor speed × → beltSpeed m/s and interval in real seconds; AMR speed × → amrSpeed m/s.
  */
 export function migrateSettings(kind: EquipmentKind, config: EquipmentSettings): EquipmentSettings {
+  config = migrateSimplified(kind, config);
+  // Legacy forklift role "rack" (old layouts) = forklift; the forklift panel only knows "forklift".
+  if (kind === "amr" && config.amrRole === "rack") config = { ...config, amrRole: "forklift" };
   if (kind === "conveyor" && config.beltSpeed === undefined)
     return { ...config, beltSpeed: beltSpeedOf(config), spawnInterval: spawnIntervalOf(config), speed: 1 };
   if (kind === "amr" && config.amrSpeed === undefined)

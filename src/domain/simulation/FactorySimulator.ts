@@ -13,7 +13,7 @@ import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
 import type { EquipmentSnapshot } from "@/types/simulation";
 import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING, CONVEYOR_STOPPER_CONTACT } from "@/constants/simulation";
-import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY } from "@/constants/simulatorLayout";
+import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY, SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
 import { amrSpeedFactor, autoSpawns, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
 import { RACK_CONFIG, rackApproachPoint, rackFacePoint, rackHeading, rackSlotPoint, rackStandoff } from "@/constants/rack";
@@ -25,7 +25,7 @@ import { AMRTrafficController, type TrafficBody, type TrafficPlanner } from "@/d
 import type { DispatchRoutes } from "@/domain/amr/PalletDispatchController";
 import { layoutPath, routeFailureReason } from "@/domain/amr/navigation/layoutNavigation";
 import { robotArmState, vehicleState } from "@/domain/state/equipmentState";
-import { deckFeedIntervalOf, doesGeneralJobs, emptyByForkliftOf, selfUnloadOf, stackCapacityOf, takesEmptyPallets } from "@/constants/emptyPallet";
+import { deckFeedIntervalOf, doesGeneralJobs, selfUnloadOf, stackCapacityOf, takesEmptyPallets } from "@/constants/emptyPallet";
 import { CYCLE_CONFIG } from "@/constants/cycle";
 import type { NavigationObstacle } from "@/domain/amr/navigation/layoutNavigation";
 import {
@@ -52,7 +52,9 @@ import { isPalletInbound, palletFeeds, receivePose } from "@/domain/cycle/pallet
 import { createPalletModel } from "@/lib/three/palletModel";
 import { planStack } from "@/domain/pallet/packing/stacking";
 import { scannerBeltId, scannerEntry, scannerExit, withScannerBelts } from "@/domain/conveyor/scannerBelt";
-import { withRobotStops } from "@/domain/layout/robotStops";
+import { ROBOT_STOP_PREFIX, withRobotStops } from "@/domain/layout/robotStops";
+import { remapStopLinks, withStopPoints } from "@/domain/layout/stopPoints";
+import { isDepalletizer } from "@/domain/robot/robotRole";
 
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
 function mulberry32(seed: number) {
@@ -95,6 +97,8 @@ export type FactoryRobot = {
   status: string;
   count: number;
   busySeconds: number;
+  /** Why an idle robot takes nothing (e.g. the box is out of the arm's feasible reach). */
+  warning?: string;
 };
 const PALLET_FEED_GAP = 0.3;
 /** AMRs booked onto one unload dock at a time: the next one is sent only after the previous has unloaded and driven clear. */
@@ -152,6 +156,8 @@ type UnloadLoad = { dock: SceneEquipment; group: Group; boxes: Cargo[]; palletId
 /** AMR self-unload: seconds of sim time between boxes rolled off the deck onto the belt start (fixed: speed-independent). */
 const EMPTY_PICK_WAIT = "지게차 대기 · 빈 팔레트를 내려줄 지게차가 없습니다.";
 const EMPTY_PICK_NO_FORKLIFT = "빈 팔레트 회수 지게차 없음 · AMR이 빈 팔레트를 실은 채 대기";
+/** Id prefix of a forklift's floor empty-pallet stack (no palletSource dock in the layout). */
+const FLOOR_STACK = "emptyfloor:";
 const EMPTY_PICK_NO_STACK = "빈 팔레트 적치장 없음 · AMR이 빈 팔레트를 실은 채 대기";
 /** AMR self-unload: stop pose distance (m) back from the belt start. */
 const DECK_FEED_GAP = 1.2;
@@ -327,9 +333,12 @@ export class FactorySimulator {
     this.auto = autoConnect;
     // Free-standing ScanTunnel scanners run boxes on their own belt (sim-only conveyor; see scannerBelt.ts).
     ({ objects, getSettings } = withScannerBelts(objects, getSettings));
+    // Floor-click stop points (하역/교체/출고/출하 대기/Rack_m 하차) of robots, forklifts and AMRs become sim docks.
+    ({ objects, getSettings } = withStopPoints(objects, getSettings, links));
     // No unload dock needed: AMRs stop at a reachable free pose next to the depalletizing robot itself.
     ({ objects, getSettings } = withRobotStops(objects, getSettings));
-    this.links = new LinkIndex(links);
+    this.layoutObjects = objects;
+    this.links = new LinkIndex(remapStopLinks(links, objects));
     this.rackRandom = mulberry32(sceneSeed(objects));
     // Seeded from the layout and timed by the sim clock: identical scan results/signals at every speed and run.
     this.inspection = new ScannerInspection(getSettings, random ?? mulberry32(sceneSeed(objects) ^ 0x5ca11e7), () => this.elapsed);
@@ -342,7 +351,7 @@ export class FactorySimulator {
     for (const object of objects) {
       if (owned?.has(object.id)) continue;
       if (object.kind === "robot") {
-        const unloading = this.settings()[object.id]?.robotRole === "depalletize";
+        const unloading = isDepalletizer(this.settings()[object.id]);
         const robot: FactoryRobot = {
           object,
           jobs: [],
@@ -493,7 +502,9 @@ export class FactorySimulator {
       for (const dock of objects)
         if (dock.kind === "dock" && this.settings()[dock.id]?.dockRole === "palletSource") this.emptyStacks.push({ dock, pallets: [] });
   }
-  /** Simulator-owned empty pallet stacks (palletSource docks, only without the pallet cycle). */
+  /** Equipment of the run (incl. sim-only scanner belts / robot stops): a floor empty stack keeps clear of it. */
+  private layoutObjects: SceneEquipment[] = [];
+  /** Simulator-owned empty pallet stacks (palletSource docks, only without the pallet cycle; plus forklift floor stacks). */
   private readonly emptyStacks: { dock: SceneEquipment; pallets: Group[] }[] = [];
   /** Empty pallets put back on a stack (simulator or cycle source), and stacked empties reused for a station. */
   emptyRecycled = 0;
@@ -628,7 +639,7 @@ export class FactorySimulator {
     if (!targets.length) return "스캐너 없음 · 팔레트 AMR이 갈 다음 단계가 없습니다";
     const parts = targets.map((sc) => {
       const entry = scannerEntry(sc), exit = scannerExit(sc);
-      const robots = this.robots.filter((r) => settings[r.object.id]?.robotRole === "depalletize");
+      const robots = this.robots.filter((r) => isDepalletizer(settings[r.object.id]));
       const near = robots.map((r) => ({ r, d: Math.hypot(r.object.x - entry.x, r.object.z - entry.z), e: Math.hypot(r.object.x - exit.x, r.object.z - exit.z) })).sort((a, b) => a.d - b.d)[0];
       const reach = (near ? settings[near.r.object.id]?.reach ?? 2.5 : 2.5) - ROBOT_PICKING.pickReachMargin;
       const where = !near ? "하역 로봇 없음" : near.e < near.d ? `${near.r.object.name}이(가) 출구 쪽에 있음(입구까지 ${near.d.toFixed(1)} m)` : `가장 가까운 ${near.r.object.name} 입구까지 ${near.d.toFixed(1)} m`;
@@ -1076,6 +1087,8 @@ export class FactorySimulator {
       cargo: this.cargo,
       elapsed: () => this.elapsed,
       settings: this.settings,
+      emptyReturnTo: (amrId) => this.links.outgoing(amrId, "emptyReturn"),
+      autoConnect: this.auto,
       plan: (from, to, loaded, extra) =>
         this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r }))),
       render: (group) => this.render(group),
@@ -1212,9 +1225,9 @@ export class FactorySimulator {
   unloaded = 0;
   /** What each filled slot holds (pallet-in = "pallet"/"palletBoxes", loose boxes on the shelf = "boxes"). */
   private rackContent = new Map<string, ("pallet" | "palletBoxes" | "boxes" | undefined)[]>();
-  /** Rack takes whole pallets in (rackStorage "pallet" default or "both"); "boxes" racks only hold loose boxes. */
-  private acceptsPallets(rack: SceneEquipment) {
-    return (this.settings()[rack.id]?.rackStorage ?? "pallet") !== "boxes";
+  /** Every rack takes whole (full) pallets in; the rackStorage option was removed. */
+  private acceptsPallets(_rack: SceneEquipment) {
+    return true;
   }
   /** Initial slot contents (settings.rackContents): static stored pallets / loose boxes, stacked with the pallet stacking layout. */
   private seedRackContents(rack: SceneEquipment) {
@@ -1546,7 +1559,21 @@ export class FactorySimulator {
           nearGrades.push(pickGrades[i]);
         }
       }
-      if (!nearBoxes.length) continue;
+      const reachArm = config.reach - ROBOT_PICKING.armReachMargin;
+      if (!nearBoxes.length) {
+        // A box for this robot (feed belt, grade) waiting just outside the reach: say how far, not "waiting".
+        let near = Infinity;
+        for (let i = 0; i < pickBoxes.length; i++) {
+          const box = pickBoxes[i];
+          if ((feed && !feed.has(box.belt.id)) || ((config.pickFilter ?? "all") !== "all" && pickGrades[i] !== config.pickFilter)) continue;
+          near = Math.min(near, distance(robot.object, box.node.position));
+        }
+        robot.warning = near <= config.reach + 1
+          ? `손이 닿지 않음: ${near.toFixed(2)} m, 로봇을 ${Math.max(0.05, near - reachArm).toFixed(2)} m 더 가까이`
+          : undefined;
+        continue;
+      }
+      let tooFar = Infinity;
       const filter = config.pickFilter ?? "all";
       // Grades that have a pallet within this robot's reach. With the "all" filter a box
       // goes to a pallet of its own grade when one exists, otherwise to any pallet (legacy).
@@ -1573,12 +1600,9 @@ export class FactorySimulator {
         for (let n = 0; n < nearBoxes.length; n++) {
           const box = nearBoxes[n], boxGrade = nearGrades[n];
           // Non-matching boxes are left on the belt and continue downstream.
+          // Strict grade separation: box grade = robot filter (when set) = pallet grade. Others stay on the belt.
           if (filter !== "all" && boxGrade !== filter) continue;
-          if (
-            boxGrade !== grade &&
-            (filter !== "all" || reachable.has(boxGrade))
-          )
-            continue;
+          if (boxGrade !== grade) continue;
           const speed = box.speed ?? beltSpeedOf(settings[box.belt.id]);
           // Where the box will be at contact (approach + descent). A box that will have left the reach or the
           // belt (reserved boxes stop at its end and are then given up) by then is left for downstream.
@@ -1593,13 +1617,20 @@ export class FactorySimulator {
             ? beltPoint(nextBelt, Math.min(contactDistance - beltLength(box.belt), beltLength(nextBelt)))
             : beltPoint(box.belt, contactDistance);
           this.point.set(predicted.x, box.node.position.y, predicted.z);
-          if (distance(robot.object, this.point) > config.reach - ROBOT_PICKING.pickReachMargin) continue;
+          if (distance(robot.object, this.point) > reachArm) {
+            // Within the nominal reach but past what the arm can solve: warn instead of freezing on the pick.
+            if (distance(robot.object, this.point) <= config.reach) tooFar = Math.min(tooFar, distance(robot.object, this.point));
+            continue;
+          }
           this.assign(robot, pallet, slot, box);
           assigned = true;
           break;
         }
         if (assigned) break;
       }
+      robot.warning = assigned || !Number.isFinite(tooFar)
+        ? undefined
+        : `손이 닿지 않음: ${tooFar.toFixed(2)} m, 로봇을 ${Math.max(0.05, tooFar - reachArm).toFixed(2)} m 더 가까이`;
     }
     for (const vehicle of this.trafficVehicles) {
       vehicle.speed = amrSpeedFactor(settings[vehicle.id]);
@@ -1784,7 +1815,9 @@ export class FactorySimulator {
       yaw: pallet.object.yaw,
       velocity: new Vector3(),
       available: () =>
-        box.state === "reserved" && box.distance < beltLength(box.belt),
+        // A reserved box that stopped (stopper / queue) outside the reach never comes back: give it up.
+        box.state === "reserved" && box.distance < beltLength(box.belt)
+        && !(box.speed === 0 && distance(robot.object, box.node.position) > (this.settings()[robot.object.id]?.reach ?? SIMULATOR_CONFIG.reach)),
       onPick: () => {
         box.state = "held";
         if (this.feedBoxIds.delete(box.id)) this.feedScan.unscanned++;
@@ -1995,6 +2028,7 @@ export class FactorySimulator {
     const accepting = this.linkedOrAll([...this.docks, ...this.racks, ...this.unloadDocks, ...this.outboundBelts], this.links.outgoing(pallet.object.id, "deliver"), (d) => d.id).filter((dock) => {
       const config = settings[dock.id],
         accepts = config.acceptGrade ?? "any";
+      // Depalletizing robots (적재) take any pallet: they feed unscanned boxes to the scanner line, no grade.
       return config.enabled && (accepts === "any" || accepts === grade);
     });
     if (!this.auto && !this.links.outgoing(pallet.object.id, "deliver").length) {
@@ -2293,11 +2327,37 @@ export class FactorySimulator {
     const cycle = this.cycle?.emptyStackDrop(at, linked);
     if (cycle) return cycle;
     const gap = (s: { dock: SceneEquipment }) => Math.hypot(s.dock.x - at.x, s.dock.z - at.z);
-    const linkedStacks = this.emptyStacks.filter((s) => linked.includes(s.dock.id));
-    const stack = (linkedStacks.length ? linkedStacks : this.emptyStacks).reduce<(typeof this.emptyStacks)[number] | null>((best, s) => (!best || gap(s) < gap(best) ? s : best), null);
+    const docks = this.emptyStacks.filter((s) => !s.dock.id.startsWith(FLOOR_STACK));
+    const linkedStacks = docks.filter((s) => linked.includes(s.dock.id));
+    const stack = (linkedStacks.length ? linkedStacks : docks).reduce<(typeof this.emptyStacks)[number] | null>((best, s) => (!best || gap(s) < gap(best) ? s : best), null);
     if (!stack) return null;
     const level = Math.min(stack.pallets.length, stackCapacityOf(this.settings()[stack.dock.id]) - 1);
     return { point: new Vector3(stack.dock.x, level * STREAM_CONFIG.palletHeight, stack.dock.z), id: stack.dock.id };
+  }
+  /** No empty-pallet stack in the layout: the forklift stacks empties on the floor next to its home (first clear spot it
+   * can reach loaded), created once per forklift and kept for the run. */
+  private floorStack(forklift: FactoryForkliftAgent): { point: Vector3; id: string } | null {
+    const id = `${FLOOR_STACK}${forklift.object.id}`;
+    let stack = this.emptyStacks.find((s) => s.dock.id === id);
+    if (!stack) {
+      const home = forklift.controller.home;
+      const clear = (x: number, z: number) =>
+        this.layoutObjects.every((o) => o.kind === "floor" || o.kind === "amr" || o.kind === "pallet" || Math.hypot(o.x - x, o.z - z) > 2.5);
+      search: for (const r of [3, 4.5, 6])
+        for (let i = 0; i < 8; i++) {
+          const a = forklift.object.yaw + Math.PI + (i * Math.PI) / 4;
+          const point = new Vector3(home.x + Math.sin(a) * r, 0, home.z + Math.cos(a) * r);
+          if (!clear(point.x, point.z) || !this.forkliftRoute(home, point, true)) continue;
+          const dock: SceneEquipment = { id, kind: "dock", name: `${forklift.object.name} 빈 팔레트 적치(바닥)`, x: point.x, z: point.z, yaw: forklift.object.yaw };
+          stack = { dock, pallets: [] };
+          this.emptyStacks.push(stack);
+          log("info", `빈 팔레트 적치장 없음 · ${forklift.object.name} 옆 바닥에 쌓습니다`, `(${point.x.toFixed(1)}, ${point.z.toFixed(1)})`);
+          break search;
+        }
+      if (!stack) return null;
+    }
+    const level = Math.min(stack.pallets.length, stackCapacityOf(this.settings()[id]) - 1);
+    return { point: new Vector3(stack.dock.x, level * STREAM_CONFIG.palletHeight, stack.dock.z), id };
   }
   /** Forklift job "takeEmptyFromAmr": emptied pallet off a waiting AMR's deck onto the empty-pallet stack; the AMR is then free
    * (empty) for the next inbound pallet. Without a forklift the AMR keeps waiting (warning once); nothing moves by itself. */
@@ -2305,27 +2365,12 @@ export class FactorySimulator {
     for (const pick of [...this.emptyPicks]) {
       if (pick.started) continue;
       const { agent, pallet } = pick;
-      if (!emptyByForkliftOf(settings[agent.object.id])) {
-        // AMR setting "반송 라인": the pallet rolls off to the return line (not modelled).
-        this.emptyPicks.splice(this.emptyPicks.indexOf(pick), 1);
-        this.unrender(pallet);
-        pallet.removeFromParent();
-        pick.taken();
-        log("info", `${agent.object.name}: 빈 팔레트 반송 라인`);
-        continue;
-      }
       const at = pallet.getWorldPosition(new Vector3());
       // Link decides (🔗 빈 팔레트 회수: AMR → forklift / stack), else the nearest one.
       const linked = this.links.outgoing(agent.object.id, "emptyReturn");
       if (!linked.length && !this.auto) {
         agent.waitingReason = noLink("빈 팔레트 반납");
         this.warnOnce(agent.waitingReason, agent.object.name);
-        continue;
-      }
-      const drop = this.emptyDrop(at, linked);
-      if (!drop) {
-        agent.waitingReason = EMPTY_PICK_NO_STACK;
-        this.warnOnce(EMPTY_PICK_NO_STACK, agent.object.name);
         continue;
       }
       const linkedForklifts = this.forkliftAgents.filter((f) => linked.includes(f.object.id));
@@ -2335,11 +2380,25 @@ export class FactorySimulator {
         this.warnOnce(EMPTY_PICK_NO_FORKLIFT, agent.object.name);
         continue;
       }
-      const forklift = able
-        .filter((f) => f.controller.idle)
-        .sort((a, b) => distance(a.controller.carrier.position, at) - distance(b.controller.carrier.position, at))[0];
+      // Nearest by forklift route (dedicated emptyReturn forklifts first); a busy nearest one is waited for instead of
+      // sending a far idle forklift across the floor.
+      const reach = (f: (typeof able)[number]) => {
+        const path = this.forkliftRoute(f.controller.carrier.position, at, false);
+        return (!doesGeneralJobs(settings[f.object.id]) ? 0 : 1e6) + Math.min(path ? pathLength(path) : Infinity, 1e5) + distance(f.controller.carrier.position, at) * 1e-3;
+      };
+      const nearest = able.reduce((best, f) => (reach(f) < reach(best) ? f : best));
+      const forklift = nearest.controller.idle ? nearest : null;
       if (!forklift) {
         agent.waitingReason = EMPTY_PICK_WAIT;
+        continue;
+      }
+      // Stack: AMR link / the forklift's own 🔗 palletSource, else the nearest stack, else the forklift's floor stack.
+      const dropLinks = [...linked, ...this.links.outgoing(forklift.object.id, "emptyReturn")];
+      const dropFor = () => this.emptyDrop(at, dropLinks) ?? this.floorStack(forklift);
+      const drop = dropFor();
+      if (!drop) {
+        agent.waitingReason = EMPTY_PICK_NO_STACK;
+        this.warnOnce(EMPTY_PICK_NO_STACK, agent.object.name);
         continue;
       }
       let released = false;
@@ -2356,7 +2415,8 @@ export class FactorySimulator {
             pick.taken();
             agent.waitingReason = null;
           }
-          return this.aroundTargets(this.emptyDrop(at, linked)?.point ?? drop.point, drop.id);
+          const now = dropFor() ?? drop;
+          return this.aroundTargets(now.point, now.id);
         },
         store: (payload) => {
           this.emptyPicked++;
@@ -3055,7 +3115,7 @@ export class FactorySimulator {
           : robot.busy
             ? "working"
             : "idle",
-        status: robot.busy ? robot.status : "범위 내 박스 대기",
+        status: robot.busy ? robot.status : robot.warning ?? "범위 내 박스 대기",
       })).map((row) => ({ ...row, category: "robotArm" as const, operation: robotArmState(row.state, row.status).state })),
       agents: [...this.agents.map((agent): AgentRow => ({
         id: agent.object.id,

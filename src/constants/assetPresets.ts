@@ -4,6 +4,8 @@ import type { EquipmentKind, EquipmentSettings } from "@/types/layout";
 export type AssetPreset = {
   id: string;
   label: string;
+  /** Flyout section title (grouped in order of first appearance). */
+  section?: string;
   description: string;
   /** Applied on top of the default settings when the object is placed. */
   settings?: Partial<EquipmentSettings>;
@@ -58,28 +60,21 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
     kind: "amr",
     icon: "Truck",
     presets: [
-      { id: "default", label: "기본", description: "완성 팔레트를 출고 구역·랙으로 운반합니다." },
-      { id: "forklift", label: "지게차", description: "포크로 랙의 팔레트를 들어 꺼내 문 밖으로 반출합니다.", settings: { amrRole: "forklift" } },
-      { id: "shuttle", label: "셔틀 AMR", description: "팔레트를 싣고 로봇 적재 위치와 서비스 도크를 오갑니다. 에디터에서 팔레트를 AMR 위에 놓으면 장착됩니다.", settings: { amrRole: "shuttle" }, thumbnail: "shuttle" },
-      { id: "boxAmr", label: "박스 AMR", description: "낱개 박스를 싣고 박스 컨베이어에서만 받습니다.", settings: { amrCargo: "box" } },
-      { id: "agv", label: "AGV (Rack_m 운반)", description: "Rack_m 아래로 들어가 들어 올려 랙 구역으로 옮깁니다.", settings: { amrRole: "agv" }, thumbnail: "agv" },
-      { id: "serviceForklift", label: "서비스 지게차", description: "셔틀의 적재 팔레트를 Rack_m에 싣고 빈 팔레트를 셔틀에 올립니다.", settings: { amrRole: "forklift", forkliftTask: "service" } },
-      { id: "rackForklift", label: "랙 지게차", description: "Rack_m의 팔레트를 랙에 보관하고 랙에서 출하 스테이지로 꺼냅니다.", settings: { amrRole: "forklift", forkliftTask: "rack" } },
-      { id: "carrierForklift", label: "운반 지게차", description: "포크 앞 팔레트를 든 채 로봇 적재를 받고, 다 차면 하역 로봇 옆으로 운반한 뒤 빈 팔레트를 되가져옵니다.", settings: { amrRole: "forklift", forkliftTask: "carrier" } },
+      { id: "default", section: "AMR", label: "기본", description: "완성 팔레트를 출고 구역·랙으로 운반합니다." },
+      { id: "shuttle", section: "AMR", label: "셔틀 AMR", description: "팔레트를 싣고 로봇 적재 위치와 서비스 도크를 오갑니다. 에디터에서 팔레트를 AMR 위에 놓으면 장착됩니다.", settings: { amrRole: "shuttle" }, thumbnail: "shuttle" },
+      { id: "boxAmr", section: "AMR", label: "박스 AMR", description: "낱개 박스를 싣고 박스 컨베이어에서만 받습니다.", settings: { amrCargo: "box" } },
+      { id: "agv", section: "AMR", label: "AGV (Rack_m 운반)", description: "Rack_m 아래로 들어가 들어 올려 랙 구역으로 옮깁니다.", settings: { amrRole: "agv" }, thumbnail: "agv" },
+      { id: "forklift", section: "지게차", label: "지게차", description: "포크로 랙의 팔레트를 들어 꺼내 문 밖으로 반출합니다.", settings: { amrRole: "forklift" } },
+      { id: "serviceForklift", section: "지게차", label: "서비스 지게차", description: "셔틀의 적재 팔레트를 Rack_m에 싣고 빈 팔레트를 셔틀에 올립니다.", settings: { amrRole: "forklift", forkliftTask: "service" } },
+      { id: "rackForklift", section: "지게차", label: "랙 지게차", description: "Rack_m의 팔레트를 랙에 보관하고 랙에서 출하 스테이지로 꺼냅니다.", settings: { amrRole: "forklift", forkliftTask: "rack" } },
+      { id: "carrierForklift", section: "지게차", label: "운반 지게차", description: "포크 앞 팔레트를 든 채 로봇 적재를 받고, 다 차면 하역 로봇 옆으로 운반한 뒤 빈 팔레트를 되가져옵니다.", settings: { amrRole: "forklift", forkliftTask: "carrier" } },
     ],
   },
   {
     kind: "dock",
     icon: "MapPin",
     presets: [
-      { id: "any", label: "전체", description: "모든 팔레트를 받습니다." },
-      { id: "unload", label: "하역 도크", description: "AMR이 팔레트를 내려두면 하역 로봇이 박스를 컨베이어에 올립니다. 비면 빈 팔레트를 회수합니다.", settings: { dockRole: "unload" }, thumbnail: "dock-unload" },
-      { id: "normal", label: "정상품 전용", description: "정상품 적재 팔레트만 받습니다.", settings: { acceptGrade: "normal" }, tone: "normal" },
-      { id: "defect", label: "불량품 전용", description: "불량품 적재 팔레트만 받습니다.", settings: { acceptGrade: "defect" }, tone: "defect" },
-      { id: "service", label: "서비스 도크", description: "셔틀 AMR이 서서 지게차와 팔레트를 교환하는 위치입니다.", settings: { dockRole: "service" }, thumbnail: "dock-service" },
-      { id: "palletSource", label: "빈 팔레트 공급", description: "빈 팔레트 스택. 서비스 지게차가 여기서 빈 팔레트를 집습니다.", settings: { dockRole: "palletSource" }, thumbnail: "dock-palletSource" },
-      { id: "rackDrop", label: "Rack_m 하차 위치", description: "AGV가 가득 찬 Rack_m을 내려놓는 위치입니다.", settings: { dockRole: "rackDrop" }, thumbnail: "dock-rackDrop" },
-      { id: "stage", label: "출하 스테이지", description: "랙 지게차가 랙에서 꺼낸 팔레트를 놓는 출하 대기 위치입니다.", settings: { dockRole: "stage" }, thumbnail: "dock-stage" },
+      { id: "palletSource", label: "빈 팔레트 적치장", description: "빈 팔레트 스택. 지게차가 여기서 빈 팔레트를 집고 회수한 빈 팔레트를 쌓습니다. (하역·교체·출고 위치는 로봇/지게차/AMR 설정에서 바닥 클릭으로 지정)", settings: { dockRole: "palletSource" }, thumbnail: "dock-palletSource" },
     ],
   },
   {

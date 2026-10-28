@@ -4,6 +4,7 @@ import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
 import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
 import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
 import { ROBOT_PICKING } from "@/constants/simulation";
+import { isDepalletizer } from "@/domain/robot/robotRole";
 
 /** Prefix of the sim-only stop poses next to depalletizing robots (they act as unload docks, never rendered). */
 export const ROBOT_STOP_PREFIX = "robotstop:";
@@ -84,7 +85,7 @@ export function withRobotStops(objects: SceneEquipment[], getSettings: () => Rec
   const docks = objects.filter((o) => o.kind === "dock" && (base[o.id]?.dockRole === "unload" || base[o.id]?.dockRole === "stage"));
   const extra: SceneEquipment[] = [];
   for (const robot of objects) {
-    if (robot.kind !== "robot" || base[robot.id]?.robotRole !== "depalletize") continue;
+    if (robot.kind !== "robot" || !isDepalletizer(base[robot.id])) continue;
     const reach = base[robot.id]?.reach ?? 2.5;
     if (docks.some((d) => Math.hypot(d.x - robot.x, d.z - robot.z) <= reach + 1.5)) continue;
     const pose = robotStopPose(robot, reach, objects);

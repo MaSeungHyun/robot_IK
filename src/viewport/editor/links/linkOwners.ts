@@ -1,5 +1,5 @@
 import { resolveLink } from "@/types/links";
-import type { EquipmentSettings, SceneEquipment } from "@/types/layout";
+import { isForkliftRole, type EquipmentSettings, type SceneEquipment } from "@/types/layout";
 
 /**
  * A pallet mounted on an AMR (settings.mountedOn) is not linkable on its own: the AMR owns its links. The stored link
@@ -29,8 +29,17 @@ export function resolveOwnedLink(a: SceneEquipment, b: SceneEquipment, scene: Sc
   for (const x of ownedLinkEnds(a.id, scene))
     for (const y of ownedLinkEnds(b.id, scene)) {
       if (x === y || linkOwner(x, scene) === linkOwner(y, scene)) continue;
-      const link = resolveLink(byId.get(x)!, byId.get(y)!);
+      const link = orientEmptyReturn(resolveLink(byId.get(x)!, byId.get(y)!), byId, scene);
       if (link) return link;
     }
+  return null;
+}
+
+/** emptyReturn between two AMRs: always plain AMR → forklift (pick order does not matter); two forklifts / two AMRs: no link. */
+function orientEmptyReturn<L extends { type: string; from: string; to: string }>(link: L | null, byId: Map<string, SceneEquipment>, { settings }: Scene): L | null {
+  if (!link || link.type !== "emptyReturn" || byId.get(link.to)?.kind !== "amr") return link;
+  const fork = (id: string) => isForkliftRole(settings[id]?.amrRole);
+  if (fork(link.to) && !fork(link.from)) return link;
+  if (fork(link.from) && !fork(link.to)) return { ...link, from: link.to, to: link.from };
   return null;
 }
