@@ -10,7 +10,7 @@
       "z": 20.438,
       "yaw": 0,
       "settings": {
-        "reach": 3,
+        "reach": 2.5,
         "robotRole": "depalletize",
         "robotPedestal": "base",
         "pickFilter": "defect"
@@ -18,8 +18,8 @@
     },
     {
       "kind": "dock",
-      "x": -32.0521,
-      "z": -24.4975,
+      "x": 13.5,
+      "z": -10,
       "yaw": 0,
       "settings": {
         "dockRole": "palletSource"
@@ -46,11 +46,11 @@
     },
     {
       "kind": "robot",
-      "x": 3.9000000000000004,
+      "x": 3,
       "z": 20.438,
       "yaw": 0,
       "settings": {
-        "reach": 3,
+        "reach": 2.5,
         "robotRole": "depalletize",
         "robotPedestal": "base",
         "pickFilter": "defect"
@@ -58,11 +58,11 @@
     },
     {
       "kind": "robot",
-      "x": 23.8,
+      "x": 22.9,
       "z": 20.438,
       "yaw": 0,
       "settings": {
-        "reach": 3,
+        "reach": 2.5,
         "robotRole": "depalletize",
         "robotPedestal": "base",
         "pickFilter": "defect"
@@ -100,7 +100,7 @@
     },
     {
       "kind": "amr",
-      "x": -1.1994,
+      "x": -0.1994,
       "z": -2.2104,
       "yaw": 0,
       "settings": {
@@ -167,7 +167,8 @@
       "z": -8.3558,
       "yaw": 0,
       "settings": {
-        "amrRole": "forklift"
+        "amrRole": "forklift",
+        "forkliftTask": "service"
       }
     },
     {
@@ -664,8 +665,8 @@
     },
     {
       "kind": "dock",
-      "x": 2,
-      "z": 44,
+      "x": 0,
+      "z": -5.2,
       "yaw": 0,
       "settings": {
         "dockRole": "service"
@@ -677,16 +678,16 @@
       "z": -2.2104,
       "yaw": 0,
       "settings": {
-        "mountedOn": "amr-12"
+        "mountedOn": "amr-11"
       }
     },
     {
       "kind": "pallet",
-      "x": -1.1994,
+      "x": -0.1994,
       "z": -2.2104,
       "yaw": 0,
       "settings": {
-        "mountedOn": "amr-11"
+        "mountedOn": "amr-10"
       }
     },
     {
@@ -745,8 +746,8 @@
     },
     {
       "kind": "robot",
-      "x": -1,
-      "z": 0.1,
+      "x": 0,
+      "z": -0.3,
       "yaw": -3.141592653589793,
       "settings": {
         "robotPedestal": "base"
@@ -763,7 +764,7 @@
     },
     {
       "kind": "pallet",
-      "x": 3.8000000000000003,
+      "x": 2.9,
       "z": 18.5,
       "yaw": 0,
       "settings": {
@@ -772,7 +773,7 @@
     },
     {
       "kind": "pallet",
-      "x": 23.700000000000003,
+      "x": 22.8,
       "z": 18.5,
       "yaw": 0,
       "settings": {
