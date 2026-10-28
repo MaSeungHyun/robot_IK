@@ -33,6 +33,8 @@ export const NUMBER_INFO: Record<string, string> = {
 /** Scanner-only meaning of autoSpawn (default off). */
 export const SCANNER_AUTO_SPAWN_INFO = "켜면 앞에 컨베이어/하역 로봇이 없는 스캐너가 스스로 박스를 생성합니다(8초 간격). 기본은 꺼짐: 컨베이어·AMR·로봇이 가져다준 박스만 검사합니다.";
 
+export const SHUTTLE_ZONE_INFO = "입하 팔레트를 받은 AMR이 팔레트를 가져다 두는 바닥 위치입니다. 버튼을 누른 뒤 바닥을 클릭해 지정하며 여러 개 둘 수 있습니다. 하역 로봇·스캐너 라인으로 바로 갈 수 없을 때 AMR 대기 위치 대신 가장 가까운 빈 셔틀 구역으로 갑니다. 에디팅에서만 표시되며 템플릿/내보내기에 저장됩니다.";
+
 export const TOGGLE_INFO: Record<string, string> = {
   autoSpawn: "켜면 투입 간격마다 박스/팔레트가 자동 생성됩니다. 끄면 수동 배치한 것만 흐릅니다.",
   selfUnload: "켜면 로봇 없이 AMR 상단 롤러가 스캐너로 이어진 컨베이어에 박스를 직접 내보냅니다. 하역 로봇이 없을 때 사용합니다.",

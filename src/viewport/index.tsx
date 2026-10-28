@@ -16,6 +16,7 @@ import CameraTracker from "@/viewport/camera/CameraTracker";
 import CameraRig from "@/viewport/camera/CameraRig";
 import ShadowLight from "@/viewport/shadows/ShadowLight";
 import WorldAxes from "@/viewport/WorldAxes";
+import ShuttleZones from "@/viewport/editor/ShuttleZones";
 import PostProcessing from "./PostProcessing";
 import WebGPUFrame from "@/viewport/renderer/WebGPUFrame";
 import { createRenderer, isWebGPURenderer } from "@/viewport/renderer/createRenderer";
@@ -104,6 +105,7 @@ export default function Viewport() {
           />
           ))}
           {showGrid && <WorldAxes />}
+          <ShuttleZones />
 
           <CameraRig />
           <CameraTracker />

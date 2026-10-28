@@ -76,6 +76,9 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** Conveyor only: 자동 생성 — the belt start spawns boxes (or loaded pallets in pallet-inbound mode). Newly placed conveyors
    * get false (cargo only enters through the flow); absent = legacy scenes, treated as on. */
   autoSpawn?:boolean;
+  /** Pallet-inbound conveyor only: 셔틀 구역 — floor points where the receiving AMR takes the pallet when no unload stage
+   * takes it directly (instead of its own home). Several allowed; the nearest free one is used. */
+  shuttleZones?:{x:number;z:number}[];
   /** Conveyor role (rail.glb as is): "box" spawns boxes (default), "inbound" = 입하 box feed, "fed" = boxes only come from
    * a depalletizing robot (no spawning), "outbound" = 출하 pallet conveyor (an AMR's top roller hands its pallet over). */
   conveyorRole?:ConveyorRole;

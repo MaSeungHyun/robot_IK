@@ -16,6 +16,7 @@ import { beltConnections, beltLength } from "@/domain/conveyor/conveyorLayout";
 import { palletFeeds } from "@/domain/cycle/palletFeed";
 import { SPEED_LIMITS } from "@/domain/simulation/equipmentSpeeds";
 import type { ConveyorTurn } from "@/types/layout";
+import ShuttleZoneSetting from "@/ui/Hud/equipment/conveyor/ShuttleZoneSetting";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
 import { robotServesBelt } from "@/domain/amr/navigation/sceneValidation";
@@ -115,6 +116,7 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
             {receiver ? `받는 AMR: ${receiver.name} (셔틀)` : amrCount ? `받는 AMR: 🔗 연결 AMR 우선, 없으면 가장 가까운 빈 AMR (${amrCount}대 대상)` : "⚠ 받을 AMR이 없습니다. 팔레트는 스토퍼에서 대기합니다. AMR을 🔗 공급으로 연결하거나 배치하세요."}
           </p>
         )}
+        {inbound && palletUnit && <ShuttleZoneSetting id={object.id} />}
         {incoming ? <p>앞 구간에서 넘어오는 박스를 이송합니다.</p> : (
           <>
             <EquipmentToggleSetting id={object.id} field="autoSpawn" label="자동 생성" fallback />
