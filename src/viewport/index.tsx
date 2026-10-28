@@ -41,6 +41,8 @@ export default function Viewport() {
   const ambientLight = useRef<AmbientLight>(null);
   // Template lighting preset (factory.glb lights + HDR) replaces the default ambient + key light.
   const lighting = useSceneStore((state) => state.lighting);
+  // Editor grid: edit mode only, hidden while the simulation plays.
+  const showGrid = useSceneStore((state) => state.editing);
   const bloomLights = useMemo(() => [ambientLight], []);
   const { transferMode, run, running, setStats, setProgress } =
     useSimulationStore(
@@ -84,7 +86,7 @@ export default function Viewport() {
               useSceneStore.getState().select(null);
           }}
         >
-          {webgpu ? (
+          {showGrid && (webgpu ? (
             // drei Grid is a GLSL ShaderMaterial (WebGL only): a finite line grid, same cell/section colours.
             <gridHelper args={[200, 800, "#555555", "#666666"]} position={[0, -0.01, 0]} />
           ) : (
@@ -100,8 +102,8 @@ export default function Viewport() {
             fadeDistance={1000}
             position={[0, -0.01, 0]}
           />
-          )}
-          <WorldAxes />
+          ))}
+          {showGrid && <WorldAxes />}
 
           <CameraRig />
           <CameraTracker />
