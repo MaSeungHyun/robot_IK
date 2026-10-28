@@ -1,7 +1,8 @@
 import { SCANNER_CONFIG } from "@/constants/scanner";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { BulkNumber } from "@/ui/Hud/object/BulkField";
-import { NUMBER_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
+import EquipmentToggleSetting from "@/ui/Hud/equipment/details/_components/EquipmentToggleSetting";
+import { NUMBER_INFO, SCANNER_AUTO_SPAWN_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
 import { formatDefectRate, scannerResults } from "@/ui/Hud/equipment/scanner/scannerResults";
 
 /** `ids`: multi-edit targets (default just `id`; the primary should be last). */
@@ -31,6 +32,8 @@ export default function ScannerSettings({
         read={(config) => Number(((config.defectRate ?? SCANNER_CONFIG.defaultDefectRate) * 100).toFixed(2))}
         write={(value) => ({ defectRate: value / 100 })}
       />
+
+      <EquipmentToggleSetting id={id} field="autoSpawn" label="자동 박스 생성" fallback={false} info={SCANNER_AUTO_SPAWN_INFO} />
 
       {showResults && snapshot && (
         <p className="mt-2 text-xs tabular-nums text-text-secondary">

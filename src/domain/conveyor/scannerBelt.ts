@@ -53,7 +53,7 @@ function onRail(scanner: EquipmentPose, belts: readonly SceneEquipment[]) {
 
 /**
  * Adds the tunnel belts of free-standing scanners to the simulated objects and gives them settings
- * (enabled with the scanner; auto spawn when the scanner starts the flow). Belt ends snap exactly onto a
+ * (enabled with the scanner; auto spawn only when the scanner's own "자동 박스 생성" is on (default off) and it starts the flow). Belt ends snap exactly onto a
  * joining rail so beltConnections links them.
  */
 export function withScannerBelts(objects: SceneEquipment[], getSettings: () => Record<string, EquipmentSettings>) {
@@ -82,7 +82,7 @@ export function withScannerBelts(objects: SceneEquipment[], getSettings: () => R
     merged = { ...current };
     for (const belt of extra) {
       const scannerId = belt.id.slice("scanbelt:".length), scanner = current[scannerId];
-      merged[belt.id] = { speed: 1, reach: 0, capacity: 40, spawnInterval: 8, ...(scanner?.beltSpeed ? { beltSpeed: scanner.beltSpeed } : {}), enabled: scanner?.enabled !== false, autoSpawn: starts.get(scannerId) ?? false };
+      merged[belt.id] = { speed: 1, reach: 0, capacity: 40, spawnInterval: 8, ...(scanner?.beltSpeed ? { beltSpeed: scanner.beltSpeed } : {}), enabled: scanner?.enabled !== false, autoSpawn: scanner?.autoSpawn === true && (starts.get(scannerId) ?? false) };
     }
     return merged;
   };
