@@ -282,7 +282,7 @@ export class PalletCycle<C extends CycleCargo> {
         const grade = settings[pallet.object.id]?.grade ?? "normal";
         const takes = (d: SceneEquipment) => {
           const robotId = d.id.startsWith(ROBOT_STOP_PREFIX) ? d.id.slice(ROBOT_STOP_PREFIX.length) : null;
-          const filter = "all" as string, accepts = settings[d.id]?.acceptGrade ?? "any";
+          const filter: string = (robotId && settings[robotId]?.pickFilter) || "all", accepts = settings[d.id]?.acceptGrade ?? "any";
           return (filter === "all" || filter === grade) && (accepts === "any" || accepts === grade);
         };
         const serviceDocks = docks.filter((d) => role(d) === "service");
