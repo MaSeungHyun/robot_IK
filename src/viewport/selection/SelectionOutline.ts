@@ -42,6 +42,8 @@ const MASK_ORDER = 9998,
  */
 export class SelectionOutline {
   readonly root = new Group();
+  /** Mask, edge-line and hull materials, for the startup program warm-up. */
+  warmupMaterials() { return [this.mask, this.lines, this.material]; }
   private selected: string | null = null;
   /** Non-instanced meshes of the selection (scanner, door, AMR lamps, skinned parts), re-collected periodically. */
   private direct: Mesh[] = [];

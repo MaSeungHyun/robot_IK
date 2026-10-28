@@ -1,6 +1,9 @@
 import { BackSide, BoxGeometry, DoubleSide, FrontSide, Group, HalfFloatType, InstancedMesh, Mesh, MeshDepthMaterial, PCFShadowMap, RGBADepthPacking, Scene, WebGLRenderTarget, type Camera, type Light, type Material, type Object3D, type Texture, type WebGLRenderer } from "three";
 import { selectShadowQuality, useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
+import { LineMaterial } from "three-stdlib";
 import { dropInMaterial } from "@/viewport/editor/dropIn";
+import { createLinkFlowMaterial } from "@/viewport/editor/links/linkFlow";
+import { SelectionOutline } from "@/viewport/selection/SelectionOutline";
 import { applyShadowQuality, buildFactoryLights } from "@/viewport/lighting/factoryLights";
 import { loadEnvironment } from "@/viewport/lighting/sceneEnvironmentConfig";
 import { PROP_SOURCES } from "@/viewport/props/propSources";
@@ -16,6 +19,7 @@ import { propScenes } from "@/viewport/props/propWarmupState";
  */
 const SHADOW_SIDE = { [FrontSide]: BackSide, [BackSide]: FrontSide, [DoubleSide]: DoubleSide } as const;
 const depthKeep: MeshDepthMaterial[] = [];
+const overlayKeep: Material[] = [];
 
 /**
  * Stand-ins for the shadow pass: one mesh per distinct depth-program variant, with the MeshDepthMaterial setup
@@ -76,6 +80,10 @@ export async function warmFactoryPrograms(gl: WebGLRenderer, camera: Camera, liv
   }
   const probe = new BoxGeometry();
   root.add(new Mesh(probe, dropInMaterial));
+  // Overlay programs first drawn later (link ribbons, AMR route lines solid/dashed, selection outline).
+  // Kept alive (never disposed) so the compiled programs stay cached for the real overlays.
+  if (!overlayKeep.length) overlayKeep.push(createLinkFlowMaterial("#ffffff"), new LineMaterial({ transparent: true, depthWrite: false }), new LineMaterial({ transparent: true, depthWrite: false, dashed: true }), ...new SelectionOutline().warmupMaterials());
+  for (const material of overlayKeep) root.add(new Mesh(probe, material));
 
   // compile() also gathers lights from the compiled object: hide the live scene's own (default-mode) lights meanwhile.
   const hidden: Light[] = [];

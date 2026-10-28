@@ -11,11 +11,6 @@ export const ROBOT_STOP_PREFIX = "robotstop:";
 /** Free space (m) kept between the stopped AMR body and other equipment. */
 const STOP_CLEARANCE = 0.2;
 
-const local = (o: { x: number; z: number; yaw: number }, x: number, z: number) => {
-  const dx = x - o.x, dz = z - o.z, c = Math.cos(o.yaw), s = Math.sin(o.yaw);
-  return { x: dx * c - dz * s, z: dx * s + dz * c };
-};
-
 /** AMR body sample points (inflated by STOP_CLEARANCE) at a pose. */
 function bodyPoints(pose: { x: number; z: number; yaw: number }) {
   const hw = F.amr[0] / 2 + STOP_CLEARANCE, hl = F.amr[1] / 2 + STOP_CLEARANCE, c = Math.cos(pose.yaw), s = Math.sin(pose.yaw);
@@ -27,25 +22,61 @@ function bodyPoints(pose: { x: number; z: number; yaw: number }) {
   return points;
 }
 
-/** Smallest distance from `p` to any obstacle edge (<= 0: inside one). */
-function clearance(p: { x: number; z: number }, obstacles: readonly SceneEquipment[], robot: SceneEquipment) {
+/** Obstacle prepared once per search: belt samples, box frame, or the robot's own disc. */
+type Obstacle =
+  | { type: "belt"; points: { x: number; z: number }[]; minX: number; maxX: number; minZ: number; maxZ: number; near: number }
+  | { type: "robot"; x: number; z: number; near: number }
+  | { type: "box"; x: number; z: number; c: number; s: number; hw: number; hl: number; near: number };
+
+const beltCache = new WeakMap<SceneEquipment, { x: number; z: number }[]>();
+
+/** Belt sampled every 0.25 m (same samples the clearance used to recompute per query), once per conveyor object. */
+function beltSamples(o: SceneEquipment) {
+  const cached = beltCache.get(o);
+  if (cached) return cached;
+  const length = beltLength(o), steps = Math.max(1, Math.ceil(length / 0.25)), points: { x: number; z: number }[] = [];
+  for (let k = 0; k <= steps; k++) { const b = beltPoint(o, (length * k) / steps); points.push({ x: b.x, z: b.z }); }
+  beltCache.set(o, points);
+  return points;
+}
+
+function prepare(obstacles: readonly SceneEquipment[], robot: SceneEquipment): Obstacle[] {
+  const list = obstacles.map((o): Obstacle => {
+    if (o.kind === "conveyor") {
+      const points = beltSamples(o);
+      const xs = points.map((p) => p.x), zs = points.map((p) => p.z);
+      return { type: "belt", points, minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs), near: Math.min(...points.map((p) => Math.hypot(p.x - robot.x, p.z - robot.z))) };
+    }
+    if (o === robot) return { type: "robot", x: o.x, z: o.z, near: 0 };
+    const [w, l] = footprint(o.kind);
+    return { type: "box", x: o.x, z: o.z, c: Math.cos(o.yaw), s: Math.sin(o.yaw), hw: w / 2, hl: l / 2, near: Math.hypot(o.x - robot.x, o.z - robot.z) };
+  });
+  // Nearest first so the cut-off below triggers early (min is order independent).
+  return list.sort((p, q) => p.near - q.near);
+}
+
+/** Smallest distance from `p` to any obstacle edge (<= 0: inside one); stops once it is <= `cutoff` (result rejected anyway). */
+function clearance(p: { x: number; z: number }, obstacles: readonly Obstacle[], cutoff: number) {
   let best = Infinity;
   for (const o of obstacles) {
-    if (o.kind === "conveyor") {
-      const length = beltLength(o), steps = Math.max(1, Math.ceil(length / 0.25));
-      for (let k = 0; k <= steps; k++) {
-        const b = beltPoint(o, (length * k) / steps);
-        best = Math.min(best, Math.hypot(p.x - b.x, p.z - b.z) - BELT.width / 2);
-      }
-      continue;
+    if (o.type === "belt") {
+      // Bounding-box lower bound: a belt farther than the current minimum cannot lower it.
+      const bx = Math.max(o.minX - p.x, 0, p.x - o.maxX), bz = Math.max(o.minZ - p.z, 0, p.z - o.maxZ);
+      if (Math.hypot(bx, bz) - BELT.width / 2 >= best) continue;
+      for (const b of o.points) best = Math.min(best, Math.hypot(p.x - b.x, p.z - b.z) - BELT.width / 2);
+    } else if (o.type === "robot") best = Math.min(best, Math.hypot(p.x - o.x, p.z - o.z) - F.robotRadius);
+    else {
+      const dx = p.x - o.x, dz = p.z - o.z, qx = dx * o.c - dz * o.s, qz = dx * o.s + dz * o.c;
+      const ox = Math.abs(qx) - o.hw, oz = Math.abs(qz) - o.hl;
+      best = Math.min(best, ox > 0 || oz > 0 ? Math.hypot(Math.max(ox, 0), Math.max(oz, 0)) : Math.max(ox, oz));
     }
-    if (o === robot) { best = Math.min(best, Math.hypot(p.x - o.x, p.z - o.z) - F.robotRadius); continue; }
-    const [w, l] = footprint(o.kind), q = local(o, p.x, p.z);
-    const ox = Math.abs(q.x) - w / 2, oz = Math.abs(q.z) - l / 2;
-    best = Math.min(best, ox > 0 || oz > 0 ? Math.hypot(Math.max(ox, 0), Math.max(oz, 0)) : Math.max(ox, oz));
+    if (best <= cutoff) return best;
   }
   return best;
 }
+
+/** Stop poses per layout snapshot (objects array) and robot pose/reach: rebuilding the simulator reuses them. */
+const poseCache = new WeakMap<readonly SceneEquipment[], Map<string, { x: number; z: number; yaw: number } | null>>();
 
 /**
  * Stop pose for an AMR delivering a pallet to a depalletizing robot, replacing a placed unload dock: on a ring around the
@@ -53,10 +84,15 @@ function clearance(p: { x: number; z: number }, obstacles: readonly SceneEquipme
  * the AMR stands side-on to the robot (heading tangent to the ring). Null when no free pose fits.
  */
 export function robotStopPose(robot: SceneEquipment, reach: number, objects: readonly SceneEquipment[]) {
-  const obstacles = objects.filter((o) => o.kind !== "amr" && o.kind !== "dock" && o.kind !== "door" && o.kind !== "floor");
+  const key = `${robot.id}|${robot.x}|${robot.z}|${robot.yaw}|${reach}`;
+  let cache = poseCache.get(objects);
+  if (!cache) poseCache.set(objects, (cache = new Map()));
+  if (cache.has(key)) return cache.get(key) ?? null;
+  const raw = obstacles(objects);
+  const prepared = prepare(raw, robot);
   // Pallet centre must stay inside the pick reach; the closest free ring keeps the most boxes in reach.
   const far = reach - ROBOT_PICKING.pickReachMargin;
-  const others = obstacles.filter((o) => o !== robot);
+  const others = raw.filter((o) => o !== robot);
   // Pallet held square to the floor axes (inbound belts run along x or z); either way it must fit.
   const planner = (x: number, z: number) => loadedStopClear(robot, x, z, 0, others) && loadedStopClear(robot, x, z, Math.PI / 2, others);
   const near = F.robotRadius + F.amr[0] / 2 + STOP_CLEARANCE;
@@ -65,16 +101,23 @@ export function robotStopPose(robot: SceneEquipment, reach: number, objects: rea
     for (let deg = 0; deg < 360; deg += 10) {
       const a = (deg * Math.PI) / 180, x = robot.x + Math.sin(a) * d, z = robot.z + Math.cos(a) * d;
       const pose = { x, z, yaw: a + Math.PI / 2 };
-      const free = Math.min(...bodyPoints(pose).map((p) => clearance(p, obstacles, robot)));
+      // Only a larger free margin than the current best (and > 0) is kept: stop measuring once below it.
+      const cutoff = best ? best.score : 0;
+      let free = Infinity;
+      for (const p of bodyPoints(pose)) { free = Math.min(free, clearance(p, prepared, cutoff)); if (free <= cutoff) break; }
       // The loaded AMR must also be able to stop there per the route planner (loaded envelope clear of every equipment).
-      if (free <= 0 || !planner(x, z)) continue;
+      if (free <= cutoff || !planner(x, z)) continue;
       // Largest free margin on the innermost ring that fits.
-      if (!best || free > best.score) best = { ...pose, score: free };
+      best = { ...pose, score: free };
     }
     if (best) break;
   }
-  return best && { x: best.x, z: best.z, yaw: best.yaw };
+  const result = best && { x: best.x, z: best.z, yaw: best.yaw };
+  cache.set(key, result);
+  return result;
 }
+
+const obstacles = (objects: readonly SceneEquipment[]) => objects.filter((o) => o.kind !== "amr" && o.kind !== "dock" && o.kind !== "door" && o.kind !== "floor");
 
 /**
  * Sim-only unload stops: every depalletizing robot without a placed unload/stage dock in reach gets one stop pose next to it
