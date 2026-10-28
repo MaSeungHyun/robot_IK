@@ -8,11 +8,12 @@
       "kind": "robot",
       "x": -21.018,
       "z": 20.438,
-      "yaw": -1.5708,
+      "yaw": 0,
       "settings": {
-        "robotRole": "depalletize",
         "reach": 3,
-        "robotPedestal": "base"
+        "robotRole": "depalletize",
+        "robotPedestal": "base",
+        "pickFilter": "defect"
       }
     },
     {
@@ -28,47 +29,43 @@
       "kind": "amr",
       "x": -10.1978,
       "z": -2.2104,
-      "yaw": 0
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
     },
     {
       "kind": "conveyor",
       "x": 1.2317,
       "z": 11.2227,
-      "yaw": 0,
+      "yaw": 3.141592653589793,
       "settings": {
         "autoSpawn": false
       }
     },
     {
       "kind": "robot",
-      "x": 3.904,
+      "x": 3.9000000000000004,
       "z": 20.438,
-      "yaw": -1.5708,
+      "yaw": 0,
       "settings": {
-        "robotRole": "depalletize",
         "reach": 3,
-        "robotPedestal": "base"
+        "robotRole": "depalletize",
+        "robotPedestal": "base",
+        "pickFilter": "defect"
       }
     },
     {
       "kind": "robot",
-      "x": 23.608,
+      "x": 23.8,
       "z": 20.438,
-      "yaw": -1.5708,
+      "yaw": 0,
       "settings": {
-        "robotRole": "depalletize",
         "reach": 3,
-        "robotPedestal": "base"
-      }
-    },
-    {
-      "kind": "pallet",
-      "x": -20.7756,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "capacity": 2,
-        "mountedOn": "amr-97"
+        "robotRole": "depalletize",
+        "robotPedestal": "base",
+        "pickFilter": "defect"
       }
     },
     {
@@ -77,7 +74,8 @@
       "z": 37.1353,
       "yaw": 0,
       "settings": {
-        "robotPedestal": "place"
+        "robotPedestal": "place",
+        "robotRole": "depalletize"
       }
     },
     {
@@ -86,7 +84,8 @@
       "z": 37.1353,
       "yaw": 0,
       "settings": {
-        "robotPedestal": "place"
+        "robotPedestal": "place",
+        "robotRole": "depalletize"
       }
     },
     {
@@ -95,20 +94,30 @@
       "z": 37.1353,
       "yaw": 0,
       "settings": {
-        "robotPedestal": "place"
+        "robotPedestal": "place",
+        "robotRole": "depalletize"
       }
     },
     {
       "kind": "amr",
       "x": -1.1994,
       "z": -2.2104,
-      "yaw": 0
+      "yaw": 0,
+      "settings": {
+        "amrCargo": "pallet",
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
     },
     {
       "kind": "amr",
       "x": 7.7708,
       "z": -2.2104,
-      "yaw": 0
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
     },
     {
       "kind": "amr",
@@ -139,36 +148,6 @@
       "x": -18.6773,
       "z": 30.0879,
       "yaw": 0
-    },
-    {
-      "kind": "pallet",
-      "x": -16.58,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "capacity": 2,
-        "mountedOn": "amr-98"
-      }
-    },
-    {
-      "kind": "pallet",
-      "x": -0.87,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "capacity": 2,
-        "mountedOn": "amr-99"
-      }
-    },
-    {
-      "kind": "pallet",
-      "x": 19.1168,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "capacity": 2,
-        "mountedOn": "amr-100"
-      }
     },
     {
       "kind": "scanner",
@@ -684,42 +663,6 @@
       }
     },
     {
-      "kind": "amr",
-      "x": -20.7756,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "amrRole": "shuttle"
-      }
-    },
-    {
-      "kind": "amr",
-      "x": -16.58,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "amrRole": "shuttle"
-      }
-    },
-    {
-      "kind": "amr",
-      "x": -0.87,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "amrRole": "shuttle"
-      }
-    },
-    {
-      "kind": "amr",
-      "x": 19.1168,
-      "z": 37.0651,
-      "yaw": 1.5708,
-      "settings": {
-        "amrRole": "shuttle"
-      }
-    },
-    {
       "kind": "dock",
       "x": 2,
       "z": 44,
@@ -729,56 +672,215 @@
       }
     },
     {
-      "kind": "amr",
-      "x": -6,
-      "z": 48,
+      "kind": "pallet",
+      "x": 7.7708,
+      "z": -2.2104,
       "yaw": 0,
       "settings": {
-        "amrRole": "forklift",
-        "forkliftTask": "service"
+        "mountedOn": "amr-12"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -1.1994,
+      "z": -2.2104,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-11"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -10.1978,
+      "z": -2.2104,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-3"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.3000000000000003,
+      "z": 52,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.6000000000000005,
+      "z": 52,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "palletSource"
       }
     },
     {
       "kind": "amr",
-      "x": 10,
-      "z": 48,
+      "x": 4.3,
+      "z": 56.6,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -2.4000000000000004,
+      "z": 56.6,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -10.100000000000001,
+      "z": 0.1,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "robotPedestal": "base"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -1,
+      "z": 0.1,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "robotPedestal": "base"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 8,
+      "z": 0.1,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "robotPedestal": "base"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 3.8000000000000003,
+      "z": 18.5,
       "yaw": 0,
       "settings": {
-        "amrRole": "forklift",
-        "forkliftTask": "service"
+        "grade": "defect"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 23.700000000000003,
+      "z": 18.5,
+      "yaw": 0,
+      "settings": {
+        "grade": "defect"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -21,
+      "z": 18.5,
+      "yaw": 0,
+      "settings": {
+        "grade": "defect"
       }
     }
   ],
   "links": [
     {
-      "type": "deliver",
-      "from": 6,
-      "to": 100
+      "type": "feed",
+      "from": 86,
+      "to": 13
     },
     {
-      "type": "deliver",
-      "from": 17,
-      "to": 100
+      "type": "feed",
+      "from": 85,
+      "to": 12
     },
     {
-      "type": "deliver",
-      "from": 18,
-      "to": 100
+      "type": "feed",
+      "from": 84,
+      "to": 11
     },
     {
-      "type": "deliver",
-      "from": 19,
-      "to": 100
+      "type": "feed",
+      "from": 87,
+      "to": 14
+    },
+    {
+      "type": "feed",
+      "from": 87,
+      "to": 17
+    },
+    {
+      "type": "feed",
+      "from": 86,
+      "to": 16
+    },
+    {
+      "type": "feed",
+      "from": 85,
+      "to": 16
+    },
+    {
+      "type": "feed",
+      "from": 84,
+      "to": 15
+    },
+    {
+      "type": "emptyReturn",
+      "from": 14,
+      "to": 98
+    },
+    {
+      "type": "emptyReturn",
+      "from": 13,
+      "to": 98
+    },
+    {
+      "type": "emptyReturn",
+      "from": 12,
+      "to": 99
+    },
+    {
+      "type": "emptyReturn",
+      "from": 11,
+      "to": 99
+    },
+    {
+      "type": "emptyReturn",
+      "from": 99,
+      "to": 96
+    },
+    {
+      "type": "emptyReturn",
+      "from": 98,
+      "to": 97
+    },
+    {
+      "type": "emptyReturn",
+      "from": 2,
+      "to": 18
+    },
+    {
+      "type": "emptyReturn",
+      "from": 9,
+      "to": 18
+    },
+    {
+      "type": "emptyReturn",
+      "from": 10,
+      "to": 18
     }
   ],
   "props": [
     {
       "source": "factory",
       "node": "Enviroment",
-      "excludeMaterials": [
-        "wall",
-        "BG_Floor"
-      ]
+      "excludeMaterials": ["wall", "BG_Floor"]
     },
     {
       "source": "factory",
@@ -787,11 +889,7 @@
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1382,
-        0.2084,
-        -28.2874
-      ]
+      "position": [-21.1382, 0.2084, -28.2874]
     },
     {
       "source": "factory",
@@ -860,41 +958,25 @@
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1417,
-        0.2084,
-        -15.1456
-      ],
+      "position": [-21.1417, 0.2084, -15.1456],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1417,
-        0.2084,
-        -19.5344
-      ],
+      "position": [-21.1417, 0.2084, -19.5344],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1417,
-        0.2084,
-        -23.9232
-      ],
+      "position": [-21.1417, 0.2084, -23.9232],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -29.6568,
-        0.2084,
-        -28.1064
-      ],
+      "position": [-29.6568, 0.2084, -28.1064],
       "yaw": 3.141592653589793
     },
     {
