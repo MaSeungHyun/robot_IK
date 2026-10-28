@@ -16,7 +16,7 @@ import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
 import { LINKABLE_KINDS } from "@/types/links";
 import DropInGroup from "@/viewport/editor/DropInGroup";
-import { robotElevation } from "@/domain/layout/robotPedestals";
+import { palletBaseY, robotElevation } from "@/domain/layout/robotPedestals";
 
 export default function EditableEquipment({
   entity,
@@ -37,6 +37,8 @@ export default function EditableEquipment({
   );
   const pose = entity;
   const pedestal = useSceneStore((s) => (entity.kind === "robot" ? s.settings[entity.id]?.robotPedestal : undefined));
+  // A fixed pallet dropped onto a robot pedestal stands on its top face (same rule as the simulator).
+  const palletY = useSceneStore((s) => (entity.kind === "pallet" ? palletBaseY(entity, s.objects, s.settings, entity.id) : 0));
   const [object, setObject] = useState<Group | null>(null);
   const modal = useModalTransformStore((s) => s.session?.id === entity.id);
   const linking = useLinkModeStore((s) => s.active);
@@ -88,7 +90,7 @@ export default function EditableEquipment({
       <group
         ref={setObject}
         userData={{ sceneId: entity.id }}
-        position={[pose.x, robotElevation(entity, pedestal), pose.z]}
+        position={[pose.x, entity.kind === "pallet" ? palletY || (entity.elevation ?? 0) : robotElevation(entity, pedestal), pose.z]}
         rotation={[0, pose.yaw, 0]}
         onClick={(event) => {
           if (!isSelectionClick(event) || !editing || useSceneStore.getState().pending) return;

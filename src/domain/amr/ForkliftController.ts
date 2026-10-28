@@ -267,7 +267,7 @@ export class ForkliftController {
     this.tries = 0;
     if (job.kind !== "retrieve") {
       const pickup = job.pickup!;
-      this.pickLift = job.kind === "takeEmptyFromAmr" ? Math.max(0, forkLiftFor(pickup.point.y)) : 0;
+      this.pickLift = job.kind === "takeEmptyFromAmr" || pickup.point.y > 0 ? Math.max(0, forkLiftFor(pickup.point.y)) : 0;
       // Pallets are four-way: try the delivery heading, the flipped one, then both sideways (narrow aisles).
       for (const heading of [pickup.heading, pickup.heading + Math.PI, pickup.heading + Math.PI / 2, pickup.heading - Math.PI / 2]) {
         const standoff = forkliftStop(pickup.point, heading, FORKLIFT_CONFIG.forkLength),

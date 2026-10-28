@@ -1,9 +1,31 @@
 import { Box3, Vector3, type Object3D } from "three";
-import { ROBOT_PEDESTALS, type RobotPedestalKind } from "@/constants/robotPedestal";
+import { ROBOT_PEDESTAL_FOOTPRINTS, ROBOT_PEDESTALS, type RobotPedestalKind } from "@/constants/robotPedestal";
 
 /** Arm base height: the chosen pedestal's *_point height, else the stored elevation (decor pedestal / floor). */
 export function robotElevation(object: { elevation?: number }, pedestal: RobotPedestalKind | undefined): number {
   return pedestal && pedestal !== "none" ? ROBOT_PEDESTALS[pedestal].elevation : object.elevation ?? 0;
+}
+
+/**
+ * Height a fixed pallet stands at: a robot pedestal's top when the pallet centre is on one (robot settings
+ * robotPedestal), else the floor (0). Pallets mounted on a shuttle are not floor pallets (0).
+ */
+export function palletBaseY(
+  pallet: { x: number; z: number },
+  objects: readonly { id: string; kind: string; x: number; z: number; yaw: number }[],
+  settings: Record<string, { robotPedestal?: RobotPedestalKind; mountedOn?: string } | undefined>,
+  palletId?: string,
+): number {
+  if (palletId && settings[palletId]?.mountedOn) return 0;
+  let best = 0;
+  for (const robot of objects) {
+    const kind = robot.kind === "robot" ? settings[robot.id]?.robotPedestal : undefined;
+    if (!kind || kind === "none") continue;
+    const dx = pallet.x - robot.x, dz = pallet.z - robot.z, c = Math.cos(robot.yaw), s = Math.sin(robot.yaw);
+    const x = dx * c - dz * s, z = dx * s + dz * c, f = ROBOT_PEDESTAL_FOOTPRINTS[kind];
+    if (x >= f.minX && x <= f.maxX && z >= f.minZ && z <= f.maxZ) best = Math.max(best, ROBOT_PEDESTALS[kind].elevation);
+  }
+  return best;
 }
 
 /**

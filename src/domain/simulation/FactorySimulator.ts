@@ -52,7 +52,8 @@ import { isPalletInbound, palletFeeds, receivePose } from "@/domain/cycle/pallet
 import { createPalletModel } from "@/lib/three/palletModel";
 import { planStack } from "@/domain/pallet/packing/stacking";
 import { scannerBeltId, scannerEntry, scannerExit, withScannerBelts } from "@/domain/conveyor/scannerBelt";
-import { ROBOT_STOP_PREFIX, withRobotStops } from "@/domain/layout/robotStops";
+import { withRobotStops } from "@/domain/layout/robotStops";
+import { palletBaseY } from "@/domain/layout/robotPedestals";
 import { remapStopLinks, withStopPoints } from "@/domain/layout/stopPoints";
 import { isDepalletizer } from "@/domain/robot/robotRole";
 
@@ -372,7 +373,7 @@ export class FactorySimulator {
           shuttle = mountedOn && owned?.has(mountedOn) ? objects.find((o) => o.id === mountedOn) : undefined;
         const state = shuttle
           ? new PalletController({ ...object, x: shuttle.x, z: shuttle.z }, pallet, this.settings()[object.id].capacity, rollerShuttles.has(shuttle.id) ? ROLLER_DECK : AMR_DECK)
-          : new PalletController(object, pallet, this.settings()[object.id].capacity);
+          : new PalletController(object, pallet, this.settings()[object.id].capacity, palletBaseY(object, objects, this.settings(), object.id));
         this.pallets.push(state);
         this.root.add(state.group);
         this.render(state.group);
@@ -1743,6 +1744,11 @@ export class FactorySimulator {
           !a.charging &&
           a.battery >= AMR_BATTERY.chargeBelow,
       );
+      // On a robot pedestal, or a 불량 pallet no AMR is linked to: a forklift takes it to a rack, the station gets an empty one.
+      if (this.forkliftCollects(pallet, settings)) {
+        this.forkliftCollect(pallet, settings);
+        continue;
+      }
       if (!this.auto && !this.links.incoming(pallet.object.id, "pickup").length) {
         this.warnOnce(noLink("픽업(AMR → 팔레트)"), pallet.object.name);
         continue;
@@ -2482,6 +2488,63 @@ export class FactorySimulator {
   }
   /** No AMR: the forklift brings the full pallet to an outbound robot, holds it while the boxes are unloaded, then
    * takes the empty pallet away. */
+  private forkliftCollects(pallet: PalletController, settings: Record<string, EquipmentSettings>) {
+    if (settings[pallet.object.id]?.mountedOn || !this.forkliftAgents.length) return false;
+    return pallet.baseY > 0 || (settings[pallet.object.id]?.grade === "defect" && !this.links.incoming(pallet.object.id, "pickup").length);
+  }
+  /** Forklift carries a full fixed pallet (pedestal / 불량) into the nearest free rack slot; the station gets a fresh pallet. */
+  private forkliftCollect(pallet: PalletController, settings: Record<string, EquipmentSettings>) {
+    const racks = () =>
+      this.racks
+        .filter((r) => settings[r.id]?.enabled !== false && this.freeSlot(r) >= 0)
+        .sort((a, b) => distance(a, pallet.object) - distance(b, pallet.object) || (a.id < b.id ? -1 : 1));
+    if (!racks().length) return false;
+    const forklift = this.idleForklift(pallet);
+    if (!forklift) return false;
+    let group: Group | null = null;
+    let booked: string | null = null;
+    const boxes = this.boxes.filter((b) => b.pallet === pallet.object.id && b.state === "placed");
+    const palletId = this.cargo.currentPallet(pallet.object.id)?.id;
+    const job: ForkliftJob = {
+      kind: "store",
+      pickup: { point: new Vector3(pallet.object.x, pallet.baseY, pallet.object.z), heading: pallet.object.yaw },
+      take: () => {
+        if (!group) return null;
+        const taken = group;
+        this.fullReported.delete(pallet);
+        this.reuseEmpty();
+        this.root.add(pallet.replace());
+        this.render(pallet.group);
+        this.startPalletRecord(pallet);
+        return taken;
+      },
+      targets: () => racks().flatMap((r) => this.slotTargets(r, this.freeSlot(r))),
+      claim: (target) => {
+        const key = `${target.rackId}:${target.slot}`;
+        if (key === booked) return true;
+        if (this.rackStored.get(target.rackId!)?.[target.slot!] || this.slotBookings.has(key)) return false;
+        if (booked) this.slotBookings.delete(booked);
+        this.slotBookings.add(key);
+        booked = key;
+        return true;
+      },
+      store: (payload, target) => {
+        this.boxes = this.boxes.filter((box) => !boxes.includes(box));
+        for (const box of boxes) box.pallet = undefined;
+        this.storeFromForklift({ boxes: boxes.map((b) => b.node), palletId }, payload, target);
+      },
+    };
+    if (!forklift.controller.start(job)) {
+      if (booked) this.slotBookings.delete(booked);
+      forklift.waitingReason = `${pallet.object.name}: 팔레트로 가는 경로가 없습니다.`;
+      return false;
+    }
+    group = pallet.beginShipment();
+    if (!group) return false;
+    delete group.userData.sceneId;
+    group.userData.cargo = true;
+    return true;
+  }
   private forkliftShip(pallet: PalletController, settings: Record<string, EquipmentSettings>) {
     // A linked depalletizer if any (the deliver link usually names its unload dock, not the robot), else the nearest.
     const enabled = this.depalletizers.filter((r) => settings[r.object.id]?.enabled);
