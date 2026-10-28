@@ -76,7 +76,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       const model = robotGltf.scene.clone(true);
       const holder = new THREE.Group(); holder.position.set(robot.object.x, robot.object.elevation ?? 0, robot.object.z); holder.rotation.y = robot.object.yaw;
       holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
-      const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach, getKeepOut: () => conveyorKeepOut(useSceneStore.getState().objects),
+      const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: getSettings()[robot.object.id]?.reach ?? SIMULATOR_CONFIG.reach, getKeepOut: () => conveyorKeepOut(useSceneStore.getState().objects),
         getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status) });
       controller.start();
       clock.register({ beginFrame: () => controller.start(), step: (dt) => { let r = dt * (getSettings()[robot.object.id]?.speed ?? 1); // mirrors Robot.tsx simulationSpeed
@@ -165,6 +165,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       console.log(`    dockShare: ${dockShare.n ? `SHARED ${dockShare.n} ticks first ${dockShare.first}` : "ok"} (docks ${dockPoses.length})`);
       if (dockShare.n) process.exitCode = 1;
       console.log(`    floorLift: ${world.floorLiftAttempts ?? 0} forkliftHandoffs: ${world.forkliftHandoffs ?? 0} forkliftOutbound: ${world.forkliftOutbound ?? 0} warnings: ${[...(world.warnedMessages ?? [])].join(" / ") || "-"}`);
+      console.log(`    emptyFlow: picked ${world.emptyPicked ?? 0} recycled ${world.emptyRecycled ?? 0} amrWait: ${world.agents.filter(a => a.waitingReason).map(a => `${a.object.id}:${a.waitingReason}`).join(" | ") || "-"}`);
       if (phaseTime.size) console.log(`    phases: ${[...phaseTime].map(([id, m]) => `${id}[${[...m].map(([k, n]) => k + " " + n).join(", ")}]`).join(" ")}`);
       if (beltHalt.size) console.log(`    haltByBelt: ${[...beltHalt].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([b, n]) => `${b}:${n}s`).join(" ")}`);
       console.log(`    amr: ${world.agents.map(a => `${a.object.id}:${a.dispatch.phase} done=${a.completed} stall=${stalled.get(a.object.id) ?? 0}s@${a.dispatch.carrier.position.x.toFixed(1)},${a.dispatch.carrier.position.z.toFixed(1)}${a.target ? ">" + a.target : ""}${a.waitingReason ? "(" + a.waitingReason + ")" : ""}${process.env.AMR_STATUS ? " [" + a.dispatch.status + "]" : ""}`).join(" | ")}`);
@@ -183,7 +184,12 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
           const p = v.vehicle.position, path = v.vehicle.path.map((q) => `${q.x.toFixed(1)},${q.z.toFixed(1)}`).join(" ");
           console.log(`    ${v.object.id} ${v.state} @${p.x.toFixed(2)},${p.z.toFixed(2)} h${v.vehicle.heading.toFixed(2)} held${v.vehicle.heldSeconds.toFixed(0)} cur${v.vehicle.pathCursor} path[${path}]`);
         }
-        console.log(`    robots: ${world.robots.map((r) => r.object.id + ":" + r.status).join(" | ")}`);
+        console.log(`    robots: ${world.robots.map((r) => r.object.id + ":" + (!r.busy && r.warning ? r.warning : r.status)).join(" | ")}`);
+    if (process.env.ROBOT_DEBUG) for (const r of world.robots) if (r.jobs.length) console.log(`    job ${r.object.id}@${r.object.x.toFixed(1)},${r.object.z.toFixed(1)}: n=${r.jobs.length} pick=${r.jobs[0].pickup.toArray().map((v) => v.toFixed(2))} dest=${r.jobs[0].destination.toArray().map((v) => v.toFixed(2))} avail=${r.jobs[0].available?.()} moving=${r.jobs[0].moving}`);
+    if (process.env.ROBOT_DEBUG) for (const b of world.boxes) if (b.state === "reserved" || b.state === "held") console.log(`    box ${b.id} ${b.state} belt=${b.belt.id} d=${b.distance.toFixed(2)} pos=${b.node.position.x.toFixed(2)},${b.node.position.z.toFixed(2)} grade=${world.inspection.resultOf(b.node)} halted=${world.haltedBelts().has(b.belt.id)}`);
+    if (process.env.ROBOT_DEBUG) { const by = {}; for (const b of world.boxes) { const k = `${b.state}@${b.belt?.id}`; by[k] ??= { n: 0, pos: "" }; by[k].n++; by[k].pos = `${b.node.position.x.toFixed(1)},${b.node.position.z.toFixed(1)} v=${b.speed ?? "-"} g=${world.inspection.resultOf(b.node)}`; } console.log(`    boxes: ${Object.entries(by).map(([k, v]) => `${k}x${v.n}[${v.pos}]`).join(" | ")}`); }
+    if (process.env.ROBOT_DEBUG) console.log(`    belts: ${[...new Set(world.boxes.map((b) => b.belt?.id))].map((id) => `${id}->${world.connections.get(id)?.id ?? "END"}`).join(" ")} | ${[...world.connections].map(([k, v]) => `${k}->${v.id}`).join(" ")}`);
+    if (process.env.ROBOT_DEBUG) console.log(`    grade: faultBoxes=${world.boxes.filter((b) => world.inspection.resultOf(b.node) === "fault").length} placedFault=${world.boxes.filter((b) => b.state === "placed" && world.inspection.resultOf(b.node) === "fault").length} pallets=${world.pallets.map((p) => `${p.object.id}(${getSettings()[p.object.id]?.grade ?? "normal"}):${p.count}${p.shipping ? "*" : ""}`).join(",")}`);
       }
       if (world.rackStored?.size) console.log(`    racks: ${[...world.rackStored].map(([, v]) => v.filter(Boolean).length).join(",")}  pallets: ${world.pallets.map(p => p.count + "/" + p.slots.length).join(",")}`);
       else console.log(`    pallets: ${world.pallets.map(p => p.count + "/" + p.slots.length).join(",")}`);
