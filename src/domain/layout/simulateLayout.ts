@@ -22,12 +22,12 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
   const store = useSceneStore.getState();
   if (!store.editing) store.edit();
   if (!useSceneStore.getState().loadTemplate(template)) return { error: useSceneStore.getState().errors.join("; ") || "loadTemplate rejected" };
-  const { objects, links } = useSceneStore.getState();
+  const { objects, links, autoConnect } = useSceneStore.getState();
   if (links.length !== (template.links ?? []).length) return { error: `links dropped ${(template.links ?? []).length - links.length}` };
   const getSettings = () => useSceneStore.getState().settings;
   let state = seed;
   const random = () => (state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296;
-  const world = new FactorySimulator(objects, models.box, models.pallet, getSettings, undefined, random, links);
+  const world = new FactorySimulator(objects, models.box, models.pallet, getSettings, undefined, random, links, autoConnect);
   const scene = new Scene();
   scene.add(world.root);
   const clock = new SimulationClock();

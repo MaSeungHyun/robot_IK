@@ -13,7 +13,7 @@ const same = (a: unknown, b: unknown) =>
  * Loading the result with loadTemplate reproduces the scene (names regenerate as "<종류> <순번>").
  */
 export function buildSceneTemplate(meta: { id?: string; name?: string; description?: string } = {}): SceneTemplate {
-  const { objects, settings, links, props, lighting } = useSceneStore.getState();
+  const { objects, settings, links, props, lighting, autoConnect } = useSceneStore.getState();
   const equipment: TemplateEquipment[] = objects.map((o) => {
     const entry: TemplateEquipment = { kind: o.kind, x: round(o.x), z: round(o.z), yaw: round(o.yaw) };
     const out = entry as { -readonly [K in keyof TemplateEquipment]: TemplateEquipment[K] };
@@ -42,6 +42,7 @@ export function buildSceneTemplate(meta: { id?: string; name?: string; descripti
     ...(lighting ? { lighting } : {}),
     equipment,
     ...(templateLinks.length ? { links: templateLinks } : {}),
+    ...(autoConnect ? {} : { autoConnect: false }),
     ...(props.length ? { props: props.map((p) => ({ ...p })) } : {}),
   };
 }

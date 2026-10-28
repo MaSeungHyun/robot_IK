@@ -40,4 +40,6 @@ export type SceneTemplate = {
   props?: readonly TemplateProp[];
   /** Optional lighting preset replacing the default ambient + key light. */
   lighting?: TemplateLighting;
+  /** Global "자동 연결" (default true): relations without a 🔗 link pick the nearest target; false = they wait with a warning. */
+  autoConnect?: boolean;
 };

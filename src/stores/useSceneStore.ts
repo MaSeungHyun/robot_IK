@@ -86,6 +86,8 @@ interface SceneState{
   lighting: TemplateLighting | null;
   /** Equipment relations (🔗); see docs/linking-design.md. */
   links:SceneLink[];nextLinkId:number;
+  /** Global "자동 연결": unlinked relations use the nearest target (false: wait + "링크 없음"). Saved in templates. */
+  autoConnect:boolean;setAutoConnect:(value:boolean)=>void;
   /** Adds a link (edit mode, valid kind pair, no duplicate); returns whether it was added. */
   addLink:(link:Omit<SceneLink,"id">)=>boolean;removeLink:(id:string)=>void;
 }
@@ -97,7 +99,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   inspected:null,inspect:id=>set(id?{inspected:id,selected:id}:{inspected:null}),
   undo:()=>{const state=get();if(!state.editing||!state.past.length)return;set({...state.past[state.past.length-1],past:state.past.slice(0,-1),future:[snapshot(state),...state.future],pending:null,errors:[]});},
   redo:()=>{const state=get();if(!state.editing||!state.future.length)return;set({...state.future[0],past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:state.future.slice(1),pending:null,errors:[]});},
-  props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,selected:null,selection:[],pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
+  props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,autoConnect:true,setAutoConnect:autoConnect=>{if(get().editing)set({autoConnect});},selected:null,selection:[],pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
   select:selected=>{const state=get();if(state.selected!==selected||state.inspected!==null||state.selection.length>1)set({selected,selection:selected?[selected]:[],inspected:null});},
   toggleSelect:id=>{
     const state=get(),ids=selectedIds(state);
@@ -260,7 +262,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   remove:id=>{if(!get().editing||!get().settings[id])return;set(state=>{const gone=new Set([id,...mountedPallets(state.objects,state.settings,new Set([id])).map(o=>o.id)]);const next={...state.settings};for(const g of gone)delete next[g];return {...history(state),objects:state.objects.filter(object=>!gone.has(object.id)),links:state.links.filter(link=>!gone.has(link.from)&&!gone.has(link.to)),settings:next,selected:state.selected&&gone.has(state.selected)?null:state.selected,selection:state.selection.filter(s=>!gone.has(s)),errors:[]};});},
   edit:()=>{if(get().editing)return;useSimulationStore.getState().reset();set({editing:true,errors:[],inspected:null});},
   complete:()=>{const state=get(),errors=validateScene(state.objects,state.settings,state.links);if(!errors.length)useSimulationStore.getState().reset();set({errors,editing:errors.length>0,pending:null,inspected:null});},
-  clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,selected:null,pending:null,editing:true,errors:[]});},
+  clear:()=>{if(!get().editing)useSimulationStore.getState().reset();set({...history(get()),props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,autoConnect:true,selected:null,pending:null,editing:true,errors:[]});},
   loadTemplate: (template) => {
     const state = get();
     if (!state.editing) return false;
@@ -284,7 +286,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       links.push({ id: `L-${String(links.length + 1).padStart(3, "0")}`, type: entry.type, from: from.id, to: to.id });
     }
     useLinkModeStore.getState().setSource(null);
-    set({ ...history(state), props: template.props ?? [], lighting: template.lighting ?? null, objects, settings: configs, links, nextLinkId: links.length + 1, selected: null, inspected: null,
+    set({ ...history(state), props: template.props ?? [], lighting: template.lighting ?? null, objects, settings: configs, links, nextLinkId: links.length + 1, autoConnect: template.autoConnect ?? true, selected: null, inspected: null,
       pending: null, errors: [], nextId: objects.length + 1 });
     return true;
   },

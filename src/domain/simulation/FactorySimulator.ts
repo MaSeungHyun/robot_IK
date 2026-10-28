@@ -244,6 +244,9 @@ const SHIP_RESUME_S = 0.15;
 const FAR_POSE = { x: 1e5, z: 1e5, yaw: 0 };
 const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
   config?.grade ?? "normal";
+/** Warning for a relation without a 🔗 link while 자동 연결 is off. */
+const noLink = (relation: string) => `링크 없음 · ${relation} 🔗 링크가 없어 대기합니다 (자동 연결 꺼짐)`;
+
 export class FactorySimulator {
   readonly root = new Group();
   readonly inspection: ScannerInspection;
@@ -299,6 +302,8 @@ export class FactorySimulator {
   private links: LinkIndex;
   /** Belts a robot picks from (linked conveyors and their connected sections); absent = any belt in reach. */
   private feedBelts = new Map<string, Set<string>>();
+  /** Global "자동 연결": relations without a 🔗 link use the nearest/automatic choice (false: they do nothing and warn). */
+  private readonly auto: boolean;
   readonly transport = new TransportQueue();
   /** Stations whose current full pallet was already reported (palletFull log); cleared on replacement. */
   private fullReported = new Set<PalletController>();
@@ -317,7 +322,9 @@ export class FactorySimulator {
     instances?: SimulationRenderer,
     random?: () => number,
     links: readonly SceneLink[] = [],
+    autoConnect = true,
   ) {
+    this.auto = autoConnect;
     // Free-standing ScanTunnel scanners run boxes on their own belt (sim-only conveyor; see scannerBelt.ts).
     ({ objects, getSettings } = withScannerBelts(objects, getSettings));
     // No unload dock needed: AMRs stop at a reachable free pose next to the depalletizing robot itself.
@@ -434,6 +441,9 @@ export class FactorySimulator {
         const belts = new Set<string>();
         for (const id of fed) for (const belt of connectedBeltIds(objects, id)) belts.add(belt);
         this.feedBelts.set(robot.object.id, belts);
+      } else if (!this.auto && !this.depalletizers.includes(robot)) {
+        this.feedBelts.set(robot.object.id, new Set());
+        this.warnOnce(noLink("공급(컨베이어 → 로봇)"), robot.object.name);
       }
     }
     for (const robot of this.robots)
@@ -448,7 +458,7 @@ export class FactorySimulator {
     for (const pallet of this.pallets) {
       const linked = this.links.incoming(pallet.object.id, "load");
       let loaders = this.robots.filter((robot) => linked.includes(robot.object.id));
-      if (!loaders.length) {
+      if (!loaders.length && this.auto) {
         const nearest = this.robots.reduce<FactoryRobot | null>((best, next) =>
           !best || distance(next.object, pallet.object) < distance(best.object, pallet.object) ? next : best, null);
         loaders = nearest ? [nearest] : [];
@@ -717,6 +727,11 @@ export class FactorySimulator {
     const free = (a: FactoryAgent) => settings[a.object.id]?.enabled && a.dispatch.available && !a.charging && a.battery >= AMR_BATTERY.chargeBelow && !claimed.has(a) && !mounted.has(a.object.id);
     const linkedIds = this.links.outgoing(hold.belt.id, "feed");
     let candidates: FactoryAgent[];
+    if (!linkedIds.length && !this.auto) {
+      this.holdWarn(hold, "noLink", noLink("공급(컨베이어 → AMR)"), "자동 연결이 꺼져 있습니다 · 🔗 공급 링크를 추가하거나 자동 연결을 켜세요");
+      for (const a of this.agents) if (a.dispatch.available && !a.waitingReason) a.waitingReason = noLink("공급");
+      return;
+    }
     if (linkedIds.length) {
       candidates = this.agents.filter((a) => linkedIds.includes(a.object.id));
       if (!candidates.length && linkedIds.some((id) => !this.robots.some((r) => r.object.id === id) && !this.unloadDocks.some((d) => d.id === id) && !this.scanners.some((sc) => sc.id === id))) {
@@ -1139,7 +1154,7 @@ export class FactorySimulator {
   }
   /** Linked subset of `items` when `linked` is non-empty, else all of them (fallback). */
   private linkedOrAll<T>(items: readonly T[], linked: readonly string[], id: (item: T) => string) {
-    if (!linked.length) return [...items];
+    if (!linked.length) return this.auto ? [...items] : [];
     const ids = new Set(linked);
     return items.filter((item) => ids.has(id(item)));
   }
@@ -1697,6 +1712,10 @@ export class FactorySimulator {
           !a.charging &&
           a.battery >= AMR_BATTERY.chargeBelow,
       );
+      if (!this.auto && !this.links.incoming(pallet.object.id, "pickup").length) {
+        this.warnOnce(noLink("픽업(AMR → 팔레트)"), pallet.object.name);
+        continue;
+      }
       if (!agents.length) {
         // No AMR can take it at all: a forklift carries the pallet to the outbound robot instead.
         // (Pallets riding on shuttles / handled by the pallet cycle are not floor pallets.)
@@ -1978,6 +1997,11 @@ export class FactorySimulator {
         accepts = config.acceptGrade ?? "any";
       return config.enabled && (accepts === "any" || accepts === grade);
     });
+    if (!this.auto && !this.links.outgoing(pallet.object.id, "deliver").length) {
+      agent.waitingReason = noLink("배송(팔레트 → 도착지)");
+      this.warnOnce(agent.waitingReason, pallet.object.name);
+      return false;
+    }
     // One pallet per dock: skip docks booked by another delivery or still holding a drop.
     const docks = accepting
       .filter((dock) =>
@@ -2293,6 +2317,11 @@ export class FactorySimulator {
       const at = pallet.getWorldPosition(new Vector3());
       // Link decides (🔗 빈 팔레트 회수: AMR → forklift / stack), else the nearest one.
       const linked = this.links.outgoing(agent.object.id, "emptyReturn");
+      if (!linked.length && !this.auto) {
+        agent.waitingReason = noLink("빈 팔레트 반납");
+        this.warnOnce(agent.waitingReason, agent.object.name);
+        continue;
+      }
       const drop = this.emptyDrop(at, linked);
       if (!drop) {
         agent.waitingReason = EMPTY_PICK_NO_STACK;
@@ -2397,7 +2426,7 @@ export class FactorySimulator {
     // A linked depalletizer if any (the deliver link usually names its unload dock, not the robot), else the nearest.
     const enabled = this.depalletizers.filter((r) => settings[r.object.id]?.enabled);
     const linked = this.linkedOrAll(enabled, this.links.outgoing(pallet.object.id, "deliver"), (r) => r.object.id);
-    const robots = (linked.length ? linked : enabled)
+    const robots = (linked.length || !this.auto ? linked : enabled)
       .sort((a, b) => distance(a.object, pallet.object) - distance(b.object, pallet.object));
     if (!robots.length) {
       this.warnOnce(NO_FLOW, pallet.object.name);

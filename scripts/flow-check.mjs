@@ -52,13 +52,15 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
   const list = fileArg ? [JSON.parse(readFileSync(fileArg.slice(7), "utf8"))] : only ? only.slice(11).split(",").map(i => SCENE_TEMPLATES[+i]) : SCENE_TEMPLATES;
   for (const template of list) {
     useSceneStore.getState().loadTemplate(template);
-    const { objects, links } = useSceneStore.getState();
+    const autoArg = args.find(a => a.startsWith("--auto="));
+    if (autoArg) useSceneStore.setState({ autoConnect: autoArg.slice(7) !== "off" });
+    const { objects, links, autoConnect } = useSceneStore.getState();
     const getSettings = () => useSceneStore.getState().settings;
     const errors = validateScene(objects, getSettings());
     console.log(`## ${template.id} (${template.name}) validation: ${errors.length ? errors.join(" | ") : "ok"}`);
     let seed = 12345; const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
     const buildStart = performance.now();
-    const world = new FactorySimulator(objects, boxGltf.scene, palletGltf.scene, getSettings, undefined, random, links);
+    const world = new FactorySimulator(objects, boxGltf.scene, palletGltf.scene, getSettings, undefined, random, links, autoConnect);
     const buildMs = performance.now() - buildStart;
     const scene = new THREE.Scene(); scene.add(world.root);
     for (const entity of objects.filter(o => o.kind === "scanner")) {
