@@ -1,10 +1,15 @@
 import { useThree } from "@react-three/fiber";
-import { useEffect } from "react";
-import { Group, InstancedMesh, Mesh, type Material, type Object3D, type Texture } from "three";
+import { usePostWarmup } from "@/viewport/postWarmupState";
+import { Suspense, useEffect } from "react";
+import PropWarmup from "@/viewport/props/PropWarmup";
+import { propsWarmed } from "@/viewport/props/propWarmupState";
+import { warmFactoryPrograms } from "@/viewport/lighting/factoryWarmup";
+import { Group, InstancedMesh, Material, Mesh, type Object3D, type Texture, type WebGLRenderer } from "three";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
 import { log } from "@/stores/useLogStore";
 import { useModelStore } from "@/stores/useModelStore";
 import { useWarmupStore } from "@/stores/useWarmupStore";
+import { isWebGPURenderer } from "@/viewport/renderer/createRenderer";
 import { instancedDepthMaterial, usesSharedDepth } from "@/viewport/instancing/SceneInstances";
 import { buildConveyorGhost, buildModelGhost, type GhostModelKind } from "@/viewport/editor/ghostModels";
 import { useModelsSettled } from "@/stores/useModelStore";
@@ -18,6 +23,8 @@ const GHOSTS: GhostModelKind[] = ["robot", "pallet", "amr", "scanner", "rack", "
  * programs stay cached; placement ghosts created later reuse them and show on the first drag.
  */
 const keepAlive: Object3D[] = [];
+/** Post-processing materials from the startup warm-up, never disposed (keeps their programs cached). */
+const keptPostMaterials: Material[] = [];
 let started = false;
 
 /**
@@ -88,9 +95,48 @@ export default function ModelWarmup() {
         log("warning", "셰이더 워밍업 실패", error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
-        for (const mesh of instanced) mesh.dispose();
-        ready();
+        // Then the same programs for the factory lighting (and the template prop GLBs), so switching to it later does
+        // not recompile. The startup screen waits for this (bounded so a missing file never blocks the app).
+        const factoryWarm = propsWarmed
+          .then(() => (isWebGPURenderer(gl) ? null : warmFactoryPrograms(gl, camera, scene, root)))
+          .then((summary) => { if (summary) console.info("[warmup] factory lighting", summary); })
+          .then(() => (isWebGPURenderer(gl) ? null : warmPostProcessing(gl as WebGLRenderer)))
+          .catch((error: unknown) => log("warning", "공장 조명 워밍업 실패", error instanceof Error ? error.message : String(error)));
+        void Promise.race([factoryWarm, new Promise((resolve) => setTimeout(resolve, 120_000))]).then(() => {
+          for (const mesh of instanced) mesh.dispose();
+          ready();
+        });
       });
   }, [settled, gl, scene, camera]);
-  return null;
+  return <Suspense fallback={null}><PropWarmup /></Suspense>;
+}
+
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+/**
+ * Mounts the factory effect chain (selective bloom + AgX) for a few frames so the composer compiles its programs.
+ * Unmounting would dispose those pass materials, and three then drops the programs and their shader-cache ids (a
+ * later material gets a new id, so a new cache key): the warm materials are kept undisposed instead (a handful).
+ */
+async function warmPostProcessing(gl: WebGLRenderer) {
+  const before = new Set(gl.info.programs ?? []);
+  usePostWarmup.setState({ active: true });
+  for (let i = 0; i < 4; i++) await nextFrame();
+  const added = new Set((gl.info.programs ?? []).filter((p) => !before.has(p)));
+  const dispose = Material.prototype.dispose;
+  const kept: Material[] = [];
+  Material.prototype.dispose = function (this: Material) {
+    const program = (gl.properties.get(this) as { currentProgram?: unknown }).currentProgram;
+    if (program && added.has(program as never)) kept.push(this);
+    else dispose.call(this);
+  };
+  try {
+    usePostWarmup.setState({ active: false });
+    await nextFrame();
+    await nextFrame();
+  } finally {
+    Material.prototype.dispose = dispose;
+  }
+  keptPostMaterials.push(...kept);
+  console.info("[warmup] post-processing", { programs: added.size, keptMaterials: kept.length });
 }

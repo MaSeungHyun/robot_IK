@@ -2,9 +2,12 @@ import { markPlayRequested } from "@/domain/simulation/simulationClock";
 import { useHudStore } from "@/stores/useHudStore";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useTemplateLoadStore } from "@/stores/useTemplateLoadStore";
 
 /** Stopped = editor. Play validates the layout, leaves the editor and runs at once; from pause it resumes. */
 export function play() {
+  // A template is still revealing (progressive load): run once it is complete.
+  if (useTemplateLoadStore.getState().active) return false;
   if (!useSimulationStore.getState().running) markPlayRequested();
   if (useSceneStore.getState().editing) {
     useHudStore.getState().selectWorkspaceMode("play");

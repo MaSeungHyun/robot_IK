@@ -1,6 +1,7 @@
 import Icon from "@/components/Icon";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useTemplateLoadStore } from "@/stores/useTemplateLoadStore";
 import { pause, play, stop } from "@/stores/actions/playback";
 import { cn } from "@/lib/style";
 import PlaybackSpeedSelect from "@/ui/Hud/simulation/PlaybackSpeedSelect";
@@ -16,13 +17,15 @@ const TOOL_BUTTON =
 export default function PlaybackControls() {
   const running = useSimulationStore((state) => state.running);
   const stopped = useSceneStore((state) => state.editing);
+  const loading = useTemplateLoadStore((state) => state.active);
 
   return (
     <div className="flex items-center gap-4 max-lg:justify-end">
       <div className="flex items-center gap-1">
         <button
           type="button"
-          aria-label="실행"
+          aria-label={loading ? "실행 (불러오는 중)" : "실행"}
+          disabled={loading}
           aria-pressed={running}
           className={cn(TOOL_BUTTON, running ? ACCENT : IDLE)}
           onClick={() => {
@@ -36,7 +39,7 @@ export default function PlaybackControls() {
           aria-label="일시 정지"
           aria-pressed={!running && !stopped}
           className={cn(TOOL_BUTTON, !running && !stopped ? ACCENT : IDLE)}
-          disabled={!running && stopped}
+          disabled={(!running && stopped) || (loading && !running)}
           onClick={() => (running ? pause() : play())}
         >
           <Icon icon="Pause" aria-hidden="true" className="size-3.5 fill-current" />

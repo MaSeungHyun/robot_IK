@@ -66,6 +66,30 @@ export function scheduleDropIn(objects: readonly SceneEquipment[], now = perform
   return sorted.length ? (sorted.length - 1) * DROP_IN.staggerMs + total : 0;
 }
 
+/** Progressive template load order (useTemplateLoadStore stages): 2 conveyors, 3 equipment, 4 racks, 5 pallets/props. */
+const LOAD_ORDER: Partial<Record<EquipmentKind, number>> = { conveyor: 2, robot: 3, scanner: 3, door: 3, rack: 4, dock: 5, pallet: 5, amr: 5 };
+/** Hidden until released (start far in the future). */
+export function holdDropIn(objects: readonly SceneEquipment[]) {
+  dropInSchedule.clear();
+  for (const o of objects) if (LOAD_ORDER[o.kind] !== undefined) dropInSchedule.set(o.id, Number.MAX_SAFE_INTEGER);
+}
+/** Staggered load-order drop-in from `now`; returns when the last one ends and when each stage starts. */
+export function scheduleLoadDropIn(objects: readonly SceneEquipment[], now = performance.now()) {
+  const animated = objects.filter((o) => LOAD_ORDER[o.kind] !== undefined);
+  const origin = animated.find((o) => o.kind === "conveyor") ?? { x: 0, z: 0 };
+  const sorted = [...animated].sort((a, b) => LOAD_ORDER[a.kind]! - LOAD_ORDER[b.kind]! || Math.hypot(a.x - origin.x, a.z - origin.z) - Math.hypot(b.x - origin.x, b.z - origin.z));
+  const stageAt: number[] = [];
+  sorted.forEach((object, i) => {
+    const at = now + i * DROP_IN.staggerMs, stage = LOAD_ORDER[object.kind]!;
+    stageAt[stage] ??= at;
+    dropInSchedule.set(object.id, at);
+  });
+  const endsAt = now + (sorted.length ? (sorted.length - 1) * DROP_IN.staggerMs + total : 0);
+  // Stages without equipment start with the next one (or at the end).
+  for (let s = 5; s >= 2; s--) stageAt[s] ??= stageAt[s + 1] ?? endsAt;
+  return { endsAt, stageAt };
+}
+
 export type DropInFrame = { y: number; visible: boolean; band: number; flash: number; fade: number; done: boolean };
 /** Render state for `id` at `now`; null when it is not (or no longer) animating. band < 0: still falling. */
 export function dropInState(id: string, now: number, swapped = true): DropInFrame | null {

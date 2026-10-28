@@ -12,6 +12,7 @@ import { HalfFloatType, Matrix4 } from "three";
 import type { AmbientLight, Camera } from "three";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { RENDER_QUALITY } from "@/constants/viewport";
+import { usePostWarmup } from "@/viewport/postWarmupState";
 import {
   selectBloomEnabled,
   selectRenderQuality,
@@ -36,7 +37,8 @@ export default function PostProcessing({
   const renderQuality = useViewportSettingsStore(selectRenderQuality);
   const bloomEnabled = useViewportSettingsStore(selectBloomEnabled);
   const selection = useContext(selectionContext);
-  const bloomActive = bloomEnabled && (selection?.selected.length ?? 0) > 0;
+  const warming = usePostWarmup((state) => state.active);
+  const bloomActive = bloomEnabled && ((selection?.selected.length ?? 0) > 0 || warming);
   // The composer (and SelectiveBloom) rebuild every pass and render target whenever their camera
   // prop changes, which shows a blank/white frame. Pin them to the first camera and retarget the
   // existing passes when the editor swaps perspective <-> ortho instead.
@@ -111,7 +113,7 @@ export default function PostProcessing({
           radius={0.7}
         />
       )}
-      {toneMapping === "agx" ? <ToneMapping mode={ToneMappingMode.AGX} /> : <></>}
+      {toneMapping === "agx" || warming ? <ToneMapping mode={ToneMappingMode.AGX} /> : <></>}
     </EffectComposer>
   );
 }

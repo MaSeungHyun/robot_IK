@@ -19,6 +19,8 @@ import {
 import { log } from "@/stores/useLogStore";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
+import { cn } from "@/lib/style";
+import { useSimulationStore } from "@/stores/useSimulationStore";
 
 const isTyping = (target: EventTarget | null) =>
   target instanceof Element &&
@@ -73,7 +75,9 @@ export function PerfCollector() {
   const get = useThree((state) => state.get);
   const active = enabled && baked;
   // Dev-only handle for scripted renderer.info profiling (PerfCollector is mounted only in DEV).
-  useEffect(() => { (window as unknown as { __sfThree?: typeof get }).__sfThree = get; }, [get]);
+  useEffect(() => {
+    (window as unknown as { __sfThree?: typeof get }).__sfThree = get;
+  }, [get]);
   // Before the composer renders; a single boolean check while the overlay is off.
   useFrame(() => {
     if (active) renderPhase.start = profileStart();
@@ -241,7 +245,7 @@ function Trend({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      <div className="flex justify-between text-[10px] text-text-secondary tabular-nums">
+      <div className="flex justify-between text-xs text-text-secondary tabular-nums">
         <span>최소 {n ? format(min) : "—"}</span>
         <span>평균 {n ? format(sum / n) : "—"}</span>
         <span>최대 {n ? format(max) : "—"}</span>
@@ -263,7 +267,12 @@ function SpikeList({ spikes, count }: { spikes: FrameSpike[]; count: number }) {
           onClick={() => setOpen((value) => !value)}
           className="-mx-1 flex items-center gap-1 rounded-sm px-1 outline-none hover:bg-white/10 hover:text-text-primary focus-visible:ring-1 focus-visible:ring-brand-primary"
         >
-          <span aria-hidden className={open ? "inline-block rotate-90" : "inline-block"}>▸</span>
+          <span
+            aria-hidden
+            className={open ? "inline-block rotate-90" : "inline-block"}
+          >
+            ▸
+          </span>
           스파이크 (&gt;{SPIKE_MS}ms) · 총 {count}회
         </button>
         {count > 0 && (
@@ -308,6 +317,8 @@ export default function PerfReadout() {
   const enabled = useViewportSettingsStore((state) => state.perfOverlay);
   const expanded = useViewportSettingsStore((state) => state.perfExpanded);
   const [reading, setReading] = useState<Reading | null>(null);
+
+  const running = useSimulationStore((state) => state.running);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -376,11 +387,15 @@ export default function PerfReadout() {
   };
   // One container (same bottom offset and chrome as the minimap) that grows upward in place:
   // bottom-anchored, graphs above the readout row. Only the collapse button closes it.
+
   return (
     <div
       role={expanded ? "region" : undefined}
       aria-label={expanded ? "성능 추이 (최근 2분)" : undefined}
-      className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-md border border-white/10 bg-bg-primary/70 p-1 font-mono text-xs backdrop-blur-sm z-50"
+      className={cn(
+        "absolute top-12 z-30 rounded-md border border-white/10 bg-bg-primary/70 p-1 font-mono text-xs backdrop-blur-sm z-50",
+        running ? "left-3" : "left-14",
+      )}
     >
       {expanded ? (
         <>

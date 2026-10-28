@@ -5,12 +5,19 @@ import { useSceneStore, type EditorTool } from "@/stores/useSceneStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 
 /** Same treatment as the header playback buttons (PlaybackControls). */
-const ACCENT = "bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30";
-const IDLE = "bg-white/[.06] text-text-primary/80 hover:bg-white/[.11] hover:text-text-primary";
+const ACCENT =
+  "bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30";
+const IDLE =
+  "bg-white/[.06] text-text-primary/80 hover:bg-white/[.11] hover:text-text-primary";
 const TOOL_BUTTON =
   "group/tip relative flex size-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-1 focus-visible:ring-brand-primary";
 
-const TOOLS: { tool: EditorTool; icon: "MousePointer2" | "Move" | "RotateCw"; label: string; key: string }[] = [
+const TOOLS: {
+  tool: EditorTool;
+  icon: "MousePointer2" | "Move" | "RotateCw";
+  label: string;
+  key: string;
+}[] = [
   { tool: "select", icon: "MousePointer2", label: "선택", key: "W" },
   { tool: "translate", icon: "Move", label: "이동", key: "G" },
   { tool: "rotate", icon: "RotateCw", label: "회전", key: "R" },
@@ -28,7 +35,7 @@ export default function EditorToolbar() {
       role="toolbar"
       aria-label="편집 도구"
       aria-orientation="vertical"
-      className="simulation-panel absolute top-3 left-3 z-200 flex flex-col gap-1 rounded-md border border-white/10 bg-bg-primary/85 p-1 backdrop-blur-sm"
+      className="flex simulation-panel absolute bottom-3 left-1/2 -translate-x-1/2 z-200 flex gap-1 rounded-md border border-white/10 bg-bg-primary/85 p-1 backdrop-blur-sm"
     >
       {TOOLS.map((entry) => {
         const active = !linking && tool === entry.tool;
@@ -45,7 +52,9 @@ export default function EditorToolbar() {
             }}
           >
             <Icon icon={entry.icon} aria-hidden="true" className="size-3.5" />
-            <SideTooltip label={`${entry.label} (${entry.key})${entry.tool === "select" ? " · 선택 항목 보기 (F)" : ""}`} />
+            <SideTooltip
+              label={`${entry.label} (${entry.key})${entry.tool === "select" ? " · 선택 항목 보기 (F)" : ""}`}
+            />
           </button>
         );
       })}

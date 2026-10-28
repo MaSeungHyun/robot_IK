@@ -15,6 +15,7 @@ import ThumbnailBaker from "@/viewport/thumbnails/ThumbnailBaker";
 import CameraTracker from "@/viewport/camera/CameraTracker";
 import CameraRig from "@/viewport/camera/CameraRig";
 import ShadowLight from "@/viewport/shadows/ShadowLight";
+import SceneEnvironment from "@/viewport/lighting/SceneEnvironment";
 import WorldAxes from "@/viewport/WorldAxes";
 import ShuttleZones from "@/viewport/editor/ShuttleZones";
 import PostProcessing from "./PostProcessing";
@@ -115,6 +116,7 @@ export default function Viewport() {
           <Selection>
             {/* <color attach="background" args={["#101820"]} /> */}
             <ambientLight ref={ambientLight} intensity={2} visible={!lighting} />
+            <SceneEnvironment preset={lighting === "factory" ? "factory" : "default"} />
             {lighting === "factory" ? <FactoryLighting /> : <ShadowLight />}
 
             <ModelLoader />
@@ -130,7 +132,7 @@ export default function Viewport() {
                 onProgress={onProgress}
               />
             </Suspense>
-            {webgpu ? <WebGPUFrame /> : <PostProcessing lights={bloomLights} toneMapping={lighting === "factory" ? "agx" : undefined} />}
+            {webgpu ? <WebGPUFrame /> : <PostProcessing lights={bloomLights} toneMapping="agx" />}
           </Selection>
         </Canvas>
       </SceneBoundary>

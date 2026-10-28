@@ -6,7 +6,7 @@ import SideTooltip from "@/components/SideTooltip";
 import { ASSET_PRESETS, thumbnailKey } from "@/constants/assetPresets";
 import type { AssetPreset } from "@/constants/assetPresets";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
-import { applySceneTemplate } from "@/stores/actions/applySceneTemplate";
+import { loadTemplateProgressive } from "@/stores/actions/loadTemplate";
 import { downloadSceneTemplate } from "@/stores/actions/exportSceneTemplate";
 import { useSceneStore, EQUIPMENT_NAMES } from "@/stores/useSceneStore";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
@@ -68,7 +68,7 @@ export default function AssetRail() {
     { id: "templates", label: "템플릿", icon: "LayoutTemplate" },
     ...ASSET_PRESETS.map(({ kind, icon }) => ({
       id: kind,
-      label: EQUIPMENT_NAMES[kind],
+      label: categoryName(kind),
       icon,
     })),
   ];
@@ -179,7 +179,7 @@ function TemplateFlyout({ onDone }: { onDone: () => void }) {
             aria-label={`${template.name} 불러오기`}
             title={template.description}
             onClick={() => {
-              applySceneTemplate(template);
+              loadTemplateProgressive(template);
               onDone();
             }}
             className="flex flex-col gap-1.5 rounded-md border border-white/10 bg-white/5 p-1.5 text-left transition hover:border-sky-400/60 hover:bg-sky-400/10"
@@ -204,6 +204,10 @@ function TemplateFlyout({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** Rail / flyout title: the AMR category also holds the forklift presets. */
+const categoryName = (kind: EquipmentKind) =>
+  kind === "amr" ? "AMR · 지게차" : EQUIPMENT_NAMES[kind];
+
 function AssetFlyout({
   kind,
   presets,
@@ -220,7 +224,7 @@ function AssetFlyout({
   return (
     <div
       role="dialog"
-      aria-label={`${EQUIPMENT_NAMES[kind]} 프리셋`}
+      aria-label={`${categoryName(kind)} 프리셋`}
       data-keeps-shortcuts=""
       className={cn(flyout, "w-72")}
     >
@@ -233,14 +237,19 @@ function AssetFlyout({
       />
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-semibold text-text-primary">
-          {EQUIPMENT_NAMES[kind]}
+          {categoryName(kind)}
         </h2>
         <span className="text-[10px] text-text-secondary">
           {objects.filter((o) => o.kind === kind).length}개 배치됨
         </span>
       </div>
+      {groupBySection(presets).map(([section, items]) => (
+      <div key={section ?? "_"} className="mb-2 last:mb-0">
+      {section && (
+        <h3 className="mb-1 text-[11px] font-semibold text-text-secondary">{section}</h3>
+      )}
       <div className="grid grid-cols-2 gap-2">
-        {presets.map((preset) => {
+        {items.map((preset) => {
           const key = thumbnailKey(kind, preset),
             image = key ? thumbnails[key] : undefined;
           return (
@@ -295,6 +304,19 @@ function AssetFlyout({
           );
         })}
       </div>
+      </div>
+      ))}
     </div>
   );
+}
+
+/** Presets grouped by `section` (first-appearance order); unsectioned presets form one untitled group. */
+function groupBySection(presets: AssetPreset[]): [string | undefined, AssetPreset[]][] {
+  const groups = new Map<string | undefined, AssetPreset[]>();
+  for (const preset of presets) {
+    const list = groups.get(preset.section);
+    if (list) list.push(preset);
+    else groups.set(preset.section, [preset]);
+  }
+  return [...groups];
 }

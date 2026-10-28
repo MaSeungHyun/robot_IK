@@ -1,6 +1,8 @@
 import { useGLTF as useDreiGLTF } from "@react-three/drei";
 import { DoubleSide, Mesh, WebGLRenderer, type Material, type Object3D } from "three";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+import { LoaderUtils } from "three";
+import { fetchGlb } from "@/lib/three/glbCache";
 
 /**
  * Every app GLB load goes through here so KTX2 (KHR_texture_basisu) textures decode.
@@ -32,7 +34,17 @@ export function configureKTX2(gl: Parameters<KTX2Loader["detectSupport"]>[0]) {
 
 type ExtendLoader = NonNullable<Parameters<typeof useDreiGLTF>[3]>;
 /** drei's GLTFLoader (three-stdlib) supports KHR_texture_basisu through setKTX2Loader. */
-export const extendGLTFLoader: ExtendLoader = (loader) => { loader.setKTX2Loader(getKTX2Loader() as unknown as Parameters<typeof loader.setKTX2Loader>[0]); };
+export const extendGLTFLoader: ExtendLoader = (loader) => {
+  loader.setKTX2Loader(getKTX2Loader() as unknown as Parameters<typeof loader.setKTX2Loader>[0]);
+  // Bytes come from the shared session/Cache Storage store (glbCache), so every loader instance downloads a URL at most once.
+  loader.load = (url, onLoad, _onProgress, onError) => {
+    const manager = loader.manager;
+    const resolved = manager.resolveURL(url);
+    manager.itemStart(resolved);
+    const fail = (error: unknown) => { onError?.(error as ErrorEvent); manager.itemError(resolved); manager.itemEnd(resolved); };
+    fetchGlb(resolved).then((buffer) => loader.parse(buffer, loader.path || LoaderUtils.extractUrlBase(resolved), (gltf) => { onLoad(gltf); manager.itemEnd(resolved); }, fail), fail);
+  };
+};
 
 /**
  * Transparent DoubleSide materials (e.g. the models' "shadow" decal planes) make three.js draw back then front faces in two

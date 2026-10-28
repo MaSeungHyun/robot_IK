@@ -1,5 +1,5 @@
 import { useFrame } from "@react-three/fiber";
-import { NoToneMapping } from "three";
+import { SCENE_ENVIRONMENT } from "@/viewport/lighting/sceneEnvironmentConfig";
 import type { BufferGeometry, InstancedBufferAttribute, InterleavedBufferAttribute, Material, Object3D } from "three";
 
 type InstancedGeometry = BufferGeometry & { isInstancedBufferGeometry?: boolean; instanceCount: number };
@@ -68,7 +68,8 @@ export default function WebGPUFrame() {
     // WebGL draws into the composer's render target, so three never tone-maps there and the composer
     // adds none: the WebGL picture is untone-mapped. R3F sets ACESFilmic, which WebGPU would apply to the
     // whole frame (and to the outline/ribbons, which ignore toneMapped there). Match WebGL instead.
-    if (gl.toneMapping !== NoToneMapping) gl.toneMapping = NoToneMapping;
+    // Single source: SceneEnvironment (AgX for every scene, like the WebGL composer's ToneMapping pass).
+    if (gl.toneMapping !== SCENE_ENVIRONMENT.toneMapping) gl.toneMapping = SCENE_ENVIRONMENT.toneMapping;
     scene.traverseVisible(sanitize);
     try {
       gl.render(scene, camera);
