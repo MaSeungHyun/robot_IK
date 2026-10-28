@@ -1,5 +1,5 @@
 import { STREAM_CONFIG } from "@/constants/simulation";
-import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
+import { ROBOT_REACH_MAX, SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import type { EquipmentKind, EquipmentSettings } from "@/types/layout";
 
 /** Input limits: no upper caps; interval and AMR speed must be > 0. */
@@ -104,6 +104,8 @@ function migrateSimplified(kind: EquipmentKind, input: EquipmentSettings): Equip
  */
 export function migrateSettings(kind: EquipmentKind, config: EquipmentSettings): EquipmentSettings {
   config = migrateSimplified(kind, config);
+  // Robot reach beyond the arm's measured max (old layouts / template 04 used 3 m) is clamped to it.
+  if (kind === "robot" && config.reach > ROBOT_REACH_MAX) config = { ...config, reach: ROBOT_REACH_MAX };
   // Legacy forklift role "rack" (old layouts) = forklift; the forklift panel only knows "forklift".
   if (kind === "amr" && config.amrRole === "rack") config = { ...config, amrRole: "forklift" };
   if (kind === "conveyor" && config.beltSpeed === undefined)

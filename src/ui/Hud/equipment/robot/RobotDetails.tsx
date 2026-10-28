@@ -1,3 +1,4 @@
+import { ROBOT_REACH_MAX } from "@/constants/simulatorLayout";
 import RobotJointValues from "@/ui/Hud/equipment/robot/RobotJointValues";
 import useEquipmentTelemetry from "@/hooks/useEquipmentTelemetry";
 import { formatFixed, formatMetric } from "@/utils/equipment/formatMetric";
@@ -84,6 +85,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
           <EquipmentNumberSetting
             id={object.id}
             field="reach"
+            max={ROBOT_REACH_MAX}
             label="집기 범위 m"
             min={0}
             exclusiveMin

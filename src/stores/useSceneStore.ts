@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { migrateTemplateDocks } from "@/domain/layout/dockMigration";
 import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn,FloorSize } from "../types/layout";
-import { DEFAULT_LAYOUT,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG } from "../constants/simulatorLayout";
+import { DEFAULT_LAYOUT,ROBOT_REACH_MAX,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG } from "../constants/simulatorLayout";
 import { useSimulationStore } from "./useSimulationStore";
 import { validateScene } from "@/domain/amr/navigation/sceneValidation";
 import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/conveyor/conveyorLayout";
@@ -39,6 +39,8 @@ const snapFloor=(object:SceneEquipment):SceneEquipment=>object.kind==="floor"&&o
 const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:40,spawnInterval:8,enabled:true});
 /** Defaults (and legacy/preset values) in real units for `kind`. Exported for the template export snippet (scripts/export-scene-template.devtools.js). */
 const DOOR_DEFAULTS:Partial<EquipmentSettings>={doorWidth:DOOR_CONFIG.width,doorHeight:DOOR_CONFIG.height,doorOpen:false};
+/** Robot reach edits above the arm's max are clamped to ROBOT_REACH_MAX. */
+const clampReach=(values:Partial<EquipmentSettings>)=>values.reach!==undefined&&values.reach>ROBOT_REACH_MAX?{...values,reach:ROBOT_REACH_MAX}:values;
 export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...(kind==="door"?DOOR_DEFAULTS:{}),...values});
 /** Doors snap flush to a nearby wall plane (see snapDoorToWall). */
 const snapDoor=(object:SceneEquipment,config:EquipmentSettings|undefined,objects:SceneEquipment[]):SceneEquipment=>object.kind==="door"?{...object,...snapDoorToWall(object,config?.doorWidth??DOOR_CONFIG.width,objects)}:object;
@@ -120,7 +122,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const size=(value:number|undefined,max:number)=>value===undefined||(Number.isFinite(value)&&value>=DOOR_CONFIG.minSize&&value<=max);
     for(const id of ids){
       const config=state.settings[id];if(!config)continue;
-      const patch=typeof values==="function"?values(config,id):values;
+      const raw=typeof values==="function"?values(config,id):values,patch=clampReach(raw);
       if(patch.defectRate!==undefined&&(!Number.isFinite(patch.defectRate)||patch.defectRate<0||patch.defectRate>1))continue;
       if(!size(patch.doorWidth,DOOR_CONFIG.maxWidth)||!size(patch.doorHeight,DOOR_CONFIG.maxHeight))continue;
       if(Object.entries(patch).every(([key,value])=>config[key as keyof EquipmentSettings]===value))continue;
@@ -219,7 +221,8 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const next={...object,floor};
     set({...history(state),objects:state.objects.map(o=>o.id===id?next:o),errors:[]});
   },
-  updateSettings:(id,values)=>{
+  updateSettings:(id,input)=>{
+    const values = clampReach(input);
     const state = get(), current = state.settings[id];
     if (!current) return;
     if (values.defectRate !== undefined && (!Number.isFinite(values.defectRate) || values.defectRate < 0 || values.defectRate > 1)) return;

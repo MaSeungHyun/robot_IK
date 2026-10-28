@@ -2,9 +2,16 @@ import type { EquipmentKind, EquipmentPose } from "@/types/layout";
 import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
 import { CONVEYOR_LAYOUT as BELT } from "@/constants/conveyorLayoutConfig";
 
+/**
+ * Max robot pick reach (m), measured on RobotArm.glb at 1:1 with hand04's suction straight down: upper arm
+ * (hand01->hand02 1.185 m) and forearm (hand02->hand04 1.313 m) level at shoulder height put the tip at
+ * L1 + L2 = 2.498 m from the base axis. Default and input max for robot reach; larger values are clamped.
+ */
+export const ROBOT_REACH_MAX = 2.5;
+
 export const SIMULATOR_CONFIG = {
-  /** RobotArm.glb at 1:1: straight-down tool reaches 2.38 m (box top on belt); +~5% using tool tilt (old: 1.64 m -> 1.8). */
-  reach: 2.5,
+  /** Default robot reach (m) = ROBOT_REACH_MAX. */
+  reach: ROBOT_REACH_MAX,
   navigationPadding: 3,
   grid: 0.2,
   snap: 0.1,
