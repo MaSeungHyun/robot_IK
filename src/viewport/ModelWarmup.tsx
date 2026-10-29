@@ -41,7 +41,8 @@ export default function ModelWarmup() {
   useEffect(() => {
     if (!settled || started) return;
     started = true;
-    const ready = useWarmupStore.getState().setReady;
+    const { setReady: ready, setPhase } = useWarmupStore.getState();
+    setPhase("shaders");
     const scenes = useModelStore.getState().scenes;
     const root = new Group();
     const textures = new Set<Texture>();
@@ -108,9 +109,11 @@ export default function ModelWarmup() {
       .finally(() => {
         // Then the same programs for the factory lighting (and the template prop GLBs), so switching to it later does
         // not recompile. The startup screen waits for this (bounded so a missing file never blocks the app).
+        setPhase("lighting");
         const factoryWarm = propsWarmed
           .then(() => (isWebGPURenderer(gl) ? null : warmFactoryPrograms(gl, camera, scene, root)))
           .then((summary) => { if (summary) console.info("[warmup] factory lighting", summary); })
+          .then(() => setPhase("post"))
           .then(() => (isWebGPURenderer(gl) ? null : warmPostProcessing(gl as WebGLRenderer)))
           .catch((error: unknown) => log("warning", "공장 조명 워밍업 실패", error instanceof Error ? error.message : String(error)));
         void Promise.race([factoryWarm, new Promise((resolve) => setTimeout(resolve, 120_000))]).then(() => {

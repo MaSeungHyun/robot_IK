@@ -1,5 +1,7 @@
 import { useProgress } from "@react-three/drei";
 import { LOAD_STAGES, useTemplateLoadStore } from "@/stores/useTemplateLoadStore";
+import { useThumbnailStore } from "@/stores/useThumbnailStore";
+import { useWarmupStore } from "@/stores/useWarmupStore";
 
 /** Download % (drei useProgress) and the progressive template-load stage. */
 export default function LoadingOverlay() {
@@ -7,7 +9,10 @@ export default function LoadingOverlay() {
   const percent = useProgress((state) => state.progress);
   const loading = useTemplateLoadStore((state) => state.active);
   const stage = useTemplateLoadStore((state) => state.stage);
-  if (!downloading && !loading) return null;
+  // During startup the full-screen StartupOverlay owns the (single) progress bar.
+  const warmed = useWarmupStore((state) => state.ready);
+  const baked = useThumbnailStore((state) => state.baked);
+  if (!warmed || !baked || (!downloading && !loading)) return null;
   const step = downloading ? 0 : Math.max(1, stage);
   const value = downloading ? percent : (step / LOAD_STAGES.length) * 100;
   return (
