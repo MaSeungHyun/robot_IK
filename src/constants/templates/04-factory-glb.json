@@ -10,8 +10,7 @@
       "z": 20.438,
       "yaw": 0,
       "settings": {
-        "reach": 2.5,
-        "robotRole": "depalletize",
+        "robotRole": "palletize",
         "robotPedestal": "base",
         "pickFilter": "defect"
       }
@@ -50,8 +49,7 @@
       "z": 20.438,
       "yaw": 0,
       "settings": {
-        "reach": 2.5,
-        "robotRole": "depalletize",
+        "robotRole": "palletize",
         "robotPedestal": "base",
         "pickFilter": "defect"
       }
@@ -62,8 +60,7 @@
       "z": 20.438,
       "yaw": 0,
       "settings": {
-        "reach": 2.5,
-        "robotRole": "depalletize",
+        "robotRole": "palletize",
         "robotPedestal": "base",
         "pickFilter": "defect"
       }
@@ -168,7 +165,15 @@
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",
-        "forkliftTask": "service"
+        "forkliftTask": "service",
+        "stopPoints": [
+          {
+            "role": "service",
+            "x": 0,
+            "z": -5.2,
+            "yaw": 0
+          }
+        ]
       }
     },
     {
@@ -664,15 +669,6 @@
       }
     },
     {
-      "kind": "dock",
-      "x": 0,
-      "z": -5.2,
-      "yaw": 0,
-      "settings": {
-        "dockRole": "service"
-      }
-    },
-    {
       "kind": "pallet",
       "x": 7.7708,
       "z": -2.2104,
@@ -788,6 +784,78 @@
       "settings": {
         "grade": "defect"
       }
+    },
+    {
+      "kind": "door",
+      "x": 24.8,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": 11.200000000000001,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -8.9,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -22.5,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -22.400000000000002,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -8.9,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": 11.3,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": 24.8,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
     }
   ],
   "links": [
@@ -834,32 +902,32 @@
     {
       "type": "emptyReturn",
       "from": 14,
-      "to": 98
+      "to": 97
     },
     {
       "type": "emptyReturn",
       "from": 13,
-      "to": 98
+      "to": 97
     },
     {
       "type": "emptyReturn",
       "from": 12,
-      "to": 99
+      "to": 98
     },
     {
       "type": "emptyReturn",
       "from": 11,
-      "to": 99
-    },
-    {
-      "type": "emptyReturn",
-      "from": 99,
-      "to": 96
+      "to": 98
     },
     {
       "type": "emptyReturn",
       "from": 98,
-      "to": 97
+      "to": 95
+    },
+    {
+      "type": "emptyReturn",
+      "from": 97,
+      "to": 96
     },
     {
       "type": "emptyReturn",
@@ -881,7 +949,10 @@
     {
       "source": "factory",
       "node": "Enviroment",
-      "excludeMaterials": ["wall", "BG_Floor"]
+      "excludeMaterials": [
+        "wall",
+        "BG_Floor"
+      ]
     },
     {
       "source": "factory",
@@ -890,7 +961,11 @@
     {
       "source": "agv",
       "node": "AGV",
-      "position": [-21.1382, 0.2084, -28.2874]
+      "position": [
+        -21.1382,
+        0.2084,
+        -28.2874
+      ]
     },
     {
       "source": "factory",
@@ -959,25 +1034,41 @@
     {
       "source": "agv",
       "node": "AGV",
-      "position": [-21.1417, 0.2084, -15.1456],
+      "position": [
+        -21.1417,
+        0.2084,
+        -15.1456
+      ],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [-21.1417, 0.2084, -19.5344],
+      "position": [
+        -21.1417,
+        0.2084,
+        -19.5344
+      ],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [-21.1417, 0.2084, -23.9232],
+      "position": [
+        -21.1417,
+        0.2084,
+        -23.9232
+      ],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [-29.6568, 0.2084, -28.1064],
+      "position": [
+        -29.6568,
+        0.2084,
+        -28.1064
+      ],
       "yaw": 3.141592653589793
     },
     {
