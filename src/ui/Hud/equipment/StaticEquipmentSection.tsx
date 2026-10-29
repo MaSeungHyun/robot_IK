@@ -21,7 +21,7 @@ export default function StaticEquipmentSection({ objects, title }: Props) {
   if (!objects.length) return null;
 
   return (
-    <section aria-label={title} className="mt-4">
+    <section aria-label={title}>
       <h3 className="mb-2 text-xs text-text-secondary">
         {title} · {objects.length}개
       </h3>
