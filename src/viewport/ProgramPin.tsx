@@ -1,9 +1,10 @@
 import { useFrame } from "@react-three/fiber";
 import type { WebGLRenderer } from "three";
+import { useWarmupStore } from "@/stores/useWarmupStore";
 
 /** How often (s) newly compiled shader programs are pinned. */
 const PIN_INTERVAL = 1;
-type PinnableProgram = { usedTimes: number };
+type PinnableProgram = { usedTimes: number; name?: string; cacheKey?: string };
 const pinned = new WeakSet<object>();
 let elapsed = PIN_INTERVAL;
 
@@ -13,6 +14,8 @@ function pinPrograms(gl: WebGLRenderer) {
     if (pinned.has(program)) continue;
     pinned.add(program);
     program.usedTimes++;
+    // Dev diagnostics: programs first compiled after the startup warm-up stall the frame that needs them.
+    if (import.meta.env.DEV && useWarmupStore.getState().ready) console.info("[programs] late compile", program.name, program.cacheKey);
   }
 }
 

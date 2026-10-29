@@ -16,6 +16,13 @@ const defectDockMaterial = new MeshBasicMaterial({
   opacity: 0.75,
 });
 
+/** Dock tint meshes (both grades) for the startup shader warm-up. */
+export const dockWarmupModel = () => {
+  const group = new Group();
+  for (const material of [dockMaterial, defectDockMaterial]) group.add(new Mesh(dockGeometry, material));
+  return group;
+};
+
 export default function Dock({ id }: { id?: string }) {
   const defect = useSceneStore(
     (state) => id !== undefined && state.settings[id]?.acceptGrade === "defect",

@@ -1,4 +1,4 @@
-import { BackSide, BoxGeometry, DoubleSide, FrontSide, Group, HalfFloatType, InstancedMesh, Mesh, MeshDepthMaterial, PCFShadowMap, RGBADepthPacking, Scene, WebGLRenderTarget, type Camera, type Light, type Material, type Object3D, type Texture, type WebGLRenderer } from "three";
+import { BackSide, BoxGeometry, BufferAttribute, BufferGeometry, MeshBasicMaterial, MeshStandardMaterial, Texture as TextureImpl, DoubleSide, FrontSide, Group, HalfFloatType, InstancedMesh, Mesh, MeshDepthMaterial, PCFShadowMap, RGBADepthPacking, Scene, WebGLRenderTarget, type Camera, type Light, type Material, type Object3D, type Texture, type WebGLRenderer } from "three";
 import { selectShadowQuality, useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
 import { LineMaterial } from "three-stdlib";
 import { dropInMaterial } from "@/viewport/editor/dropIn";
@@ -20,6 +20,29 @@ import { propScenes } from "@/viewport/props/propWarmupState";
 const SHADOW_SIDE = { [FrontSide]: BackSide, [BackSide]: FrontSide, [DoubleSide]: DoubleSide } as const;
 const depthKeep: MeshDepthMaterial[] = [];
 const overlayKeep: Material[] = [];
+const opaqueKeep: Material[] = [];
+
+/** Position + uv only, like fat-line segments, link ribbons and other generated overlay geometry (no normals). */
+function bareGeometry() {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+  geometry.setAttribute("uv", new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1]), 2));
+  return geometry;
+}
+
+/**
+ * Shadow casters that only appear after a template is applied (fat-line Edges without normals, textured front-side
+ * meshes): one stand-in per side so shadowDepthRoot adds the depth variants the startup scene does not have.
+ */
+function depthStandIns(box: BufferGeometry, bare: BufferGeometry) {
+  const root = new Group();
+  const map = new TextureImpl();
+  for (const side of [FrontSide, BackSide, DoubleSide]) {
+    root.add(new Mesh(bare, new MeshStandardMaterial({ side })));
+    root.add(new Mesh(box, new MeshStandardMaterial({ side, map })));
+  }
+  return root;
+}
 
 /**
  * Stand-ins for the shadow pass: one mesh per distinct depth-program variant, with the MeshDepthMaterial setup
@@ -34,12 +57,14 @@ function shadowDepthRoot(sources: Object3D[]) {
     if (!mesh.isMesh || (mesh as { isSkinnedMesh?: boolean }).isSkinnedMesh) return;
     for (const m of (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as (Material & { map?: Texture | null; alphaMap?: Texture | null; displacementMap?: Texture | null; displacementScale?: number; wireframe?: boolean })[]) {
       const alphaTest = m.alphaToCoverage ? 0.5 : m.alphaTest;
-      const textured = alphaTest > 0 && !!(m.map || m.alphaMap);
       const displaced = !!m.displacementMap && m.displacementScale !== 0;
       const side = m.shadowSide ?? SHADOW_SIDE[m.side];
       const instanced = !!(mesh as { isInstancedMesh?: boolean }).isInstancedMesh;
       const morph = Object.keys(mesh.geometry.morphAttributes).join("/");
-      const key = [side, textured && !!m.map, textured && !!m.alphaMap, alphaTest > 0, displaced, instanced, morph, m.wireframe].join("|");
+      // getDepthMaterial copies map / alphaMap even without alphaTest (USE_MAP -> uv varyings), and a geometry without
+      // normals is its own variant too: both are part of the program key.
+      const normals = !!mesh.geometry.attributes.normal;
+      const key = [side, !!m.map, !!m.alphaMap, alphaTest > 0, displaced, instanced, morph, m.wireframe, normals].join("|");
       if (seen.has(key)) continue;
       seen.add(key);
       const depth = new MeshDepthMaterial();
@@ -47,7 +72,7 @@ function shadowDepthRoot(sources: Object3D[]) {
       depthKeep.push(depth);
       root.add(instanced ? new InstancedMesh(mesh.geometry, depth, 1) : new Mesh(mesh.geometry, depth));
       // Selective bloom's depth pass draws the same geometry with an RGBA-packed override depth material.
-      const override = `${instanced}|${morph}|override`;
+      const override = `${instanced}|${morph}|${normals}|override`;
       if (seen.has(override)) continue;
       seen.add(override);
       const packed = new MeshDepthMaterial({ depthPacking: RGBADepthPacking });
@@ -71,19 +96,36 @@ export async function warmFactoryPrograms(gl: WebGLRenderer, camera: Camera, liv
   const root = new Group();
   const textures = new Set<Texture>();
   for (const source of propScenes.values()) {
-    root.add(source.clone(true));
+    const clone = source.clone(true);
+    // compile() gathers lights from the compiled object too: the GLB's own lights would double the rig (wrong keys).
+    clone.traverse((o) => { if ((o as Light).isLight) o.visible = false; });
+    root.add(clone);
     source.traverse((node) => {
       if (!(node instanceof Mesh)) return;
       for (const material of (Array.isArray(node.material) ? node.material : [node.material]) as Material[])
         for (const value of Object.values(material)) if (value && (value as Texture).isTexture) textures.add(value as Texture);
+      // Faded / ghost props are restored to opaque FrontSide at runtime: that variant is a separate program.
+      for (const material of (Array.isArray(node.material) ? node.material : [node.material]) as Material[]) {
+        if (!material.transparent && material.side !== DoubleSide) continue;
+        const opaque = material.clone();
+        opaque.transparent = false;
+        opaque.depthWrite = true;
+        opaque.side = FrontSide;
+        opaqueKeep.push(opaque);
+        root.add(new Mesh(node.geometry, opaque));
+      }
     });
   }
   const probe = new BoxGeometry();
   root.add(new Mesh(probe, dropInMaterial));
-  // Overlay programs first drawn later (link ribbons, AMR route lines solid/dashed, selection outline).
+  // Overlay programs first drawn later (link ribbons, AMR route lines solid/dashed, opaque Edges lines, translucent
+  // flat overlays such as link markers / shuttle zones, selection outline).
   // Kept alive (never disposed) so the compiled programs stay cached for the real overlays.
-  if (!overlayKeep.length) overlayKeep.push(createLinkFlowMaterial("#ffffff"), new LineMaterial({ transparent: true, depthWrite: false }), new LineMaterial({ transparent: true, depthWrite: false, dashed: true }), ...new SelectionOutline().warmupMaterials());
-  for (const material of overlayKeep) root.add(new Mesh(probe, material));
+  if (!overlayKeep.length) overlayKeep.push(createLinkFlowMaterial("#ffffff"), new LineMaterial({ transparent: true, depthWrite: false }), new LineMaterial({ transparent: true, depthWrite: false, dashed: true }), new LineMaterial(), new MeshBasicMaterial({ transparent: true, depthWrite: false }), new MeshBasicMaterial(), new MeshStandardMaterial(), new MeshStandardMaterial({ map: new TextureImpl() }), ...new SelectionOutline().warmupMaterials());
+  const bare = bareGeometry();
+  for (const material of overlayKeep) root.add(new Mesh(probe, material), new Mesh(bare, material));
+  // Opaque instanced flat meshes (instanced markers / defect overlays).
+  root.add(new InstancedMesh(probe, overlayKeep[5], 1));
 
   // compile() also gathers lights from the compiled object: hide the live scene's own (default-mode) lights meanwhile.
   const hidden: Light[] = [];
@@ -92,7 +134,7 @@ export async function warmFactoryPrograms(gl: WebGLRenderer, camera: Camera, liv
   const previousTarget = gl.getRenderTarget();
   const offscreen = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
   gl.shadowMap.type = PCFShadowMap;
-  const depthRoot = shadowDepthRoot([warmRoot, root, live]);
+  const depthRoot = shadowDepthRoot([warmRoot, root, live, depthStandIns(probe, bare)]);
   gl.setRenderTarget(offscreen);
   let pending: Promise<unknown>[];
   try {
@@ -108,11 +150,13 @@ export async function warmFactoryPrograms(gl: WebGLRenderer, camera: Camera, liv
   }
   // Template apply's first frames still run under the default rig (ambient + shadow-casting sun): compile for it too.
   gl.setRenderTarget(offscreen);
-  try { pending.push(gl.compileAsync(depthRoot, camera, live)); } finally { gl.setRenderTarget(previousTarget); }
+  // Same for the props / overlays (warmRoot is compiled for the default rig by ModelWarmup already).
+  try { pending.push(gl.compileAsync(depthRoot, camera, live), gl.compileAsync(root, camera, live)); } finally { gl.setRenderTarget(previousTarget); }
   await Promise.all(pending);
   for (const texture of textures) gl.initTexture(texture);
   offscreen.dispose();
   probe.dispose();
+  bare.dispose();
   return {
     lights: lights.length,
     spot: lights.filter((l) => (l as { isSpotLight?: boolean }).isSpotLight).length,

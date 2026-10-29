@@ -4,7 +4,7 @@ import { Suspense, useEffect } from "react";
 import PropWarmup from "@/viewport/props/PropWarmup";
 import { propsWarmed } from "@/viewport/props/propWarmupState";
 import { warmFactoryPrograms } from "@/viewport/lighting/factoryWarmup";
-import { Group, InstancedMesh, Material, Mesh, type Object3D, type Texture, type WebGLRenderer } from "three";
+import { Group, HalfFloatType, InstancedMesh, Material, Mesh, WebGLRenderTarget, type Object3D, type Texture, type WebGLRenderer } from "three";
 import { conveyorTemplate } from "@/objects/conveyor/conveyorTemplate";
 import { log } from "@/stores/useLogStore";
 import { useModelStore } from "@/stores/useModelStore";
@@ -15,9 +15,10 @@ import { buildConveyorGhost, buildModelGhost, type GhostModelKind } from "@/view
 import { useModelsSettled } from "@/stores/useModelStore";
 import { MODEL, MODEL_URLS } from "@/viewport/models/modelUrls";
 import type { ConveyorTurn } from "@/types/layout";
+import { dockWarmupModel } from "@/objects/dock/Dock";
 
 const TURNS: ConveyorTurn[] = ["straight", "left", "right"];
-const GHOSTS: GhostModelKind[] = ["robot", "pallet", "amr", "scanner", "rack", "forklift"];
+const GHOSTS: Exclude<GhostModelKind, "rail" | "transfer">[] = ["robot", "pallet", "amr", "scanner", "rack", "forklift"];
 /**
  * Ghost previews built at warm-up are kept alive (never disposed) so their compiled shader
  * programs stay cached; placement ghosts created later reuse them and show on the first drag.
@@ -71,6 +72,8 @@ export default function ModelWarmup() {
       const model = scenes[url];
       if (model) addWithInstances(model.clone(true));
     }
+    // Procedural equipment (no GLB in MODEL_URLS), drawn instanced like the rest.
+    addWithInstances(dockWarmupModel());
     for (const turn of TURNS) addWithInstances(conveyorTemplate(turn, scenes[MODEL.rail] ?? undefined).clone(true));
     for (const kind of GHOSTS) {
       const source = scenes[MODEL[kind]];
@@ -86,9 +89,17 @@ export default function ModelWarmup() {
       keepAlive.push(ghost);
       root.add(ghost);
     }
-    gl.compileAsync(root, camera, scene)
+    // The effect composer always draws the scene into a half-float target (linear output, no canvas sRGB encode):
+    // compile for that target, otherwise every program is built for the canvas and again on the first real frame.
+    const offscreen = isWebGPURenderer(gl) ? null : new WebGLRenderTarget(1, 1, { type: HalfFloatType });
+    const previousTarget = gl.getRenderTarget();
+    let compiled: Promise<unknown>;
+    if (offscreen) gl.setRenderTarget(offscreen);
+    try { compiled = gl.compileAsync(root, camera, scene); } finally { if (offscreen) gl.setRenderTarget(previousTarget); }
+    compiled
       .then(() => {
         for (const texture of textures) gl.initTexture(texture);
+        offscreen?.dispose();
       })
       .catch((error: unknown) => {
         // Warm-up is best effort: the first render compiles anything left over.
