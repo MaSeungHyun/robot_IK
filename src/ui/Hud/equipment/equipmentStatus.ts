@@ -100,5 +100,9 @@ export type KindFilter = (typeof KIND_FILTERS)[number]["value"];
 
 /** Battery tone: safe, then warning below 30%, fault below 15%. */
 export function batteryTone(percent: number): BadgeTone {
-  return percent < 15 ? "fault" : percent < 30 ? "warning" : "safe";
+  return percent < 20 ? "fault" : percent < 30 ? "warning" : "safe";
+}
+/** Robot utilization bar tone: red below 20%, yellow below 30%, otherwise operating. */
+export function utilizationTone(percent: number): BadgeTone {
+  return percent < 20 ? "fault" : percent < 30 ? "warning" : "operating";
 }

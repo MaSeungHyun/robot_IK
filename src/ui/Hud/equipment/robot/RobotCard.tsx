@@ -1,5 +1,6 @@
 import RobotStatusBadge from "@/ui/Hud/equipment/robot/RobotStatusBadge";
 import ProgressBar from "@/components/ProgressBar";
+import { utilizationTone } from "@/ui/Hud/equipment/equipmentStatus";
 import EquipmentCard from "@/ui/Hud/equipment/_components/EquipmentCard";
 import type { EquipmentSnapshot } from "@/types/simulation";
 
@@ -25,6 +26,7 @@ export default memo(function RobotCard({ robot }: Props) {
           label={`${robot.name} 가동률`}
           caption="가동률"
           value={utilization ?? robot.utilization}
+          tone={utilizationTone(robot.utilization)}
           className="mt-1 pr-1"
         />
         <div className="flex items-center justify-between gap-2 text-xs text-text-secondary">

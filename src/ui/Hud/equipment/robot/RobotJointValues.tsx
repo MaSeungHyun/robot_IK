@@ -61,6 +61,8 @@ export default function RobotJointValues({ id }: { id: string }) {
             return {
               label: `J${index + 1} 부하 / 여유`,
               progress: loads?.[index],
+              // Narrow column: 10 segments.
+              segments: 10,
               value: (
                 <span className="inline-flex gap-1 tabular-nums">
                   <SmoothValue className="inline-block w-9 text-right" value={loads?.[index]} format={formatPercent} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} />

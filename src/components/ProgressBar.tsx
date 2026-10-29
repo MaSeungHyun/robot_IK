@@ -1,5 +1,6 @@
 import type { BadgeTone } from "@/components/Badge";
 import { cn } from "@/lib/style";
+import SegmentedProgress from "@/components/SegmentedProgress";
 
 type Props = {
   /** Accessible name of the bar. */
@@ -12,17 +13,8 @@ type Props = {
   className?: string;
   /** Pulses the bar, e.g. while a battery is charging. */
   pulse?: boolean;
-};
-
-const BAR_TONES: Record<BadgeTone, string> = {
-  safe: "bg-safe",
-  operating: "bg-operating",
-  fault: "bg-fault",
-  warning: "bg-warning",
-  idle: "bg-idle",
-  offline: "bg-offline",
-  info: "bg-info",
-  charging: "bg-charging",
+  /** Segment count (default 20). */
+  segments?: number;
 };
 
 const TEXT_TONES: Record<BadgeTone, string> = {
@@ -36,7 +28,7 @@ const TEXT_TONES: Record<BadgeTone, string> = {
   charging: "text-charging",
 };
 
-/** Horizontal 0-100% bar using the shared status tone tokens. */
+/** Horizontal 0-100% segmented bar (SegmentedProgress) using the shared status tone tokens. */
 export default function ProgressBar({
   label,
   value,
@@ -45,6 +37,7 @@ export default function ProgressBar({
   className,
   pulse = false,
   caption,
+  segments = 20,
 }: Props) {
   const percentage = Number.isFinite(value)
     ? Math.max(0, Math.min(100, value))
@@ -57,23 +50,14 @@ export default function ProgressBar({
           {caption}
         </span>
       )}
-      <div
-        role="progressbar"
-        aria-label={label}
-        aria-valuenow={Math.round(percentage)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5"
-      >
-        <div
-          className={cn(
-            "h-full rounded-full transition-[width]",
-            BAR_TONES[tone],
-            pulse && "animate-pulse",
-          )}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
+      <SegmentedProgress
+        label={label}
+        value={percentage}
+        count={segments}
+        color={tone}
+        pulse={pulse}
+        className="flex-1"
+      />
       {showValue && (
         <span
           className={cn(
