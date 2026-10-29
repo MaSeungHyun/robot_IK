@@ -10,11 +10,14 @@ export function migrateRobotArmPlace(template: SceneTemplate): SceneTemplate {
   const p = ROBOT_ARM_PLACE;
   let changed = false;
   // The place robot nearest robot_arm_place_point stands exactly on it (x too); the others keep x on its mount line.
+  // Only when the authored point lies on the platform (robot_arm_place.glb's point is at x -21.02, off its -19.79 edge:
+  // snapping there pushed robot 7 off the platform).
+  const onPlatform = p.point.x >= p.minX && p.point.x <= p.maxX && p.point.z >= p.minZ && p.point.z <= p.maxZ;
   let nearest = -1, best = Infinity;
   template.equipment.forEach((e, i) => {
     if (e.kind !== "robot" || e.settings?.robotPedestal !== "place") return;
     const d = Math.hypot(e.x - p.point.x, e.z - p.point.z);
-    if (d < best && d < 3) { best = d; nearest = i; }
+    if (onPlatform && d < best && d < 3) { best = d; nearest = i; }
   });
   const equipment = template.equipment.map((e, i) => {
     if (e.kind !== "robot" || e.settings?.robotPedestal !== "place") return e;
