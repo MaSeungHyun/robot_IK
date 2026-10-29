@@ -7,9 +7,7 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
 /** KPIs from domain/kpi (sampled on sim time; same at every playback speed). */
 export default function KpiPanel() {
-  const panel = useKpiStore((state) => state.panel);
   const report = useKpiStore((state) => state.report);
-  if (!panel) return null;
   if (!report || !report.samples) return (
     <DetailSection title="KPI">
       <p className="text-[11px] text-text-secondary">시뮬레이션을 실행하면 KPI가 수집됩니다.</p>

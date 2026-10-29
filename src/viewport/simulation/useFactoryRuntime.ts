@@ -11,6 +11,7 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import { useCargoStore } from "@/stores/useCargoStore";
 import { useKpiStore } from "@/stores/useKpiStore";
+import { DEFAULT_KPI_CONFIG } from "@/domain/kpi/KpiCollector";
 import { simulationClock } from "@/domain/simulation/simulationClock";
 import { ikSolveStats } from "@/domain/robot/ik/robotIK";
 import { log } from "@/stores/useLogStore";
@@ -45,13 +46,11 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   // A new world (new run / reset) starts the shared fixed-step clock from zero.
   useEffect(() => { simulationClock.reset(); }, [world]);
 
-  // KPI settings apply to the mounted world (also mid-run: from the next sample on).
+  // KPI sampling uses the fixed defaults (DEFAULT_KPI_CONFIG); publish the mounted world's report.
   useEffect(() => {
-    const apply = ({ sampleInterval, cellSize }: { sampleInterval: number; cellSize: number }) => world.kpi.configure({ interval: sampleInterval, cellSize });
-    apply(useKpiStore.getState());
-    const unsubscribe = useKpiStore.subscribe(apply);
+    world.kpi.configure(DEFAULT_KPI_CONFIG);
     useKpiStore.getState().setReport(world.kpi.report());
-    return () => { unsubscribe(); useKpiStore.getState().setReport(null); };
+    return () => { useKpiStore.getState().setReport(null); };
   }, [world]);
 
   useEffect(() => {

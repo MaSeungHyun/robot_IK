@@ -3,7 +3,6 @@ import IconButton from "@/components/IconButton";
 import ShadowQualitySelect from "@/ui/Hud/simulation/ShadowQualitySelect";
 import RenderQualitySelect from "@/ui/Hud/simulation/RenderQualitySelect";
 import CeilingSelect from "@/ui/Hud/simulation/CeilingSelect";
-import KpiSettings from "@/ui/Hud/simulation/KpiSettings";
 import LoadAnimationSelect from "@/ui/Hud/simulation/LoadAnimationSelect";
 import AutoConnectSelect from "@/ui/Hud/simulation/AutoConnectSelect";
 
@@ -27,7 +26,6 @@ export default function SettingsMenu() {
           <CeilingSelect />
           <LoadAnimationSelect />
           <AutoConnectSelect />
-          <KpiSettings />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
