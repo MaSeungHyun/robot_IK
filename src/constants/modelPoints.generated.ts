@@ -183,13 +183,13 @@ export const FORKLIFT_MODEL = {
   forkNode: "Forklift.Fork",
   pointNode: "Forklift_point",
   /** Body mesh bounds (forklift-local, forward = +Z). */
-  bodyMin: [-0.6975,-0.0041,-0.7825] as [number, number, number],
-  bodyMax: [0.7147,6.0448,0.9002] as [number, number, number],
+  bodyMin: [-0.5011,-0.003,-0.5622] as [number, number, number],
+  bodyMax: [0.5134,6.9675,0.6468] as [number, number, number],
   /** Fork node rest position in the forklift frame; it lifts along +Y. */
-  fork: [0.0102,0.7237,0.9969] as [number, number, number],
+  fork: [0.0073,0.5199,0.7162] as [number, number, number],
   /** Fork mesh bounds in fork-local space (tines reach max z). */
-  forkMin: [-0.8112,-0.7057,-0.2079] as [number, number, number],
-  forkMax: [0.8119,0.608,1.5674] as [number, number, number],
+  forkMin: [-0.5828,-0.507,-0.1494] as [number, number, number],
+  forkMax: [0.5833,0.4368,1.1261] as [number, number, number],
   /** Forklift_point in fork-local space: where the pallet's fork-hole centre sits. */
-  point: [0.0057,-0.6475,0.8072] as [number, number, number],
+  point: [0.0041,-0.4652,0.5799] as [number, number, number],
 };

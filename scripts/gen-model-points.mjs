@@ -54,11 +54,26 @@ slots.sort((a, b) => a.level - b.level || columnOrder[a.column] - columnOrder[b.
 const rackBounds = bounds(rack, rackRoot);
 
 // Forklift: root "Forklift" > fork node "Forklift.Fork" (or "Fork") > empty "Forklift_point" (or "Forklit_point").
-const forklift = read("Forklift.glb");
+// The app renders src/assets/models/Forklift.glb (optimized set, may be a re-authored / rescaled forklift), so its fork
+// rest and tine bounds are read from there; models_original is only a fallback. A model without Forklift_point gets the
+// original's point scaled by the fork-node ratio (the re-export keeps proportions), else forks and pallet heights disagree.
+const renderedForklift = path.join(root, "src/assets/models/Forklift.glb");
+const forklift = !process.env.MODELS_DIR && fs.existsSync(renderedForklift)
+  ? (() => { const b = fs.readFileSync(renderedForklift); return JSON.parse(b.subarray(20, 20 + b.readUInt32LE(12)).toString()); })()
+  : read("Forklift.glb");
 const find = (gltf, parent, test) => (parent.children ?? []).map((i) => gltf.nodes[i]).find((n) => test(clean(n.name)));
 const body = forklift.nodes[forklift.scenes[0].nodes[0]];
 const fork = find(forklift, body, (n) => /(^|[._])fork$/.test(n));
-const point = fork && find(forklift, fork, (n) => /^fork?li?f?t_point$/.test(n) || n.endsWith("_point"));
+const pointIn = (gltf, parent) => parent && find(gltf, parent, (n) => /^fork?li?f?t_point$/.test(n) || n.endsWith("_point"));
+let point = pointIn(forklift, fork);
+if (fork && !point) {
+  const original = read("Forklift.glb"), oBody = original.nodes[original.scenes[0].nodes[0]];
+  const oFork = find(original, oBody, (n) => /(^|[._])fork$/.test(n)), oPoint = pointIn(original, oFork);
+  if (oFork && oPoint) {
+    const k = (fork.translation ?? [0, 0, 0])[1] / (oFork.translation ?? [0, 0, 0])[1];
+    point = { name: oPoint.name, translation: (oPoint.translation ?? [0, 0, 0]).map((v) => v * k) };
+  }
+}
 if (!fork || !point) throw new Error("Forklift.glb: fork node or Forklift_point not found");
 [body, fork, point].forEach(assertPlain);
 const forkBounds = bounds(forklift, fork), bodyBounds = bounds(forklift, body);
