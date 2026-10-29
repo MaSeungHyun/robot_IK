@@ -64,7 +64,14 @@ export default function EditorToolbar() {
         aria-label="연결"
         aria-pressed={linking}
         className={cn(TOOL_BUTTON, linking ? ACCENT : IDLE)}
-        onClick={() => setLinking(!linking)}
+        onPointerDown={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.preventDefault()}
+        onClick={(event) => {
+          event.stopPropagation();
+          // Read the store, not the render closure, so a fast second press always turns it off.
+          useLinkModeStore.getState().toggle();
+          event.currentTarget.blur();
+        }}
       >
         <Icon icon="Link" aria-hidden="true" className="size-3.5" />
         <SideTooltip label="연결 (L) · 설비를 차례로 클릭해 연결, 다시 연결하면 해제" />

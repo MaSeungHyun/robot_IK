@@ -1,3 +1,4 @@
+import { migrateRobotArmPlace } from "@/domain/layout/placeMigration";
 import { create } from "zustand";
 import { migrateTemplateDocks } from "@/domain/layout/dockMigration";
 import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn,FloorSize } from "../types/layout";
@@ -26,7 +27,7 @@ export function selectedIds(state:{objects:SceneEquipment[];selected:string|null
   const ids=state.selection.includes(state.selected)?state.selection.filter(id=>id!==state.selected&&state.objects.some(o=>o.id===id)):[];
   return [...ids,state.selected];
 }
-export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙",door:"문"};
+export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙",door:"문",rail:"팔레트 분배 레일",transfer:"트랜스퍼 리프트"};
 /** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
 export function snapFloorCenter(value:number,size:number){const cell=FLOOR_CONFIG.cell,offset=(size/cell)%2?cell/2:0;return Math.round((value-offset)/cell)*cell+offset;}
 export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSize={width:1,depth:1,wallHeight:0}):FloorSize|null{
@@ -103,9 +104,11 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   undo:()=>{const state=get();if(!state.editing||!state.past.length)return;set({...state.past[state.past.length-1],past:state.past.slice(0,-1),future:[snapshot(state),...state.future],pending:null,errors:[]});},
   redo:()=>{const state=get();if(!state.editing||!state.future.length)return;set({...state.future[0],past:[...state.past,snapshot(state)].slice(-EDITOR_HISTORY_LIMIT),future:state.future.slice(1),pending:null,errors:[]});},
   props:[],lighting:null,objects:[],settings:{},links:[],nextLinkId:1,autoConnect:true,setAutoConnect:autoConnect=>{if(get().editing)set({autoConnect});},selected:null,selection:[],pending:null,pendingPreset:null,editing:true,tool:"translate",errors:[],nextId:1,
-  select:selected=>{const state=get();if(state.selected!==selected||state.inspected!==null||state.selection.length>1)set({selected,selection:selected?[selected]:[],inspected:null});},
+  // Link mode (🔗) owns equipment clicks: nothing gets newly selected until it is turned off.
+  select:selected=>{const state=get();if(selected&&state.editing&&useLinkModeStore.getState().active)return;if(state.selected!==selected||state.inspected!==null||state.selection.length>1)set({selected,selection:selected?[selected]:[],inspected:null});},
   toggleSelect:id=>{
     const state=get(),ids=selectedIds(state);
+    if(state.editing&&useLinkModeStore.getState().active)return;
     if(!ids.includes(id)){set({selected:id,selection:[...ids,id],inspected:null});return;}
     const rest=ids.filter(entry=>entry!==id);
     set({selected:rest[rest.length-1]??null,selection:rest,inspected:null});
@@ -271,7 +274,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const state = get();
     if (!state.editing) return false;
     // Placed docks other than 빈 팔레트 적치장 become stop points on their equipment (links retargeted).
-    const template = migrateTemplateDocks(source);
+    const template = migrateRobotArmPlace(migrateTemplateDocks(source));
     const objects = template.equipment.map((entry, index) => ({
       kind: entry.kind, x: entry.x, z: entry.z, yaw: entry.yaw, conveyorTurn: entry.conveyorTurn,
       ...(entry.conveyorPath ? { conveyorPath: entry.conveyorPath } : {}), ...(entry.conveyorLength ? { conveyorLength: entry.conveyorLength } : {}), ...(entry.elevation ? { elevation: entry.elevation } : {}),
@@ -333,3 +336,5 @@ onRobotPedestalsChange(()=>{
   });
   if(changed)useSceneStore.setState({objects});
 });
+// Leaving edit (play) exits link mode with its source / selected link / hover preview.
+useSceneStore.subscribe((s,p)=>{if(p.editing&&!s.editing)useLinkModeStore.getState().setActive(false);});

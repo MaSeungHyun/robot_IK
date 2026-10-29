@@ -29,6 +29,19 @@ export default function LinkOverlay() {
   const selected = useMemo(() => new Set(selectedKey ? selectedKey.split("|") : []), [selectedKey]);
   const byId = useMemo(() => new Map(objects.map((o) => [o.id, o])), [objects]);
   const sourceObject = source ? byId.get(source) : undefined;
+  // Link mode: badges of objects already linked to the source (or, before a source is picked, to the selection) turn orange.
+  const linked = useMemo(() => {
+    const anchors = source ? new Set([source]) : selected, out = new Set<string>();
+    if (!anchors.size) return out;
+    for (const link of links) {
+      const ends = [[link.from, linkOwner(link.from, scene)], [link.to, linkOwner(link.to, scene)]] as const;
+      const hit = (i: 0 | 1) => anchors.has(ends[i][0]) || anchors.has(ends[i][1]);
+      if (hit(0)) { out.add(ends[1][0]); out.add(ends[1][1]); }
+      if (hit(1)) { out.add(ends[0][0]); out.add(ends[0][1]); }
+    }
+    for (const id of anchors) out.delete(id);
+    return out;
+  }, [links, scene, source, selected]);
   // One uniform write per frame drives every link's flowing light.
   useFrame((_, delta) => { LINK_FLOW_TIME.value = (LINK_FLOW_TIME.value + Math.min(delta, 0.1)) % 1000; });
 
@@ -51,6 +64,7 @@ export default function LinkOverlay() {
               isSource: o.id === source,
               valid: sourceObject ? o.id !== sourceObject.id && resolveOwnedLink(sourceObject, o, scene) !== null : true,
               picking: !!sourceObject,
+              linked: linked.has(o.id),
             }))}
         />
       )}
