@@ -326,6 +326,24 @@ export class FactorySimulator {
   private fullReported = new Set<PalletController>();
   /** Per-step scratch (advance runs every fixed step; avoid allocations). */
   private readonly reachableScratch = new Set<CargoGrade>();
+  /** Per robot and grade: the pallet load it committed to; it keeps stacking there until that load leaves (shipped / replaced). */
+  private readonly palletLocks = new Map<FactoryRobot, Map<CargoGrade, { pallet: PalletController; group: object }>>();
+  /** Test hook: called whenever a robot's pallet lock is released, with the reason. */
+  lockReleased?: (robotId: string, palletId: string, reason: string, count: number, total: number) => void;
+  /**
+   * Next slot on `pallet` for this robot: the first free slot within its reach, never above the lowest layer that still
+   * has a free slot (bottom-up stacking). -1 = nothing for it right now. On a pallet shared by several robots the global
+   * first free slot may be on the other robot's side; this robot keeps working its own side instead of leaving.
+   */
+  private slotFor(robot: FactoryRobot, pallet: PalletController, reach: number) {
+    if (pallet.shipping) return -1;
+    const first = pallet.availableSlot;
+    if (first < 0) return -1;
+    const layer = pallet.layerOf(first);
+    for (let i = first; i < pallet.slots.length; i++)
+      if (pallet.states[i] === "free" && pallet.layerOf(i) <= layer && distance(robot.object, pallet.slots[i]) <= reach) return i;
+    return -1;
+  }
   private readonly pickBoxes: Cargo[] = [];
   private readonly pickGrades: CargoGrade[] = [];
   private readonly nearBoxes: Cargo[] = [];
@@ -1736,15 +1754,32 @@ export class FactorySimulator {
         )
           reachable.add(palletGrade(settings[pallet.object.id]));
       let assigned = false;
+      // Sticky target: a committed pallet load stays the only target of its grade until it is full and leaves.
+      let locks = this.palletLocks.get(robot);
+      if (!locks) this.palletLocks.set(robot, (locks = new Map()));
+      for (const [lockGrade, lock] of locks) {
+        const p = lock.pallet;
+        // Released only when the load is gone (full, shipped, replaced) or this robot can never add to it again:
+        // no free or reserved slot left within its reach (a shared pallet whose rest is the other robot's side).
+        const reason = p.group !== lock.group ? "replaced" : p.full ? "full" : p.shipping ? "shipping"
+          : !settings[p.object.id]?.enabled ? "disabled" : palletGrade(settings[p.object.id]) !== lockGrade ? "grade"
+          : !p.slots.some((slot, i) => p.states[i] !== "placed" && distance(robot.object, slot) <= config.reach) ? "unreachable" : null;
+        if (reason) {
+          locks.delete(lockGrade);
+          this.lockReleased?.(robot.object.id, p.object.id, reason, p.count, p.slots.length);
+        }
+      }
       for (const pallet of this.palletOrder.get(robot.object.id)!) {
+        const lock = locks.get(palletGrade(settings[pallet.object.id]));
         if (
           pallet.shipping ||
           !settings[pallet.object.id].enabled ||
-          pallet.availableSlot < 0
+          (lock && lock.pallet !== pallet)
         )
           continue;
-        const slot = pallet.availableSlot,
-          target = pallet.slots[slot],
+        const slot = this.slotFor(robot, pallet, config.reach);
+        if (slot < 0) continue;
+        const target = pallet.slots[slot],
           grade = palletGrade(settings[pallet.object.id]);
         if (distance(robot.object, target) > config.reach) continue;
         for (let n = 0; n < nearBoxes.length; n++) {
@@ -1773,6 +1808,7 @@ export class FactorySimulator {
             continue;
           }
           this.assign(robot, pallet, slot, box);
+          if (pallet.states[slot] === "reserved") locks.set(grade, { pallet, group: pallet.group });
           assigned = true;
           break;
         }
@@ -2000,6 +2036,29 @@ export class FactorySimulator {
   }
   /** Unload docks: a depalletizing robot puts the delivered boxes (top first) one by one onto its nearest belt. */
   private readonly dropPointCache = new Map<string, { best: number; bestGap: number }>();
+  /** Per depalletizer: the pallet load it started; it stays on it until emptied (two rail pallets on both sides). */
+  private readonly unloadLocks = new Map<FactoryRobot, UnloadLoad>();
+  /**
+   * Index of the next box this robot can take from `load`, -1 = none. The highest layer that has a box within reach,
+   * the nearest box of it; the margin-free arm reach (`hardReach`) is accepted when nothing is inside the margin.
+   * (Restricting to the top layer only left a pallet stuck forever once its last top-layer box sat a few cm past the
+   * margin - the lift stayed "?? ?? ??" while the robot served the other side.)
+   */
+  private unloadPick(robot: FactoryRobot, load: UnloadLoad, reach: number, hardReach = reach) {
+    for (const limit of [reach, hardReach]) {
+      let best = -1, bestGap = Infinity, layer = Infinity;
+      for (let i = 0; i < load.boxes.length; i++) {
+        const p = load.boxes[i].node.getWorldPosition(this.point);
+        if (best >= 0 && p.y < layer - BOX_SIZES[0].y / 2) break; // sorted top first: below the chosen layer
+        const gap = distance(robot.object, p);
+        if (gap > limit) continue;
+        if (best < 0) layer = p.y;
+        if (gap < bestGap) { best = i; bestGap = gap; }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  }
   private advanceDepalletizers(settings: Record<string, EquipmentSettings>, halted: Set<string>) {
     for (let i = this.unloadLoads.length - 1; i >= 0; i--) {
       const load = this.unloadLoads[i];
@@ -2017,11 +2076,24 @@ export class FactorySimulator {
     for (const robot of this.depalletizers) {
       const config = settings[robot.object.id];
       if (robot.busy || !config.enabled) continue;
-      const reach = config.reach - ROBOT_PICKING.pickReachMargin;
-      const load = this.unloadLoads
-        .filter((l) => !l.deck && l.boxes.length && distance(robot.object, l.boxes[0].node.getWorldPosition(this.point)) <= reach)
-        .sort((a, b) => distance(robot.object, a.dock) - distance(robot.object, b.dock))[0];
-      if (!load) {
+      const reach = config.reach - ROBOT_PICKING.pickReachMargin, hardReach = config.reach;
+      // Sticky: the started load until it is emptied / removed. Released early only when none of its remaining boxes
+      // is within reach (another robot's side of a shared pallet). Otherwise the earliest-arrived reachable load
+      // (unloadLoads is in arrival order), not the nearest dock: a later pallet must not take over a started one.
+      let load: UnloadLoad | undefined = this.unloadLocks.get(robot);
+      if (load && (!this.unloadLoads.includes(load) || !load.boxes.length ||
+        !load.boxes.some((b) => distance(robot.object, b.node.getWorldPosition(this.point)) <= hardReach))) {
+        this.unloadLocks.delete(robot);
+        load = undefined;
+      }
+      let pick = load ? this.unloadPick(robot, load, reach, hardReach) : -1;
+      if (!load)
+        for (const l of this.unloadLoads) {
+          if (l.deck) continue;
+          const i = this.unloadPick(robot, l, reach, hardReach);
+          if (i >= 0) { load = l; pick = i; break; }
+        }
+      if (!load || pick < 0) {
         robot.status = "하역 팔레트 대기";
         continue;
       }
@@ -2058,7 +2130,8 @@ export class FactorySimulator {
         robot.status = "투입 위치 대기";
         continue;
       }
-      const box = load.boxes.shift()!;
+      const box = load.boxes.splice(pick, 1)[0];
+      this.unloadLocks.set(robot, load);
       if (scan) {
         this.feedScan.dropped++;
         if (!this.scanAfter(belt, d)) this.feedScan.bypass++;
