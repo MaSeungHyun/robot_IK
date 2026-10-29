@@ -11,6 +11,7 @@ import { AGV_MODEL, CYCLE_CONFIG, RACK_M_MODEL, ROLLER_DECK } from "@/constants/
 import { FORKLIFT_CIRCLES, FORKLIFT_CONFIG, forkLiftFor, forkliftStop } from "@/constants/forklift";
 import { RACK_CONFIG, rackHeading, rackSlotSides } from "@/constants/rack";
 import { STREAM_CONFIG } from "@/constants/simulation";
+import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { createAgvModel, createRackMobileModel, createRollerTopModel } from "@/lib/three/cycleModels";
 import { palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
 import { ROBOT_STOP_PREFIX } from "@/domain/layout/robotStops";
@@ -162,6 +163,8 @@ const AMR_CIRCLES = [{ z: -0.42, r: 0.84 }, { z: 0.42, r: 0.84 }];
 const FORK_CIRCLES = FORKLIFT_CIRCLES.map((z) => ({ z, r: FORKLIFT_CONFIG.footprint.radius }));
 /** Tines + gap kept between the Forklift_point and the support edge before driving in. */
 const FORK_BACK = FORKLIFT_CONFIG.forkLength + CYCLE_CONFIG.standoffGap;
+/** Planner AMR radius minus the forklift capsule radius: a parked body keeps capsule + safety gap from a forklift route. */
+const FORK_SLACK = Math.max(0, AMR_TRAFFIC.emptyRadius - FORKLIFT_CONFIG.footprint.radius);
 const VEHICLE_APPROACH = 1.9;
 /** Carrier forklift: max distance (m) from its Forklift_point to the pallet it holds. */
 const CARRIER_REACH = 1.0;
@@ -794,11 +797,10 @@ export class PalletCycle<C extends CycleCargo> {
   }
   /**
    * Long side of a rack slot (racks have no front / back) with the shorter route from the forklift, avoiding `avoid`.
-   * Within 0.5 m (or neither reachable) the loading face wins, as before.
+   * Within 0.5 m (or neither reachable) the loading face wins, as before. `from`: where the leg starts (a store picks first, so its pick stand; measuring from the current pose sent it round the rack).
    */
-  private rackSide(f: Forklift<C>, rack: SceneEquipment, slot: number, back: number, avoid: CycleCircle[]) {
+  private rackSide(f: Forklift<C>, rack: SceneEquipment, slot: number, back: number, avoid: CycleCircle[], from: Vector3 = f.vehicle.position) {
     const [front, ...others] = rackSlotSides(rack, slot);
-    const from = f.vehicle.position;
     const length = (side: { point: Vector3; heading: number }) => {
       const route = this.host.plan(from, forkliftStop(side.point, side.heading, back + FORK_BACK), true, avoid);
       return route ? route.reduce((sum, p, i) => sum + (i ? p.distanceTo(route[i - 1]) : Math.hypot(p.x - from.x, p.z - from.z)), 0) : Infinity;
@@ -933,8 +935,9 @@ export class PalletCycle<C extends CycleCargo> {
     }, [shuttle.object.id]);
     if (!chain) f.vehicle.then(() => this.setShuttle(shuttle, "waitEmpty", "만재 팔레트 내림"));
     const { x } = RACK_CONFIG.slots[slot];
-    // The shuttle AMR stays parked at the deck: a side whose stand it blocks is not taken.
-    const side = this.rackSide(f, rack, slot, RACK_CONFIG.front - x + half, [{ x: shuttle.vehicle.position.x, z: shuttle.vehicle.position.z, r: 1.3 }]);
+    // The shuttle AMR stays parked at the deck: a side whose stand it blocks is not taken (its real capsule, not one
+    // 1.3 m circle that also closed the aisle beside it and sent the forklift round the rack).
+    const side = this.rackSide(f, rack, slot, RACK_CONFIG.front - x + half, shuttle.vehicle.body.circles().map((c) => ({ ...c, r: Math.max(0, c.r + CYCLE_CONFIG.safetyGap - FORK_SLACK) })), forkliftStop(deck, heading, half + FORK_BACK));
     this.place(f, side.point, side.heading, RACK_CONFIG.front - x + half, (load) => {
       this.slotBookings.delete(key);
       this.stored.set(key, load);
@@ -1211,7 +1214,7 @@ export class PalletCycle<C extends CycleCargo> {
     });
     const { x } = RACK_CONFIG.slots[slot];
     const back = RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2;
-    const side = this.rackSide(f, rack, slot, back, []);
+    const side = this.rackSide(f, rack, slot, back, [], forkliftStop(point, heading, RACK_M_MODEL.width / 2 + FORK_BACK));
     this.place(f, side.point, side.heading, back, (load) => {
       this.slotBookings.delete(key);
       this.stored.set(key, load);

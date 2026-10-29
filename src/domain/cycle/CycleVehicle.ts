@@ -1,5 +1,6 @@
 import { Group, Vector3 } from "three";
 import { CYCLE_CONFIG } from "@/constants/cycle";
+import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
 
 /** Floor route planner (null = no route); the vehicle falls back to a straight line. */
 export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean, avoid?: readonly { x: number; z: number; r: number }[]) => Vector3[] | null;
@@ -326,7 +327,10 @@ export class CycleVehicle {
     const circles = this.options.bodies()
       .filter((other) => other.id !== this.id && !action.ignore?.includes(other.id))
       .flatMap((other) => {
-        const list = other.circles().map((c) => ({ x: c.x, z: c.z, r: c.r + CYCLE_CONFIG.safetyGap }));
+        // The planner inflates every circle by its AMR radius (half diagonal); a vehicle without a footprint keep-out
+        // (forklift capsule) is narrower, so hand back the difference: clearance = its own body radius + the safety gap.
+        const slack = this.options.clearance ? 0 : Math.max(0, AMR_TRAFFIC.emptyRadius - Math.max(...this.options.circles.map((o) => o.r)));
+        const list = other.circles().map((c) => ({ x: c.x, z: c.z, r: Math.max(0, c.r + CYCLE_CONFIG.safetyGap - slack) }));
         // Footprint keep-out: the planner treats this vehicle as a point, so inflate by both clearances.
         if (this.options.clearance && other.clearance && other.center) {
           const c = other.center();
