@@ -168,7 +168,10 @@ export class RailNetwork {
       if (!slot) continue;
       const tf = rail.transfers[side]!;
       slot.target = slotTarget(side, 0);
-      if (slot.phase === "move") {
+      // A follower that became the front (previous one rolled onto the lift) still has to run up to the end stopper:
+      // it may be "wait" at its old inner slot, so move whenever it is short of the stopper (never pulled back off the lift).
+      if (slot.phase === "move" || Math.abs(slot.s) < Math.abs(slot.target) - 1e-9) {
+        slot.phase = "move";
         slot.s = step(slot.s, slot.target, RAIL_CONFIG.speed * dt);
         if (slot.s === slot.target) slot.phase = "wait";
       }
@@ -248,7 +251,8 @@ export class RailNetwork {
       }
     }
     // The pallet rides the forks (not once the forklift has lifted it off).
-    if (tf.item && tf.phase !== "receiving") {
+    // Once a forklift has attached it to its fork (re-parented off the root) it carries the pallet: leave its pose alone.
+    if (tf.item && tf.phase !== "receiving" && tf.item.group.parent === this.root) {
       const p = transferPoint(tf.object, tf.down);
       tf.item.group.position.copy(p);
       tf.item.group.rotation.set(0, tf.rail.object.yaw, 0);
