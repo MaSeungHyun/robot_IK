@@ -12,6 +12,8 @@ import AxisGizmo from "@/viewport/camera/AxisGizmo";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
 import { focusSphere, selectedFocusId } from "@/viewport/camera/frameSelected";
+import { useWalkModeStore } from "@/stores/useWalkModeStore";
+import { bookmarkScope, bookmarkSlot, loadBookmarks, saveBookmark, showBookmarkToast, slotLabel } from "@/viewport/camera/cameraBookmarks";
 
 const TARGET: [number, number, number] = [0, 0.45, 0];
 const MAX_POLAR = Math.PI / 2.05;
@@ -321,6 +323,47 @@ export default function CameraRig() {
         toPosition,
         fromZoom: camera.zoom,
         toZoom,
+      };
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [get, cancelTween]);
+
+  // Camera bookmarks (play mode only): Shift+1..0 saves the current view, 1..0 eases to it.
+  // event.code, so Shift+digit still reads as the digit; ignored while typing, walking or tracking.
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const slot = bookmarkSlot(event.code);
+      if (slot < 0 || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented || event.repeat) return;
+      const scene = useSceneStore.getState();
+      if (scene.editing) return;
+      if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]')) return;
+      if (document.querySelector('[role="dialog"]:not([data-keeps-shortcuts]),[role="listbox"],[role="menu"]')) return;
+      if (useWalkModeStore.getState().active || useCameraTrackingStore.getState().trackedId) return;
+      const c = controls.current;
+      if (!c) return;
+      const camera = get().camera as PerspectiveCamera | OrthographicCamera;
+      const scope = bookmarkScope(scene.props);
+      event.preventDefault();
+      if (event.shiftKey) {
+        saveBookmark(scope, slot, { position: camera.position.toArray(), target: c.target.toArray() });
+        showBookmarkToast(`카메라 ${slotLabel(slot)}번 위치 저장`);
+        return;
+      }
+      const bookmark = loadBookmarks(scope)[slot];
+      if (!bookmark) {
+        showBookmarkToast(`카메라 ${slotLabel(slot)}번: 저장된 위치 없음 (Shift+${slotLabel(slot)}로 저장)`);
+        return;
+      }
+      cancelTween();
+      focus.current = {
+        t: 0,
+        fromTarget: c.target.clone(),
+        toTarget: new Vector3(...bookmark.target),
+        fromPosition: camera.position.clone(),
+        toPosition: new Vector3(...bookmark.position),
+        fromZoom: camera.zoom,
+        toZoom: camera.zoom,
       };
     };
     window.addEventListener("keydown", keydown);
