@@ -13,8 +13,15 @@ export const ROBOT_PEDESTAL_OPTIONS: readonly { value: RobotPedestalKind; label:
  */
 export const ROBOT_PEDESTALS = {
   base: { point: "robot_base_point", elevation: 1.1933 },
-  place: { point: "robot_arm_point", elevation: 1.1974 },
-} as const satisfies Record<Exclude<RobotPedestalKind, "none">, { point: string; elevation: number }>;
+  place: { point: "robot_arm_place_point", elevation: 1.1918, shared: true },
+} as const satisfies Record<Exclude<RobotPedestalKind, "none">, { point: string; elevation: number; shared?: boolean }>;
+
+/**
+ * robot_arm_place.glb is one long platform shared by the depalletize line (world x ≈ -19.79..22.28, z ≈ 36.25..40.20):
+ * drawn once as a template prop at its authored transform, not per robot. Its robot_arm_place_point (world) is the
+ * mount line: robots on it stand at point z / height (see placeMigration.ts).
+ */
+export const ROBOT_ARM_PLACE = { node: "robot_arm_place", point: { x: -21.019, y: 1.1918, z: 37.1468 }, minX: -19.79, maxX: 22.28, minZ: 36.25, maxZ: 40.2 } as const;
 
 /**
  * Pedestal top face in robot-local XZ (m, yaw 0, relative to the arm base point), measured from the GLB bounds.
