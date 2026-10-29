@@ -70,6 +70,11 @@ export const CYCLE_CONFIG = {
   standoffGap: 0.45,
   /** Traffic: bodies keep this gap; after holdTimeout s a vehicle replans, after giveUp s it proceeds (counted). */
   safetyGap: 0.15,
+  /** Route look-ahead: brake (m/s^2) to stop lookMargin (m) short of the safety gap; restart needs resumeMargin more. */
+  brakeDecel: 1.2,
+  accel: 1.5,
+  lookMargin: 0.35,
+  resumeMargin: 0.25,
   /** AMR footprint keep-out radius (same as the dispatch radius): two AMR centres stay ≥ 2× apart. */
   amrClearance: 1.243,
   /** Idle service forklift steps aside (m) when a working one has been held this long (s) within `yieldRange` (m). */

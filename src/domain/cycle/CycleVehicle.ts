@@ -180,6 +180,56 @@ export class CycleVehicle {
     return false;
   }
 
+  /** Route speed (m/s) now; braking for whatever is ahead. Ramped, with a resume margin so it does not stutter. */
+  private velocity = 0;
+  private stopped = false;
+  private lookAhead(max: number, dt: number, ignore?: readonly string[]) {
+    const { brakeDecel, accel, lookMargin, resumeMargin, safetyGap } = CYCLE_CONFIG;
+    // Deadlock pass: the step-by-step guard alone (keeps it from overlapping).
+    if (this.pass > 0) return (this.velocity = max);
+    const position = this.carrier.position;
+    const now = this.gapAt(position.x, position.z, this.carrier.rotation.y, ignore);
+    // Free distance along the route before a pose that comes inside the safety gap (closing in only).
+    const reach = (max * max) / (2 * brakeDecel) + lookMargin + resumeMargin;
+    let free = Infinity, travelled = 0, x = position.x, z = position.z;
+    for (let i = this.cursor; i < this.path.length && travelled < reach && free === Infinity; i++) {
+      const p = this.path[i], length = Math.hypot(p.x - x, p.z - z);
+      if (length < 1e-4) continue;
+      const heading = Math.atan2(p.x - x, p.z - z);
+      for (let s = Math.min(0.2, length); travelled + s <= reach + 0.2; s = Math.min(length, s + 0.2)) {
+        const g = this.gapAt(x + ((p.x - x) / length) * s, z + ((p.z - z) / length) * s, heading, ignore);
+        if (g < safetyGap && g < now - 1e-4) {
+          free = travelled + s;
+          break;
+        }
+        if (s >= length) break;
+      }
+      travelled += length;
+      x = p.x;
+      z = p.z;
+    }
+    // Hysteresis: once stopped, restart only with resumeMargin of room beyond the stop margin.
+    const room = free - lookMargin - (this.stopped ? resumeMargin : 0);
+    const target = room <= 0 ? 0 : Math.min(max, Math.sqrt(2 * brakeDecel * room));
+    this.velocity = target > this.velocity ? Math.min(target, this.velocity + accel * dt) : target;
+    if (this.velocity < 0.05 && target < 0.05) {
+      this.velocity = 0;
+      this.stopped = true;
+      // Held short of the other body: counts toward detour / giveUp like a blocked step.
+      this.hold += dt;
+      this.heldSeconds += dt;
+      if (this.hold >= CYCLE_CONFIG.giveUp) {
+        this.overrides++;
+        this.hold = 0;
+        this.pass = CYCLE_CONFIG.passTime;
+        return (this.velocity = max);
+      }
+      return 0;
+    }
+    this.stopped = false;
+    return Math.max(this.velocity, 0.05);
+  }
+
   /** Queues actions (fluent). */
   goTo(to: Vector3, loaded = this.loaded, ignore?: readonly string[]) {
     this.queue.push({ type: "path", to: to.clone().setY(0), loaded, ignore });
@@ -277,6 +327,7 @@ export class CycleVehicle {
       case "path": {
         if (!this.started) {
           this.started = true;
+          this.velocity = 0;
           this.detour = null;
           this.plan(action);
         }
@@ -292,7 +343,8 @@ export class CycleVehicle {
             else this.plan(action);
           }
         }
-        const left = this.drive(this.path, this.options.speed, dt, false, action.ignore, true);
+        const speed = this.lookAhead(this.options.speed, dt, action.ignore);
+        const left = speed > 0 ? this.drive(this.path, speed, dt, false, action.ignore, true) : false;
         if (left !== false) {
           this.path = [];
           this.detour = null;
