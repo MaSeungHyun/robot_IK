@@ -143,8 +143,9 @@ export class ForkliftController {
     this.fork.position.copy(FORKLIFT_CONFIG.fork);
     this.carrier.add(this.fork);
   }
+  /** No job, or only driving home empty (a new job cuts the return short: `start` re-plans from here). */
   get idle() {
-    return this.job === null;
+    return this.job === null || (this.stage === "returning" && this.payload === null);
   }
   /** Next waypoint index (route line rendering). */
   get pathCursor() {
@@ -262,7 +263,9 @@ export class ForkliftController {
   }
   /** Starts a job; false (nothing changes) when neither the pickup nor any target can be reached. */
   start(job: ForkliftJob) {
-    if (this.job) return false;
+    // Returning home empty: abort the return; if the new job cannot start, the return carries on unchanged.
+    const returning = this.job && this.stage === "returning" && this.payload === null ? this.job : null;
+    if (this.job && !returning) return false;
     this.tried.clear();
     this.tries = 0;
     if (job.kind !== "retrieve") {
@@ -284,7 +287,7 @@ export class ForkliftController {
     }
     this.job = job;
     if (this.chooseTarget()) return true;
-    this.job = null;
+    this.job = returning;
     return false;
   }
   /** Route length + weighted heading change (now -> legs -> target heading). */

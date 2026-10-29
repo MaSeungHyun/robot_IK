@@ -206,6 +206,25 @@ export class CycleVehicle {
     return this;
   }
 
+  /**
+   * Drops the queued actions (a return home being cut short by a new job) and hands them back so `restore` can resume
+   * them when no job was found. The next queued path re-plans from the current pose.
+   */
+  interrupt() {
+    const saved = this.queue;
+    this.queue = [];
+    this.started = false;
+    this.detour = null;
+    this.hold = 0;
+    this.path = [];
+    this.version++;
+    return saved;
+  }
+  restore(saved: Action[]) {
+    if (this.queue.length) return;
+    this.queue = saved;
+  }
+
   advance(dt: number) {
     let budget = dt;
     // Several instant actions (calls, finished moves) may run in one step; bounded to avoid loops.
