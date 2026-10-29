@@ -42,7 +42,8 @@ const settings=():EquipmentSettings=>({speed:1,reach:C.reach,capacity:40,spawnIn
 const DOOR_DEFAULTS:Partial<EquipmentSettings>={doorWidth:DOOR_CONFIG.width,doorHeight:DOOR_CONFIG.height,doorOpen:false};
 /** Robot reach edits above the arm's max are clamped to ROBOT_REACH_MAX. */
 const clampReach=(values:Partial<EquipmentSettings>)=>values.reach!==undefined&&values.reach>ROBOT_REACH_MAX?{...values,reach:ROBOT_REACH_MAX}:values;
-export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...(kind==="door"?DOOR_DEFAULTS:{}),...values});
+// Inbound/outbound/ship conveyors without an explicit beltSpeed/speed (templates 04/05) run at DEFAULT_BELT_SPEED (1 m/s); robot pick belts keep the legacy 0.25 m/s.
+export const settingsFor=(kind:EquipmentKind,values?:Partial<EquipmentSettings>|null):EquipmentSettings=>migrateSettings(kind,{...settings(),...(kind==="door"?DOOR_DEFAULTS:{}),...(kind==="conveyor"&&(values?.conveyorRole==="inbound"||values?.conveyorRole==="outbound"||values?.conveyorRole==="ship")&&values?.beltSpeed===undefined&&values?.speed===undefined?{beltSpeed:DEFAULT_BELT_SPEED}:{}),...values});
 /** Doors snap flush to a nearby wall plane (see snapDoorToWall). */
 const snapDoor=(object:SceneEquipment,config:EquipmentSettings|undefined,objects:SceneEquipment[]):SceneEquipment=>object.kind==="door"?{...object,...snapDoorToWall(object,config?.doorWidth??DOOR_CONFIG.width,objects)}:object;
 /** Pallets mounted on any of `amrIds` (they belong to the AMR: deleted / copied with it). */
