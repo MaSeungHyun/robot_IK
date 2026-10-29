@@ -9,7 +9,7 @@ import {
 } from "@/domain/cycle/cycleStates";
 import { AGV_MODEL, CYCLE_CONFIG, RACK_M_MODEL, ROLLER_DECK } from "@/constants/cycle";
 import { FORKLIFT_CIRCLES, FORKLIFT_CONFIG, forkLiftFor, forkliftStop } from "@/constants/forklift";
-import { RACK_CONFIG, rackHeading, rackSlotPoint } from "@/constants/rack";
+import { RACK_CONFIG, rackHeading, rackSlotSides } from "@/constants/rack";
 import { STREAM_CONFIG } from "@/constants/simulation";
 import { createAgvModel, createRackMobileModel, createRollerTopModel } from "@/lib/three/cycleModels";
 import { palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
@@ -64,10 +64,11 @@ export type PalletCycleHost<C extends CycleCargo> = {
   unload(dock: SceneEquipment, group: Group, boxes: C[], palletId: string | undefined, keep: boolean, onEmpty: () => void): void;
   unloadBusy(dockId: string): boolean;
   /** Free rack slots (lowest first) excluding `booked` keys "rack:slot". */
-  rackFree(booked: ReadonlySet<string>, accept?: (rack: SceneEquipment) => boolean): { rack: SceneEquipment; slot: number } | null;
+  /** `forklift`: only racks it serves (🔗 담당 랙), nearest by its route from `forklift.from` first. */
+  rackFree(booked: ReadonlySet<string>, accept?: (rack: SceneEquipment) => boolean, forklift?: { id: string; from: Vector3 }): { rack: SceneEquipment; slot: number } | null;
   rackStore(rack: SceneEquipment, slot: number, group: Group, boxes: Group[], palletId: string | undefined): void;
   /** Oldest stored rack pallet that is not claimed. */
-  rackOldest(claimed: ReadonlySet<string>, accept?: (rack: SceneEquipment) => boolean): { rack: SceneEquipment; slot: number } | null;
+  rackOldest(claimed: ReadonlySet<string>, accept?: (rack: SceneEquipment) => boolean, forkliftId?: string): { rack: SceneEquipment; slot: number } | null;
   rackTake(rack: SceneEquipment, slot: number): Group | null;
   log(level: "info" | "warning", message: string, detail?: string): void;
   /** 🔗 빈 팔레트 회수 (emptyReturn) targets of an AMR: forklift / stack ids. */
@@ -791,6 +792,25 @@ export class PalletCycle<C extends CycleCargo> {
       .then(() => after?.())
       .forkTo(0);
   }
+  /**
+   * Long side of a rack slot (racks have no front / back) with the shorter route from the forklift, avoiding `avoid`.
+   * Within 0.5 m (or neither reachable) the loading face wins, as before.
+   */
+  private rackSide(f: Forklift<C>, rack: SceneEquipment, slot: number, back: number, avoid: CycleCircle[]) {
+    const [front, ...others] = rackSlotSides(rack, slot);
+    const from = f.vehicle.position;
+    const length = (side: { point: Vector3; heading: number }) => {
+      const route = this.host.plan(from, forkliftStop(side.point, side.heading, back + FORK_BACK), true, avoid);
+      return route ? route.reduce((sum, p, i) => sum + (i ? p.distanceTo(route[i - 1]) : Math.hypot(p.x - from.x, p.z - from.z)), 0) : Infinity;
+    };
+    let best = front,
+      bestLength = length(front);
+    for (const side of others) {
+      const l = length(side);
+      if (l < bestLength - 0.5) (best = side), (bestLength = l);
+    }
+    return best;
+  }
   private finish(f: Forklift<C>) {
     f.vehicle.then(() => {
       f.done++;
@@ -804,6 +824,15 @@ export class PalletCycle<C extends CycleCargo> {
   }
 
   private advanceForklift(f: Forklift<C>) {
+    // Driving home (or stepping aside) with no job: a new job aborts the return and re-plans from where it is.
+    if (!f.job && f.state === "returning" && !f.vehicle.idle && this.enabled(f.object.id)) {
+      const saved = f.vehicle.interrupt();
+      if (f.task === "service") this.serviceJob(f);
+      else if (f.task === "carrier") this.carrierJob(f);
+      else this.rackJob(f);
+      if (!f.job) f.vehicle.restore(saved);
+      return;
+    }
     if (f.job || !f.vehicle.idle || !this.enabled(f.object.id)) return;
     if (f.task === "service") {
       this.serviceJob(f);
@@ -877,7 +906,7 @@ export class PalletCycle<C extends CycleCargo> {
       return;
     }
     // No Rack_m in this cell: the full pallet goes straight from the AMR into a free slot of the cell's fixed rack.
-    const slot = cellRacks.length ? null : this.host.rackFree(this.slotBookings, (r) => this.cellOf(r.id) === cell);
+    const slot = cellRacks.length ? null : this.host.rackFree(this.slotBookings, (r) => this.cellOf(r.id) === cell, { id: f.object.id, from: shuttle.vehicle.position });
     if (slot) {
       this.directStoreJob(f, shuttle, slot.rack, slot.slot, !helper);
       return;
@@ -904,7 +933,9 @@ export class PalletCycle<C extends CycleCargo> {
     }, [shuttle.object.id]);
     if (!chain) f.vehicle.then(() => this.setShuttle(shuttle, "waitEmpty", "만재 팔레트 내림"));
     const { x } = RACK_CONFIG.slots[slot];
-    this.place(f, rackSlotPoint(rack, slot), rackHeading(rack), RACK_CONFIG.front - x + half, (load) => {
+    // The shuttle AMR stays parked at the deck: a side whose stand it blocks is not taken.
+    const side = this.rackSide(f, rack, slot, RACK_CONFIG.front - x + half, [{ x: shuttle.vehicle.position.x, z: shuttle.vehicle.position.z, r: 1.3 }]);
+    this.place(f, side.point, side.heading, RACK_CONFIG.front - x + half, (load) => {
       this.slotBookings.delete(key);
       this.stored.set(key, load);
       this.host.rackStore(rack, slot, load.group, load.boxes.map((b) => b.node), load.palletId);
@@ -1151,10 +1182,10 @@ export class PalletCycle<C extends CycleCargo> {
   private rackJob(f: Forklift<C>) {
     const cell = this.cellOf(f.object.id), own = (rack: SceneEquipment) => this.cellOf(rack.id) === cell;
     const rackM = this.racks.find((r) => r.state === "unloading" && own(r.object) && r.levels.some((l, i) => l && !r.booked.has(i)));
-    const slot = rackM ? this.host.rackFree(this.slotBookings, own) : null;
+    const slot = rackM ? this.host.rackFree(this.slotBookings, own, { id: f.object.id, from: rackM.group.position }) : null;
     const canStore = !!rackM && !!slot;
     const stage = this.stages.find((s) => own(s) && !this.busyDocks.has(s.id) && !this.host.unloadBusy(s.id));
-    const oldest = stage ? this.host.rackOldest(this.shipClaims, own) : null;
+    const oldest = stage ? this.host.rackOldest(this.shipClaims, own, f.object.id) : null;
     const canShip = !!oldest && this.stored.has(`${oldest.rack.id}:${oldest.slot}`);
     if (!canStore && !canShip) return;
     const ship = canShip && (!canStore || f.lastJob === "store");
@@ -1178,9 +1209,10 @@ export class PalletCycle<C extends CycleCargo> {
       rackM.levels[level] = null;
       rackM.booked.delete(level);
     });
-    const slotPoint = rackSlotPoint(rack, slot);
     const { x } = RACK_CONFIG.slots[slot];
-    this.place(f, slotPoint, rackHeading(rack), RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2, (load) => {
+    const back = RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2;
+    const side = this.rackSide(f, rack, slot, back, []);
+    this.place(f, side.point, side.heading, back, (load) => {
       this.slotBookings.delete(key);
       this.stored.set(key, load);
       this.host.rackStore(rack, slot, load.group, load.boxes.map((b) => b.node), load.palletId);
@@ -1196,7 +1228,9 @@ export class PalletCycle<C extends CycleCargo> {
     f.job = "ship";
     this.setForklift(f, "toPick");
     const { x } = RACK_CONFIG.slots[slot];
-    this.pick(f, rackSlotPoint(rack, slot), rackHeading(rack), RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2, () => {
+    const back = RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2;
+    const side = this.rackSide(f, rack, slot, back, []);
+    this.pick(f, side.point, side.heading, back, () => {
       const load = this.stored.get(key);
       const group = this.host.rackTake(rack, slot);
       this.stored.delete(key);
@@ -1224,7 +1258,7 @@ export class PalletCycle<C extends CycleCargo> {
   private returnIfIdle(f: Forklift<C>) {
     f.vehicle.then(() => {
       const cell = this.cellOf(f.object.id), own = (rack: SceneEquipment) => this.cellOf(rack.id) === cell;
-      const more = this.racks.some((r) => r.state === "unloading" && own(r.object) && r.levels.some((l) => l)) || this.host.rackOldest(this.shipClaims, own);
+      const more = this.racks.some((r) => r.state === "unloading" && own(r.object) && r.levels.some((l) => l)) || this.host.rackOldest(this.shipClaims, own, f.object.id);
       if (!more) this.returnHome(f);
     });
   }

@@ -57,6 +57,22 @@ export function rackHeading(rack: EquipmentPose) {
   return rack.yaw - Math.PI / 2;
 }
 
+/**
+ * Both long sides of a slot (racks have no front / back): the slot point with the heading into the
+ * loading face, and the same slot mirrored onto the opposite face with the heading flipped.
+ */
+export function rackSlotSides(rack: EquipmentPose, slot: number): { point: Vector3; heading: number }[] {
+  const point = rackSlotPoint(rack, slot),
+    heading = rackHeading(rack),
+    nx = Math.sin(heading),
+    nz = Math.cos(heading),
+    depth = (point.x - rack.x) * nx + (point.z - rack.z) * nz;
+  return [
+    { point, heading },
+    { point: new Vector3(point.x - 2 * depth * nx, point.y, point.z - 2 * depth * nz), heading: heading + Math.PI },
+  ];
+}
+
 /** Floor point at `distance` m out from the slot point, straight out of the loading face. */
 export function rackFacePoint(rack: EquipmentPose, slot: number, distance: number) {
   const { x, z } = RACK_CONFIG.slots[slot];

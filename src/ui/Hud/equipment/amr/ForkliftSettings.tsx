@@ -9,6 +9,7 @@ import StopPointSetting from "@/ui/Hud/equipment/details/_components/StopPointSe
 /** Forklift-only settings (an AMR with amrRole "forklift"): shown instead of the AMR panel. */
 export default function ForkliftSettings({ id }: { id: string }) {
   const emptyLinks = useSceneStore((state) => state.links.filter((l) => l.type === "emptyReturn" && l.to === id).length);
+  const rackLinks = useSceneStore((state) => state.links.filter((l) => l.type === "store" && l.from === id).length);
   return (
     <DetailSection title="지게차 설정">
       <EquipmentChoiceSetting
@@ -35,6 +36,7 @@ export default function ForkliftSettings({ id }: { id: string }) {
         ]}
       />
       <p className="text-xs text-slate-500">빈 팔레트 회수 연결: {emptyLinks ? `AMR ${emptyLinks}대` : "없음 (가장 가까운 지게차 자동 배정)"}</p>
+      <p className="text-xs text-slate-500">담당 랙 연결: {rackLinks ? `랙 ${rackLinks}개 (연결된 랙만 입출고)` : "없음 (경로상 가장 가까운 적재 사용 랙)"}</p>
       <EquipmentNumberSetting id={id} field="amrSpeed" label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} />
       <StopPointSetting id={id} roles={["service", "stage"]} />
       <EquipmentEnabledSetting id={id} />

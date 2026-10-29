@@ -38,6 +38,18 @@ export default function RackDetails({ object }: EquipmentDetailProps) {
           ]}
         />
         {!mobile && <p className="text-xs text-slate-500">보관: 만재(박스가 다 찬) 팔레트만 지게차가 입고합니다.</p>}
+        {!mobile && (
+          <EquipmentChoiceSetting
+            id={object.id}
+            field="rackStore"
+            label="적재 사용"
+            fallback="on"
+            options={[
+              { value: "on", label: "사용 (팔레트 입고)" },
+              { value: "off", label: "사용 안 함 (입고 없음)" },
+            ]}
+          />
+        )}
         <EquipmentChoiceSetting
           id={object.id}
           field="acceptGrade"
