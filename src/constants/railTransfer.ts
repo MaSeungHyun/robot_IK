@@ -40,8 +40,11 @@ export const TRANSFER_CONFIG = {
   point: { x: -0.06, y: 0.97, z: 1.73 },
   /** Body footprint (local): x −1.02..0.91, z −0.78..2.57. */
   footprint: { minX: -1.02, maxX: 0.91, minZ: -0.78, maxZ: 2.57 },
-  /** The fork only moves vertically: lowered this far (pallet ends on the floor under the fork, picked by a forklift). */
-  downY: 0.97,
+  /**
+   * The fork only moves vertically: lowered until Transfer_Forklift_fork_end_point (child of the fork, y -0.7299 under it)
+   * touches the floor. World y of the end point = 0.18557 (body) + 1.27529 (fork) - 0.72991 = 0.731 m.
+   */
+  downY: 0.731,
   /** Lowering time (s); the empty fork rises back in returnSeconds. */
   lowerSeconds: 3,
   returnSeconds: 3,
