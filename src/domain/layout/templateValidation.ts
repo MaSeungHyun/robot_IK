@@ -2,7 +2,7 @@ import type { EquipmentKind } from "@/types/layout";
 import { LINK_RULES, type LinkType } from "@/types/links";
 import type { SceneTemplate } from "@/types/sceneTemplate";
 
-const KINDS: ReadonlySet<string> = new Set<EquipmentKind>(["robot", "pallet", "conveyor", "amr", "dock", "scanner", "floor", "rack", "door"]);
+const KINDS: ReadonlySet<string> = new Set<EquipmentKind>(["robot", "pallet", "conveyor", "amr", "dock", "scanner", "floor", "rack", "door", "rail", "transfer"]);
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 

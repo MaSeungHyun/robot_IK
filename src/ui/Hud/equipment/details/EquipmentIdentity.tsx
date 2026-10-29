@@ -26,6 +26,8 @@ const EQUIPMENT_VISUALS: Record<EquipmentKind, EquipmentVisual> = {
   floor: { icon: "BrickWall" },
   rack: { icon: "Warehouse" },
   door: { icon: "DoorOpen" },
+  rail: { icon: "Boxes" },
+  transfer: { icon: "Package" },
 };
 
 export default function EquipmentIdentity({ object, status }: Props) {

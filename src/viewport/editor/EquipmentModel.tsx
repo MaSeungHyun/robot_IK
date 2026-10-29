@@ -9,6 +9,7 @@ import { AMR_DECK, CYCLE_CONFIG } from "@/constants/cycle";
 import { STREAM_CONFIG } from "@/constants/simulation";
 import { AgvBody, RackMobile } from "@/objects/rack/RackMobile";
 import Door from "@/objects/door/Door";
+import { Rail, Transfer } from "@/objects/rail/RailTransfer";
 import Pallet from "@/objects/pallet/index";
 import RobotPreview from "@/objects/robot/RobotPreview";
 import RobotPedestal from "@/objects/robot/RobotPedestal";
@@ -55,6 +56,12 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
 
     case "door":
       return <Door id={object.id} />;
+
+    case "rail":
+      return <Rail />;
+
+    case "transfer":
+      return <Transfer />;
 
   }
 }

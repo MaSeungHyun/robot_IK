@@ -41,6 +41,8 @@ export const DEFAULT_LAYOUT: Record<EquipmentKind, EquipmentPose> = {
   floor: { x: 0.5, z: 0.5, yaw: 0 },
   rack: { x: -3.2, z: -3.2, yaw: 0 },
   door: { x: 0, z: -5, yaw: 0 },
+  rail: { x: 0, z: 4, yaw: 0 },
+  transfer: { x: 8, z: 4, yaw: 0 },
 };
 export const EDITOR_HISTORY_LIMIT = 100;
 // Floor/wall asset: 1-unit grid cells; wall height snaps to wallStep.

@@ -14,6 +14,7 @@ import ConveyorBelt from "@/objects/conveyor/ConveyorBelt";
 import Dock from "@/objects/dock/Dock";
 import Rack from "@/objects/rack/Rack";
 import Door from "@/objects/door/Door";
+import { Rail, Transfer } from "@/objects/rail/RailTransfer";
 import Forklift from "@/objects/forklift/Forklift";
 import CycleVehicleView from "@/viewport/simulation/CycleVehicleView";
 
@@ -38,7 +39,7 @@ export default function FactoryRun(props: SimulatorRunProps) {
   useEffect(() => resetCursor, []);
   // Rack_m is owned by the pallet cycle (drawn below with its own id), never as a Rack.glb static rack.
   const cycleRacks = new Set(world.cycle?.rackViews.map((view) => view.id) ?? []);
-  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || (object.kind === "rack" && !cycleRacks.has(object.id)) || object.kind === "scanner" || object.kind === "floor" || object.kind === "door");
+  const staticObjects = objects.filter((object) => object.kind === "conveyor" || object.kind === "dock" || (object.kind === "rack" && !cycleRacks.has(object.id)) || object.kind === "scanner" || object.kind === "floor" || object.kind === "door" || object.kind === "rail" || object.kind === "transfer");
 
   return (
     <>
@@ -84,14 +85,14 @@ export default function FactoryRun(props: SimulatorRunProps) {
         <group
           key={object.id}
           // Racks, docks and conveyors never move while running (scanners and doors animate, so they stay dynamic).
-          userData={{ sceneId: object.id, instanceStatic: object.kind !== "scanner" && object.kind !== "door" }}
+          userData={{ sceneId: object.id, instanceStatic: object.kind !== "scanner" && object.kind !== "door" && object.kind !== "transfer" }}
           position={[object.x, 0, object.z]}
           rotation={[0, object.yaw, 0]}
           {...playHover}
           onClick={(event) => handleEquipmentSelect(event, object.id)}
           onDoubleClick={(event) => inspectEquipment(event, object.id)}
         >
-          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "rack" ? <Rack /> : object.kind === "door" ? <Door id={object.id} simOpening={() => world.doorOpening(object.id)} /> : <Dock id={object.id} />}
+          {object.kind === "conveyor" ? <ConveyorBelt entity={object} /> : object.kind === "scanner" ? <Scanner entity={object} inspection={world.inspection} /> : object.kind === "rack" ? <Rack /> : object.kind === "door" ? <Door id={object.id} simOpening={() => world.doorOpening(object.id)} /> : object.kind === "rail" ? <Rail /> : object.kind === "transfer" ? <Transfer view={() => world.transferView(object.id)} /> : <Dock id={object.id} />}
         </group>
       ))}
     </>

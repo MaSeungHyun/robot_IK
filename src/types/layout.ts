@@ -1,9 +1,10 @@
 import type { ConveyorPathId } from "@/domain/conveyor/conveyorPaths";
 import type { EquipmentMetadata } from "@/types/equipment";
 
-export type EquipmentKind="robot"|"pallet"|"conveyor"|"amr"|"dock"|"scanner"|"floor"|"rack"|"door";
+/** "rail" = rail_condition.glb (팔레트 분배 레일), "transfer" = Transfer_Forklift.glb (레일 끝 팔레트 승강기). */
+export type EquipmentKind="robot"|"pallet"|"conveyor"|"amr"|"dock"|"scanner"|"floor"|"rack"|"door"|"rail"|"transfer";
 export type EquipmentPose={x:number;z:number;yaw:number};
-export type FactoryLayout=Record<Exclude<EquipmentKind,"scanner"|"floor"|"rack"|"door">,EquipmentPose>;
+export type FactoryLayout=Record<Exclude<EquipmentKind,"scanner"|"floor"|"rack"|"door"|"rail"|"transfer">,EquipmentPose>;
 /** Floor/wall room: integer grid cells, centered on the object pose; wallHeight 0 = floor only. */
 export type FloorSize={width:number;depth:number;wallHeight:number;/** false: no generated roof (e.g. the template draws its own glb roof). */roof?:boolean};
 export type ConveyorTurn="straight"|"left"|"right";
@@ -66,6 +67,8 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   rackType?:"fixed"|"mobile";
   /** Fixed rack only: what its slots receive. "pallet" (default): a loaded pallet is put in by a forklift / AMR; "boxes": loose boxes only (on the shelf or onto a pallet already in the slot), no pallet-in; "both". */
   rackStorage?:RackStorageMode;
+  /** Fixed rack only: "off" = 적재 사용 안 함 (no forklift / AMR stores into it; stored pallets can still be retrieved). Default "on". */
+  rackStore?:"on"|"off";
   /** Fixed rack only: slot contents at simulation start (index into RACK_CONFIG.slots); boxes use the pallet stacking layout. */
   rackContents?:RackSlotContent[];
   /** Pallet only: id of the AMR it is mounted on (editor snap; the pallet rides on that shuttle AMR). */

@@ -8,6 +8,7 @@ import DockDetails from "@/ui/Hud/equipment/dock/DockDetails";
 import RackDetails from "@/ui/Hud/equipment/rack/RackDetails";
 import FloorDetails from "@/ui/Hud/equipment/floor/FloorDetails";
 import DoorDetails from "@/ui/Hud/equipment/door/DoorDetails";
+import { RailDetails, TransferDetails } from "@/ui/Hud/equipment/rail/RailDetails";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import type { EquipmentKind } from "@/types/layout";
 
@@ -21,6 +22,8 @@ const DETAIL_COMPONENTS = {
   floor: FloorDetails,
   rack: RackDetails,
   door: DoorDetails,
+  rail: RailDetails,
+  transfer: TransferDetails,
 } satisfies Record<EquipmentKind, ComponentType<EquipmentDetailProps>>;
 
 export default function EquipmentDetails({ object }: EquipmentDetailProps) {

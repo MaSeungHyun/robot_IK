@@ -36,3 +36,9 @@ export const robotPedestalUrls: Record<"base" | "place", string | undefined> = {
   base: pedestalFiles["/src/assets/models/robot_base.glb"],
   place: pedestalFiles["/src/assets/models/robot_arm_place.glb"],
 };
+// Pallet distribution rail + transfer lift: optimized set only, resolved optionally like the pedestals.
+const railTransferFiles = import.meta.glob<string>(["/src/assets/models/rail_condition.glb", "/src/assets/models/Transfer_Forklift.glb"], { query: "?url", import: "default", eager: true });
+/** rail_condition.glb (팔레트 분배 레일); undefined when missing (the rail then renders as a plain box). */
+export const railConditionUrl: string | undefined = railTransferFiles["/src/assets/models/rail_condition.glb"];
+/** Transfer_Forklift.glb (레일 끝 팔레트 승강기); undefined when missing. */
+export const transferForkliftUrl: string | undefined = railTransferFiles["/src/assets/models/Transfer_Forklift.glb"];

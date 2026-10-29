@@ -174,6 +174,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       if (process.env.BOX_STATES) { const m = new Map(); for (const b of world.boxes) { const k = `${b.state}@${b.belt?.name}:${Math.round(b.distance)}`; m.set(k, (m.get(k) ?? 0) + 1); } console.log(`    boxes: ${[...m].map(([k, n]) => k + "x" + n).join(" ")} halted: ${[...(world.haltedBelts?.() ?? [])].join(",")}`); }
       if (world.heldPalletBelts.length) console.log(`    palletHold: ${world.heldPalletBelts.map((h) => `${h.beltId}:pallet=${h.pallet} d=${h.distance.toFixed(2)} atStopper=${h.atStopper} amr=${h.agent ?? "-"} fed=${h.fed} n=${h.count} d=[${h.distances.map((x) => x.toFixed(2))}] arr=[${h.arrivals.map((x) => x.toFixed(0))}]`).join(" | ")}`);
       if (world.feedDockStats && Object.keys(world.feedDockStats).length) console.log(`    feedDocks: ${Object.entries(world.feedDockStats).map(([name, s]) => `${name} 도착 ${s.arrivals} · 가동 ${Math.round((s.busySec / clock.stats.simTime) * 100)}%`).join(" | ")}`);
+      if (world.railStats?.length) console.log(`    rails: ${world.railStats.map((r) => `${r.id} 수령 ${r.received} 중앙겹침 ${r.overruns} 대기 L${r.left}/R${r.right} 최대 L${r.maxLeft}/R${r.maxRight} 큐겹침 ${r.overlaps}`).join(" | ")} · lifts: ${world.transferStats.map((t) => `${t.id}:${t.phase}`).join(" ")}`);
       if (world.feedScan?.dropped) console.log(`    feedScan: ${JSON.stringify({ ...world.feedScan, inTransit: world.feedBoxIds?.size ?? 0 })}`);
       if (world.cycle) {
         const c = world.cycle.stats;

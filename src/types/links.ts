@@ -4,7 +4,7 @@ import type { EquipmentKind } from "@/types/layout";
  * Equipment relation (🔗). Direction follows the material flow, except `pickup` (AMR -> the
  * pallet station it serves). Equipment without links of a type keeps the distance-based fallback.
  */
-export type LinkType = "feed" | "load" | "pickup" | "deliver" | "emptyReturn";
+export type LinkType = "feed" | "load" | "pickup" | "deliver" | "emptyReturn" | "store" | "collect" | "distribute";
 
 export type SceneLink = { id: string; type: LinkType; from: string; to: string };
 
@@ -13,12 +13,19 @@ export type TemplateLink = { type: LinkType; from: number; to: number };
 
 export const LINK_RULES: Record<LinkType, { from: EquipmentKind; to: readonly EquipmentKind[]; label: string }> = {
   /** conveyor → robot/AMR that takes its boxes or pallets; conveyor → scanner: its AMRs unload at that scanner. */
-  feed: { from: "conveyor", to: ["robot", "amr", "scanner"], label: "공급" },
+  /** conveyor → rail: its AMRs roll each pallet onto that rail centre. */
+  feed: { from: "conveyor", to: ["robot", "amr", "scanner", "rail"], label: "공급" },
   load: { from: "robot", to: ["pallet"], label: "적재" },
   pickup: { from: "amr", to: ["pallet"], label: "픽업" },
   deliver: { from: "pallet", to: ["dock", "rack", "conveyor", "robot", "amr"], label: "출고" },
   /** AMR → forklift that lifts its emptied pallet off / palletSource dock it is stacked on (else nearest). */
   emptyReturn: { from: "amr", to: ["amr", "dock"], label: "빈 팔레트 회수" },
+  /** Forklift → rack(s) it stores into / retrieves from (assigned racks win over the nearest-by-path fallback). */
+  store: { from: "amr", to: ["rack"], label: "담당 랙" },
+  /** Transfer_Forklift → forklift that collects its lowered empty pallet / palletSource dock it is stacked on (else nearest). */
+  collect: { from: "transfer", to: ["amr", "dock"], label: "빈 팔레트 회수" },
+  /** rail → Transfer_Forklift lift(s) its ends hand pallets to (else the lift nearest each rail end). */
+  distribute: { from: "rail", to: ["transfer"], label: "분배" },
 };
 
 export const LINKABLE_KINDS: ReadonlySet<EquipmentKind> = new Set(

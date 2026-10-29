@@ -37,8 +37,12 @@ export function resolveOwnedLink(a: SceneEquipment, b: SceneEquipment, scene: Sc
 
 /** emptyReturn between two AMRs: always plain AMR → forklift (pick order does not matter); two forklifts / two AMRs: no link. */
 function orientEmptyReturn<L extends { type: string; from: string; to: string }>(link: L | null, byId: Map<string, SceneEquipment>, { settings }: Scene): L | null {
-  if (!link || link.type !== "emptyReturn" || byId.get(link.to)?.kind !== "amr") return link;
   const fork = (id: string) => isForkliftRole(settings[id]?.amrRole);
+  // 담당 랙: forklift → rack only.
+  if (link?.type === "store") return fork(link.from) ? link : null;
+  // 빈 팔레트 회수 (lift): only a forklift (or palletSource dock) collects from a Transfer_Forklift.
+  if (link?.type === "collect") return byId.get(link.to)?.kind !== "amr" || fork(link.to) ? link : null;
+  if (!link || link.type !== "emptyReturn" || byId.get(link.to)?.kind !== "amr") return link;
   if (fork(link.to) && !fork(link.from)) return link;
   if (fork(link.from) && !fork(link.to)) return { ...link, from: link.to, to: link.from };
   return null;
