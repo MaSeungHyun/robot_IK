@@ -77,6 +77,8 @@ export const ROBOT_PICKING = {
   transferMode: "base" as const,
   radius: 2.5,
   preGraspHeight: 0.15,
+  /** Extra lift (m) on top of preGraspHeight right after grabbing a box (clears the Transfer_Forklift area). */
+  pickLiftExtra: 0.25,
   liftRearwardDistance: 0.5,
   rearLiftHeight: 0.4,
   transferPlanningBudgetMs: 1,

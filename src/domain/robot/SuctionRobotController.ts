@@ -202,7 +202,7 @@ export class SuctionRobotController implements RobotController {
       :["LIFT","RETREAT"].includes(phase)?r.segmentStart.y-MOTION.contactTolerance:null);
     if(phase==="GRASP") r.segmentEnd.y=job.pickup.y;
     if(phase==="LIFT") {
-      r.segmentEnd.y=Math.max(r.segmentStart.y+ROBOT_PICKING.preGraspHeight,hoverY(job));
+      r.segmentEnd.y=Math.max(r.segmentStart.y+ROBOT_PICKING.preGraspHeight+ROBOT_PICKING.pickLiftExtra,hoverY(job));
       if(this.transferMode==="shoulder"){
         r.segmentEnd.y=Math.max(r.segmentEnd.y,r.segmentStart.y+ROBOT_PICKING.rearLiftHeight);
         // Retract in the current arm plane, keeping hand00 fixed as cargo clears the belt.
