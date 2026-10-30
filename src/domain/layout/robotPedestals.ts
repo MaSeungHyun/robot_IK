@@ -1,6 +1,12 @@
 import { Box3, Vector3, type Object3D } from "three";
 import { ROBOT_PEDESTAL_FOOTPRINTS, ROBOT_PEDESTALS, type RobotPedestalKind } from "@/constants/robotPedestal";
 
+/** Pedestal yaw relative to the robot (radians) from the robotPedestalYaw setting (degrees). */
+export function pedestalYawOffset(settings: { robotPedestalYaw?: number } | undefined): number {
+  const degrees = settings?.robotPedestalYaw ?? 0;
+  return Number.isFinite(degrees) ? (degrees * Math.PI) / 180 : 0;
+}
+
 /** Arm base height: the chosen pedestal's *_point height, else the stored elevation (decor pedestal / floor). */
 export function robotElevation(object: { elevation?: number }, pedestal: RobotPedestalKind | undefined): number {
   return pedestal && pedestal !== "none" ? ROBOT_PEDESTALS[pedestal].elevation : object.elevation ?? 0;
@@ -13,7 +19,7 @@ export function robotElevation(object: { elevation?: number }, pedestal: RobotPe
 export function palletBaseY(
   pallet: { x: number; z: number },
   objects: readonly { id: string; kind: string; x: number; z: number; yaw: number }[],
-  settings: Record<string, { robotPedestal?: RobotPedestalKind; mountedOn?: string } | undefined>,
+  settings: Record<string, { robotPedestal?: RobotPedestalKind; robotPedestalYaw?: number; mountedOn?: string } | undefined>,
   palletId?: string,
 ): number {
   if (palletId && settings[palletId]?.mountedOn) return 0;
@@ -21,7 +27,7 @@ export function palletBaseY(
   for (const robot of objects) {
     const kind = robot.kind === "robot" ? settings[robot.id]?.robotPedestal : undefined;
     if (!kind || kind === "none") continue;
-    const dx = pallet.x - robot.x, dz = pallet.z - robot.z, c = Math.cos(robot.yaw), s = Math.sin(robot.yaw);
+    const dx = pallet.x - robot.x, dz = pallet.z - robot.z, yaw = robot.yaw + pedestalYawOffset(settings[robot.id]), c = Math.cos(yaw), s = Math.sin(yaw);
     const x = dx * c - dz * s, z = dx * s + dz * c, f = ROBOT_PEDESTAL_FOOTPRINTS[kind];
     if (x >= f.minX && x <= f.maxX && z >= f.minZ && z <= f.maxZ) best = Math.max(best, ROBOT_PEDESTALS[kind].elevation);
   }

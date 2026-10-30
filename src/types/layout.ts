@@ -96,7 +96,9 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   /** Robot role: "palletize" = belt -> pallet (default), "depalletize" = unload-dock pallet -> belt. */
   robotRole?:"palletize"|"depalletize";
   /** Pedestal under the arm (absent = "none", floor). */
-  robotPedestal?:"none"|"base"|"place"};
+  robotPedestal?:"none"|"base"|"place";
+  /** Pedestal turn relative to the robot yaw, degrees (absent = 0: turns with the robot). Visual + pallet footprint only. */
+  robotPedestalYaw?:number};
 export type ConveyorRole="box"|"inbound"|"fed"|"outbound"|"ship";
 
 /** Forklift role, including the legacy "rack" value saved by older scenes. */

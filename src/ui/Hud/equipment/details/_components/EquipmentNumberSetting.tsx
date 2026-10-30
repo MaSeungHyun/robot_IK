@@ -11,7 +11,7 @@ import {
 import type { EquipmentSettings } from "@/types/layout";
 import { deckFeedIntervalOf, stackCapacityOf } from "@/constants/emptyPallet";
 
-type Field = "speed" | "reach" | "capacity" | "spawnInterval" | "beltSpeed" | "amrSpeed" | "stackCapacity" | "deckFeedInterval";
+type Field = "speed" | "reach" | "capacity" | "spawnInterval" | "beltSpeed" | "amrSpeed" | "stackCapacity" | "deckFeedInterval" | "robotPedestalYaw";
 import { NUMBER_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
 
 type Props = {
@@ -35,6 +35,7 @@ function read(field: Field, config: EquipmentSettings) {
   if (field === "spawnInterval") return toBoxesPerHour(spawnIntervalOf(config));
   if (field === "stackCapacity") return stackCapacityOf(config);
   if (field === "deckFeedInterval") return deckFeedIntervalOf(config);
+  if (field === "robotPedestalYaw") return config.robotPedestalYaw ?? 0;
   return config[field];
 }
 

@@ -121,6 +121,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
             fallback="none"
             options={ROBOT_PEDESTAL_OPTIONS}
           />
+          <RobotPedestalYawSetting id={object.id} />
           <StopPointSetting id={object.id} roles={["unload"]} />
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>
@@ -129,4 +130,11 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
       <RobotJointValues id={object.id} />
     </EquipmentDetailLayout>
   );
+}
+
+/** Pedestal-only turn (degrees, relative to the robot); hidden without a pedestal. */
+function RobotPedestalYawSetting({ id }: { id: string }) {
+  const pedestal = useSceneStore((state) => state.settings[id]?.robotPedestal ?? "none");
+  if (pedestal === "none") return null;
+  return <EquipmentNumberSetting id={id} field="robotPedestalYaw" label="받침대 회전" unit="°" min={-180} max={180} />;
 }

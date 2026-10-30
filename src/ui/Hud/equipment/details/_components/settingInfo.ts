@@ -20,6 +20,7 @@ export const CHOICE_INFO: Record<string, string> = {
 };
 
 export const NUMBER_INFO: Record<string, string> = {
+  robotPedestalYaw: "받침대만 따로 돌리는 각도(°). 로봇 방향 기준이며 로봇을 돌리면 함께 돌아갑니다.",
   speed: "설비 작동 속도 배율입니다. 높이면 사이클 시간이 줄어듭니다. 재생 배속과 무관하게 결과가 같습니다.",
   reach: "로봇이 박스/팔레트를 집을 수 있는 반경입니다. 컨베이어·팔레트가 이 범위 안에 있어야 연결됩니다. 최대 2.5 m = hand04 수직 아래 최대 도달 (상완·전완 수평 1.185 + 1.313 m).",
   capacity: "팔레트에 쌓을 최대 박스 수입니다. 다 차면 만재로 운반됩니다.",

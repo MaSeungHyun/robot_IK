@@ -12,6 +12,7 @@
       "settings": {
         "robotRole": "palletize",
         "robotPedestal": "base",
+        "robotPedestalYaw": 180,
         "pickFilter": "defect"
       }
     },
@@ -555,7 +556,8 @@
       "yaw": 0,
 
       "settings": {
-        "robotPedestal": "base"
+        "robotPedestal": "base",
+        "robotPedestalYaw": 180
       }
     },
     {
@@ -565,7 +567,8 @@
       "yaw": 0,
 
       "settings": {
-        "robotPedestal": "base"
+        "robotPedestal": "base",
+        "robotPedestalYaw": 180
       }
     },
     {

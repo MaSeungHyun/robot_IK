@@ -13,6 +13,7 @@ import { Rail, Transfer } from "@/objects/rail/RailTransfer";
 import Pallet from "@/objects/pallet/index";
 import RobotPreview from "@/objects/robot/RobotPreview";
 import RobotPedestal from "@/objects/robot/RobotPedestal";
+import { pedestalYawOffset } from "@/domain/layout/robotPedestals";
 import FloorRoom from "@/objects/room/FloorRoom";
 import { isForkliftRole, type SceneEquipment } from "@/types/layout";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
@@ -69,7 +70,8 @@ export default function EquipmentModel({ object }: { object: SceneEquipment }) {
 /** Floors, walls and roof are not link targets: they ignore pointer rays while link mode is on. */
 function EditorRobotPedestal({ id }: { id: string }) {
   const kind = useSceneStore((state) => state.settings[id]?.robotPedestal);
-  return kind && kind !== "none" ? <RobotPedestal kind={kind} /> : null;
+  const yaw = useSceneStore((state) => pedestalYawOffset(state.settings[id]));
+  return kind && kind !== "none" ? <group rotation={[0, yaw, 0]}><RobotPedestal kind={kind} /></group> : null;
 }
 
 function EditorFloor({ object }: { object: SceneEquipment }) {

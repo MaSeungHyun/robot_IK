@@ -5,7 +5,7 @@ import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import type { FactoryRobot, FactorySimulator } from "@/domain/simulation/FactorySimulator";
 import Robot from "@/objects/robot/Robot";
 import RobotPedestal from "@/objects/robot/RobotPedestal";
-import { robotElevation } from "@/domain/layout/robotPedestals";
+import { pedestalYawOffset, robotElevation } from "@/domain/layout/robotPedestals";
 import type { EquipmentSettings } from "@/types/layout";
 import type { RobotTransferMode } from "@/types/robot";
 
@@ -29,7 +29,7 @@ const FactoryArm = memo(function FactoryArm({ robot, world, running, transferMod
   return (
     <>
     {pedestal && pedestal !== "none" && (
-      <group position={[robot.object.x, y, robot.object.z]} rotation={[0, robot.object.yaw, 0]}><RobotPedestal kind={pedestal} /></group>
+      <group position={[robot.object.x, y, robot.object.z]} rotation={[0, robot.object.yaw + pedestalYawOffset(settings), 0]}><RobotPedestal kind={pedestal} /></group>
     )}
     <Robot
       robotId={robot.object.id}
