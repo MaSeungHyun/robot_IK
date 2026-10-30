@@ -32,11 +32,16 @@ function cloneProp(scene: Object3D, url: string, prop: TemplateProp, pedestalKey
     drop.forEach((o) => o.removeFromParent());
   }
   clone.traverse((o) => { o.castShadow = true; o.receiveShadow = true; o.raycast = () => {}; });
+  clone.updateMatrixWorld(true);
   // Floor decals sit on the floor plane: pull them toward the camera in depth instead of lifting them.
   clone.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh || Array.isArray(mesh.material)) return;
     if (name !== "FloorMarking" && !mesh.material.name.startsWith("FloorMarking")) return;
+    // Only flat floor paint: Rack_m frames (and Enviroment signage) also use a "FloorMarking" material but stand upright.
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    const bounds = mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld);
+    if (bounds.max.y - bounds.min.y > 0.05 || bounds.max.y > 0.1) return;
     const material = mesh.material.clone();
     Object.assign(material, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
     mesh.material = material;
@@ -156,7 +161,7 @@ function mergeStatic(roots: Object3D[]): Object3D[] {
       const mesh = o as Mesh;
       if (!mesh.isMesh || (mesh as { isSkinnedMesh?: boolean }).isSkinnedMesh || (mesh as { isInstancedMesh?: boolean }).isInstancedMesh || Array.isArray(mesh.material) || mesh.morphTargetInfluences || mesh.matrixWorld.determinant() < 0) return; // mirrored meshes keep three's front-face flip
       const g = mesh.geometry;
-      const key = [mesh.material.uuid, g.index ? "i" : "n", ...Object.keys(g.attributes).sort().map((k) => k + g.attributes[k].itemSize)].join("|");
+      const key = [mesh.material.uuid, g.index ? "i" : "n", ...Object.keys(g.attributes).sort().map((k) => k + g.attributes[k].itemSize + g.attributes[k].array.constructor.name + (g.attributes[k].normalized ? "n" : ""))].join("|"); // mergeGeometries needs one array type per attribute
       const geometry = g.clone().applyMatrix4(mesh.matrixWorld);
       geometry.morphAttributes = {};
       const bucket = buckets.get(key) ?? { material: mesh.material, geometries: [] };
@@ -173,7 +178,7 @@ function mergeStatic(roots: Object3D[]): Object3D[] {
   merged.name = "GlbPropsMerged";
   for (const { material, geometries } of buckets.values()) {
     const geometry = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false);
-    if (!geometry) continue;
+    if (!geometry) { console.warn(`[GlbProps] merge failed for material "${material.name}"; meshes kept unmerged`); geometries.forEach((g) => merged.add(Object.assign(new Mesh(g, material), { castShadow: true, receiveShadow: true, raycast: () => {} }))); continue; }
     geometries.forEach((g) => g !== geometry && g.dispose());
     const mesh = new Mesh(geometry, material);
     geometry.computeBoundingBox();
