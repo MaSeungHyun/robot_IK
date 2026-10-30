@@ -1,4 +1,5 @@
 import type { TemplateProp } from "@/types/sceneTemplate";
+import { FACTORY_RACK_M_NODES } from "@/domain/layout/factoryShellMigration";
 
 /** Camera bookmarks (play mode): Shift+1..0 saves, 1..0 jumps. Slots persist per template in localStorage. */
 export type CameraBookmark = { position: [number, number, number]; target: [number, number, number] };
@@ -17,6 +18,22 @@ export const slotLabel = (slot: number) => String((slot + 1) % 10);
 
 /** Storage scope: the loaded template's props (same template = same slots); no template = "default". */
 export function bookmarkScope(props: readonly TemplateProp[]) {
+  return hashScope(stableProps(props));
+}
+
+/** Pre-v2 scope (raw props hash): changed whenever a load-time migration touched props. Read-only fallback. */
+export function legacyBookmarkScope(props: readonly TemplateProp[]) {
+  return hashScope(props);
+}
+
+/** Props minus load-time migration noise (Enviroment excludeMaterials, auto-added Rack_m nodes), so the scope survives migrations. */
+function stableProps(props: readonly TemplateProp[]) {
+  return props
+    .filter((p) => !(p.source === "factory" && (FACTORY_RACK_M_NODES as readonly string[]).includes(p.node)))
+    .map((p) => (p.source === "factory" && p.node === "Enviroment" ? { ...p, excludeMaterials: undefined } : p));
+}
+
+function hashScope(props: readonly TemplateProp[]) {
   if (!props.length) return "default";
   const text = JSON.stringify(props);
   let hash = 5381;

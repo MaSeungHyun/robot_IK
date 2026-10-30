@@ -13,7 +13,7 @@ import { useSceneStore } from "@/stores/useSceneStore";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
 import { focusSphere, selectedFocusId } from "@/viewport/camera/frameSelected";
 import { useWalkModeStore } from "@/stores/useWalkModeStore";
-import { bookmarkScope, bookmarkSlot, loadBookmarks, saveBookmark, showBookmarkToast, slotLabel } from "@/viewport/camera/cameraBookmarks";
+import { bookmarkScope, legacyBookmarkScope, bookmarkSlot, loadBookmarks, saveBookmark, showBookmarkToast, slotLabel } from "@/viewport/camera/cameraBookmarks";
 import { loadView, saveView } from "@/viewport/camera/cameraPersist";
 
 const TARGET: [number, number, number] = [0, 0.45, 0];
@@ -515,7 +515,7 @@ export default function CameraRig() {
       c.target.set(...view.target);
     }
     // The last view the user left this template at wins over the start view.
-    const saved = loadView(bookmarkScope(templateProps));
+    const saved = loadView(bookmarkScope(templateProps)) ?? loadView(legacyBookmarkScope(templateProps));
     if (saved && c) {
       cancelTween();
       toPerspective();
