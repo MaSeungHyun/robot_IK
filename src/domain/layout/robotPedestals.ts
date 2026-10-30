@@ -1,5 +1,5 @@
 import { Box3, Vector3, type Object3D } from "three";
-import { ROBOT_PEDESTAL_FOOTPRINTS, ROBOT_PEDESTALS, type RobotPedestalKind } from "@/constants/robotPedestal";
+import { ROBOT_PEDESTAL_FOOTPRINTS, ROBOT_PEDESTAL_PALLET_POINTS, ROBOT_PEDESTALS, type RobotPedestalKind } from "@/constants/robotPedestal";
 
 /** Pedestal yaw relative to the robot (radians) from the robotPedestalYaw setting (degrees). */
 export function pedestalYawOffset(settings: { robotPedestalYaw?: number } | undefined): number {
@@ -10,6 +10,27 @@ export function pedestalYawOffset(settings: { robotPedestalYaw?: number } | unde
 /** Arm base height: the chosen pedestal's *_point height, else the stored elevation (decor pedestal / floor). */
 export function robotElevation(object: { elevation?: number }, pedestal: RobotPedestalKind | undefined): number {
   return pedestal && pedestal !== "none" ? ROBOT_PEDESTALS[pedestal].elevation : object.elevation ?? 0;
+}
+
+type PedestalObjects = readonly { id: string; kind: string; x: number; z: number; yaw: number }[];
+type PedestalSettings = Record<string, { robotPedestal?: RobotPedestalKind; robotPedestalYaw?: number; mountedOn?: string } | undefined>;
+
+/**
+ * Where a fixed pallet on a pedestal with a "pallet_point" empty stands (world centre x/z, base y), turned with the
+ * robot yaw + robotPedestalYaw. Null when the pallet is mounted, on no pedestal, or the pedestal has no pallet_point.
+ */
+export function palletPedestalPose(pallet: { x: number; z: number }, objects: PedestalObjects, settings: PedestalSettings, palletId?: string): { x: number; y: number; z: number } | null {
+  if (palletId && settings[palletId]?.mountedOn) return null;
+  for (const robot of objects) {
+    const kind = robot.kind === "robot" ? settings[robot.id]?.robotPedestal : undefined;
+    const point = kind && kind !== "none" ? ROBOT_PEDESTAL_PALLET_POINTS[kind] : undefined;
+    if (!kind || kind === "none" || !point) continue;
+    const dx = pallet.x - robot.x, dz = pallet.z - robot.z, yaw = robot.yaw + pedestalYawOffset(settings[robot.id]), c = Math.cos(yaw), s = Math.sin(yaw);
+    const x = dx * c - dz * s, z = dx * s + dz * c, f = ROBOT_PEDESTAL_FOOTPRINTS[kind];
+    if (x < f.minX || x > f.maxX || z < f.minZ || z > f.maxZ) continue;
+    return { x: robot.x + point.x * c + point.z * s, y: ROBOT_PEDESTALS[kind].elevation + point.y, z: robot.z - point.x * s + point.z * c };
+  }
+  return null;
 }
 
 /**
@@ -23,6 +44,8 @@ export function palletBaseY(
   palletId?: string,
 ): number {
   if (palletId && settings[palletId]?.mountedOn) return 0;
+  const pose = palletPedestalPose(pallet, objects, settings, palletId);
+  if (pose) return pose.y;
   let best = 0;
   for (const robot of objects) {
     const kind = robot.kind === "robot" ? settings[robot.id]?.robotPedestal : undefined;

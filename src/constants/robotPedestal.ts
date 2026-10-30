@@ -21,6 +21,15 @@ export const ROBOT_PEDESTALS = {
 
 
 /**
+ * "pallet_point" empty in the pedestal GLB, robot-local (m, yaw 0, relative to the arm base *_point): a fixed pallet on
+ * that pedestal stands with its centre at x/z and its base at y (added to the pedestal elevation). Measured from
+ * robot_base.glb (pallet_point - robot_base_point). Pedestals without the empty keep the footprint/top-face rule.
+ */
+export const ROBOT_PEDESTAL_PALLET_POINTS: Partial<Record<Exclude<RobotPedestalKind, "none">, { x: number; y: number; z: number }>> = {
+  base: { x: 0.0344, y: -0.971, z: -2.1951 },
+};
+
+/**
  * Pedestal top face in robot-local XZ (m, yaw 0, relative to the arm base point), measured from the GLB bounds.
  * A fixed pallet whose centre lies inside sits on the pedestal top (elevation above) instead of the floor.
  */

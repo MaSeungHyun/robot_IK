@@ -56,7 +56,7 @@ import { createPalletModel } from "@/lib/three/palletModel";
 import { planStack } from "@/domain/pallet/packing/stacking";
 import { scannerBeltId, scannerEntry, scannerExit, withScannerBelts } from "@/domain/conveyor/scannerBelt";
 import { withRobotStops } from "@/domain/layout/robotStops";
-import { palletBaseY } from "@/domain/layout/robotPedestals";
+import { palletBaseY, palletPedestalPose } from "@/domain/layout/robotPedestals";
 import { remapStopLinks, withStopPoints } from "@/domain/layout/stopPoints";
 import { isDepalletizer } from "@/domain/robot/robotRole";
 
@@ -412,7 +412,11 @@ export class FactorySimulator {
           shuttle = mountedOn && owned?.has(mountedOn) ? objects.find((o) => o.id === mountedOn) : undefined;
         const state = shuttle
           ? new PalletController({ ...object, x: shuttle.x, z: shuttle.z }, pallet, this.settings()[object.id].capacity, rollerShuttles.has(shuttle.id) ? ROLLER_DECK : AMR_DECK)
-          : new PalletController(object, pallet, this.settings()[object.id].capacity, palletBaseY(object, objects, this.settings(), object.id));
+          : (() => {
+              // On a pedestal with a pallet_point the pallet snaps to it (x/z/y); otherwise footprint top / floor.
+              const at = palletPedestalPose(object, objects, this.settings(), object.id);
+              return new PalletController(at ? { ...object, x: at.x, z: at.z } : object, pallet, this.settings()[object.id].capacity, at ? at.y : palletBaseY(object, objects, this.settings(), object.id));
+            })();
         this.pallets.push(state);
         this.root.add(state.group);
         this.render(state.group);
