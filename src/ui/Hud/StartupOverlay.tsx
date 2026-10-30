@@ -26,9 +26,14 @@ const STAGES = {
     label: "LOADING SCENE",
     task: "SHADER WARMUP / FACTORY LIGHTING / PROPS",
   },
-  post: { range: [90, 95], label: "LOADING SCENE", task: "POST-PROCESSING" },
+  post: { range: [90, 93], label: "LOADING SCENE", task: "POST-PROCESSING" },
+  link: {
+    range: [93, 96],
+    label: "LOADING SCENE",
+    task: "FACTORY ASSETS / SHADER LINK",
+  },
   thumbnails: {
-    range: [95, 100],
+    range: [96, 100],
     label: "FINALIZING",
     task: "BAKING THUMBNAILS",
   },
@@ -58,6 +63,14 @@ export default function StartupOverlay() {
         : "parse";
 
   const [shown, setShown] = useState(0);
+  // After loading completes: fill the bar to 100%, hold it visibly, fade out, then unmount.
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    // 500 ms = bar width transition (duration-500) + 400 ms hold at 100%.
+    const fade = setTimeout(() => setClosing(true), 900);
+    return () => clearTimeout(fade);
+  }, [done]);
   useEffect(() => {
     if (done) return;
     const enteredAt = performance.now();
@@ -74,17 +87,17 @@ export default function StartupOverlay() {
     return () => clearInterval(id);
   }, [done, stage]);
 
-  if (done) return null;
+  const { label, task } = done
+    ? { label: "COMPLETE", task: "READY" }
+    : STAGES[stage];
 
-  const { label, task } = STAGES[stage];
-
-  const percent = Math.min(99, Math.floor(shown));
+  const percent = done ? 100 : Math.min(99, Math.floor(shown));
 
   return (
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-auto absolute inset-0 z-500 overflow-hidden bg-black text-text-primary select-none"
+      className={`absolute inset-0 z-500 overflow-hidden bg-black text-text-primary select-none ${closing ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"}`}
     >
       <img
         src="/splash.png"
@@ -119,12 +132,12 @@ export default function StartupOverlay() {
             Simulate it.
           </span>
         </h1>
-        <p className="mt-3 text-base text-text-primary/60 md:text-lg xl:text-xl">
+        <p className="mt-5 text-base text-text-primary/60 md:text-lg xl:text-xl">
           Prepare your factory operations with Grapicar.
         </p>
       </div>
       <div className="absolute inset-x-12 bottom-16">
-        <div className="mb-2 flex items-end justify-between text-base tracking-widest">
+        <div className="mb-2 flex items-end justify-between text-base tracking-wide">
           <span className="text-text-primary/90">{label}</span>
           <span className="tabular-nums tracking-wider text-text-primary/80">
             {percent}%
@@ -132,13 +145,13 @@ export default function StartupOverlay() {
         </div>
         <div className="h-1 w-full bg-text-primary/15">
           <div
-            className="h-full bg-brand-primary shadow-lg shadow-brand-primary/80 transition-all duration-150 ease-out"
-            style={{ width: `${shown}%` }}
+            className={`h-full bg-brand-primary shadow-lg shadow-brand-primary/80 transition-all ease-out ${done ? "duration-500" : "duration-150"}`}
+            style={{ width: `${done ? 100 : shown}%` }}
           />
         </div>
-        <div className="mt-3 flex justify-between text-base tracking-widest text-text-primary/45">
-          <span>{task}</span>
-          <span>PLEASE WAIT</span>
+        <div className="mt-3 flex justify-between text-text-primary/45">
+          <span className="lowercase">{task}</span>
+          <span>{done ? "" : "PLEASE WAIT"}</span>
         </div>
       </div>
     </div>
