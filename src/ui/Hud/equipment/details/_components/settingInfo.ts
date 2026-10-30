@@ -34,7 +34,7 @@ export const NUMBER_INFO: Record<string, string> = {
 /** Scanner-only meaning of autoSpawn (default off). */
 export const SCANNER_AUTO_SPAWN_INFO = "켜면 앞에 컨베이어/하역 로봇이 없는 스캐너가 스스로 박스를 생성합니다(8초 간격). 기본은 꺼짐: 컨베이어·AMR·로봇이 가져다준 박스만 검사합니다.";
 
-export const STOP_POINT_INFO = "도크 대신 이 장비가 쓰는 정차 위치를 바닥 클릭으로 지정합니다. 하역: AMR이 팔레트를 세우고 로봇이 컨베이어에 투입, 셔틀 교체: 셔틀 AMR과 지게차가 팔레트 교환, 출하 대기: 랙 지게차가 꺼낸 팔레트를 놓는 곳, Rack_m 하차: AGV가 Rack_m을 내리는 곳, 출고: 팔레트 반출 위치. 🔗 출고 링크가 이 장비를 가리키면 이 위치(없으면 자동 정차 위치)로 갑니다. 링크가 거리보다 우선합니다.";
+export const STOP_POINT_INFO = "바닥을 클릭해 이 장비가 멈춰 작업할 위치를 지정합니다.";
 export const SHUTTLE_ZONE_INFO = "입하 팔레트를 받은 AMR이 팔레트를 가져다 두는 바닥 위치입니다. 버튼을 누른 뒤 바닥을 클릭해 지정하며 여러 개 둘 수 있습니다. 하역 로봇·스캐너 라인으로 바로 갈 수 없을 때 AMR 대기 위치 대신 가장 가까운 빈 셔틀 구역으로 갑니다. 에디팅에서만 표시되며 템플릿/내보내기에 저장됩니다.";
 
 export const TOGGLE_INFO: Record<string, string> = {
