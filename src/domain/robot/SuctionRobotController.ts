@@ -30,6 +30,8 @@ const createRuntime = () => ({
   planWait: 0, approachAnalytic: false, approach: null as IKPose | null, approachAge: 0,
   snapStart: new Vector3(), snapEnd: new Vector3(), snapTime: Infinity,
   releasePosition: new Vector3(), releaseRotation: new Quaternion(), destinationRotation: new Quaternion(), rotation: new Quaternion(),
+  /** Carry box turn (after ALIGN_BASE, before TRANSIT): in-gripper yaw pre-set so the box arrives square to the slot. */
+  boxTurn: false, boxTurnFrom: new Quaternion(), boxTurnTo: new Quaternion(), boxTurnDuration: 0, boxTurnElapsed: 0,
 });
 const PHASE_LABELS: Record<RobotPhase,string> = {
   HOME:"다음 박스 대기", PRE_GRASP:"박스 위 경유점으로 접근", GRASP:"박스 위에서 수직 하강",
@@ -47,7 +49,7 @@ function homeHeading(current:number,initial:number){
 /** Retry a rejected (non-tracking) plan after waitSeconds of sim time; relax/abandon after N rejections. */
 const RETRY = { waitSeconds: 0.5, relaxAfter: 3, abortAfter: 8 } as const;
 /** Between-job moves: next pick planned straight from the last pose (chained / after waiting) vs from HOME. */
-export const robotChainStats = { chained: 0, fromHome: 0, homeIdle: 0, homeHolding: 0, baseTurnAfterRaise: 0 };
+export const robotChainStats = { chained: 0, fromHome: 0, homeIdle: 0, homeHolding: 0, baseTurnAfterRaise: 0, boxTurnAfterAlign: 0 };
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
 /** Hover height over the destination: prePlaceHeight above the slot, never below the pallet stack clearance. */
 const hoverY=(job:Transfer)=>Math.max(job.destination.y+ROBOT_PICKING.prePlaceHeight,job.clearanceY??-Infinity);
@@ -200,6 +202,7 @@ export class SuctionRobotController implements RobotController {
 
   private enter(phase: RobotPhase, job: Transfer): void {
     const r=this.runtime, grip=this.ik.grip;
+    r.boxTurn=false;
     r.phase=phase; r.elapsed=0; r.pose=null; r.planning=null; r.recovery=null; r.failures=0; r.retryWait=0; r.lineLock=null; r.phaseTime=0;
     r.planWait=0; r.approachAnalytic=false; r.approach=null; r.approachAge=0;
     // Contact phases may dip the upper arm below horizontal (box passing close to the base); LIFT climbs out of it.
@@ -532,6 +535,32 @@ export class SuctionRobotController implements RobotController {
     this.enter("TRANSIT",job);
   }
 
+  /**
+   * After the ??> raise and the hand00 turn: turn the held box about the suction point (tool stays vertical) so that,
+   * after the base rotation still left for TRANSIT, it reaches the slot at job.yaw (or the equivalent half turn).
+   * PRE_PLACE then only corrects any residual. False: nothing to turn (continue to TRANSIT).
+   */
+  private startBoxTurn(job: Transfer): boolean {
+    const r=this.runtime,ik=this.ik;
+    if(job.box.parent!==ik.grip)return false;
+    const base=ik.baseControl.node.getWorldPosition(new Vector3());
+    const from=ik.grip.getWorldPosition(new Vector3()).sub(base),to=job.destination.clone().sub(base);
+    // Remaining base yaw (about +Y) from the current grip heading to the slot heading.
+    const remaining=from.x*from.x+from.z*from.z>1e-8&&to.x*to.x+to.z*to.z>1e-8
+      ?Math.atan2(from.z*to.x-from.x*to.z,from.x*to.x+from.z*to.z):0;
+    job.box.getWorldPosition(r.releasePosition);
+    job.box.getWorldQuaternion(r.boxTurnFrom);
+    const up=new Vector3(0,1,0);
+    r.boxTurnTo.setFromAxisAngle(up,(job.yaw??0)-remaining);
+    r.rotation.setFromAxisAngle(up,(job.yaw??0)+Math.PI-remaining);
+    if(r.boxTurnFrom.angleTo(r.rotation)<r.boxTurnFrom.angleTo(r.boxTurnTo))r.boxTurnTo.copy(r.rotation);
+    const angle=r.boxTurnFrom.angleTo(r.boxTurnTo);
+    if(angle<1e-3)return false;
+    r.boxTurnDuration=Math.max(ROBOT_PICKING.releaseSeconds,angle*1.875/ROBOT_PICKING.releaseAngularSpeed);
+    r.boxTurnElapsed=0;r.boxTurn=true;robotChainStats.boxTurnAfterAlign++;
+    return true;
+  }
+
   private release(job: Transfer, delta: number): void {
     const r=this.runtime;
     r.elapsed=Math.min(r.duration,r.elapsed+delta);
@@ -662,6 +691,13 @@ export class SuctionRobotController implements RobotController {
       if(r.elapsed>=ROBOT_PICKING.graspHoldSeconds)this.attach(job);
       return;
     }
+    if(r.boxTurn){
+      r.boxTurnElapsed=Math.min(r.boxTurnDuration,r.boxTurnElapsed+dt);
+      r.rotation.copy(r.boxTurnFrom).slerp(r.boxTurnTo,minimumJerk(r.boxTurnElapsed/r.boxTurnDuration));
+      setCargoWorldPose(job.box,ik.grip,r.releasePosition,r.rotation);
+      if(r.boxTurnElapsed>=r.boxTurnDuration)this.enter("TRANSIT",job);
+      return;
+    }
     if(r.phase==="PRE_PLACE"){
       r.elapsed=Math.min(r.duration+MOTION.contactHold,r.elapsed+dt);
       const progress=minimumJerk(Math.min(1,r.elapsed/r.duration));
@@ -687,6 +723,7 @@ export class SuctionRobotController implements RobotController {
     }
     if(!reached)return;
     if(r.phase==="LIFT"){this.afterLift(job);return;}
+    if(r.phase==="ALIGN_BASE"&&this.startBoxTurn(job))return;
     const next: Partial<Record<RobotPhase,RobotPhase>>={
       PRE_GRASP:"GRASP",GRASP:"ATTACH",
       SHOULDER_TRANSFER:"ALIGN_BASE",ALIGN_BASE:"TRANSIT",TRANSIT:"PRE_PLACE",PLACE:"RELEASE",
