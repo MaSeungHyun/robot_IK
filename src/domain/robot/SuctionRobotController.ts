@@ -47,7 +47,7 @@ function homeHeading(current:number,initial:number){
 /** Retry a rejected (non-tracking) plan after waitSeconds of sim time; relax/abandon after N rejections. */
 const RETRY = { waitSeconds: 0.5, relaxAfter: 3, abortAfter: 8 } as const;
 /** Between-job moves: next pick planned straight from the last pose (chained / after waiting) vs from HOME. */
-export const robotChainStats = { chained: 0, fromHome: 0, homeIdle: 0, homeHolding: 0 };
+export const robotChainStats = { chained: 0, fromHome: 0, homeIdle: 0, homeHolding: 0, baseTurnAfterRaise: 0 };
 const BEFORE_PICK: readonly RobotPhase[] = ["PRE_GRASP","GRASP","ATTACH"];
 /** Hover height over the destination: prePlaceHeight above the slot, never below the pallet stack clearance. */
 const hoverY=(job:Transfer)=>Math.max(job.destination.y+ROBOT_PICKING.prePlaceHeight,job.clearanceY??-Infinity);
@@ -68,6 +68,8 @@ export class SuctionRobotController implements RobotController {
   private idle: "chain" | "home" = "home";
   /** Holding a box at HOME until its destination can take it. */
   private heldAtHome = false;
+  /** Base-transfer carry after LIFT: the ㄱ→> raise runs first, then a pure hand00 turn (ALIGN_BASE), then TRANSIT. */
+  private carryOrder: "raise" | null = null;
   private runtime = createRuntime();
   private manualAngle: { name: string; degrees: number } | null = null;
   private readonly cargo = new Map<Group, CargoPose>();
@@ -495,8 +497,11 @@ export class SuctionRobotController implements RobotController {
   /** Lifted: base transfers first bring hand01 back to its home angle (when not already there), then TRANSIT. */
   private afterLift(job: Transfer): void {
     if(this.transferMode!=="base"){this.enter("SHOULDER_TRANSFER",job);return;}
+    // ㄱ→> raise first; afterRestore then turns only hand00 before the remaining arm moves.
+    this.carryOrder="raise";
     this.enter("RESTORE_SHOULDER",job);
   }
+
 
   /**
    * RESTORE_SHOULDER: hand00 fixed, hand01 eased to its home angle while hand02/hand04 keep the held box at or
@@ -513,13 +518,18 @@ export class SuctionRobotController implements RobotController {
       r.planning=null;
       if(!pose.reachable){
         this.options.onProgress?.(r.index,`RESTORE_SHOULDER · ${pose.blockedBy??"자세 없음"} · 현재 자세로 이송`);
-        this.enter("TRANSIT",job);return;
+        this.afterRestore(job);return;
       }
       r.pose=pose;
     }
     const moved=ik.animateEased(r.pose,delta,ROBOT_PICKING.loadedSpeedScale);
-    if(!moved||r.phaseTime>MOTION.approachTimeout){this.enter("TRANSIT",job);return;}
-    if(ik.isEasedSettled(r.pose))this.enter("TRANSIT",job);
+    if(!moved||r.phaseTime>MOTION.approachTimeout){this.afterRestore(job);return;}
+    if(ik.isEasedSettled(r.pose))this.afterRestore(job);
+  }
+  /** After the ㄱ→> raise: pure hand00 turn (ALIGN_BASE, only joint 0 moves), then TRANSIT. */
+  private afterRestore(job: Transfer): void {
+    if(this.carryOrder==="raise"){this.carryOrder=null;robotChainStats.baseTurnAfterRaise++;this.enter("ALIGN_BASE",job);return;}
+    this.enter("TRANSIT",job);
   }
 
   private release(job: Transfer, delta: number): void {
@@ -630,7 +640,7 @@ export class SuctionRobotController implements RobotController {
       }
       if(this.heldAtHome){
         // Placement possible again: replan the carry from HOME.
-        this.heldAtHome=false;this.homePose=null;r.pose=null;r.planning=null;r.alignment=null;r.transit=null;r.preparedShoulder=null;
+        this.heldAtHome=false;this.carryOrder=null;this.homePose=null;r.pose=null;r.planning=null;r.alignment=null;r.transit=null;r.preparedShoulder=null;
         this.enter("ALIGN_BASE",job);return;
       }
     }
@@ -682,7 +692,7 @@ export class SuctionRobotController implements RobotController {
       SHOULDER_TRANSFER:"ALIGN_BASE",ALIGN_BASE:"TRANSIT",TRANSIT:"PRE_PLACE",PLACE:"RELEASE",
     };
     if(r.phase==="RETREAT"){
-      r.index++;r.phase="HOME";r.pose=null;r.planning=null;this.idle="chain";this.heldAtHome=false;
+      r.index++;r.phase="HOME";r.pose=null;r.planning=null;this.idle="chain";this.heldAtHome=false;this.carryOrder=null;
       this.options.onProgress?.(r.index,"RETREAT 완료 · 다음 박스 준비");
     }else {
       const phase=next[r.phase];if(phase)this.enter(phase,job);
