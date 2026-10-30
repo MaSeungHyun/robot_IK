@@ -23,6 +23,9 @@ export const PALLET_STACKING = {
   clearance: 0.05,
   /** Default boxes stacked on every simulator pallet (per-belt override: settings.palletBoxes). */
   defaultBoxes: 4,
+  /** Every pallet is turned this much (deg) at runtime (fork openings on the turned side): belt boxes reach their
+   *  slot already aligned (no ~90° box turn between pick and place); forklifts/AMRs/rails carry it turned. */
+  palletYawDegrees: 90,
 };
 export const STREAM_CONFIG = {
   // pallet.glb as authored (see modelPoints.generated.ts); no rescaling.
@@ -86,6 +89,23 @@ export const ROBOT_PICKING = {
   retreatHeight: 0.15,
   verticalSpeed: 0.15,
   graspHoldSeconds: 0.12,
+  /** After LIFT (base transfer): hand01 goes to its home angle raised by this much (deg, upper arm up), so the box clearly rises before TRANSIT.
+   *  0 = back to the home angle only. Tuning value: set by the user, then this note can go. */
+  liftShoulderRaiseDegrees: 0,
+  /** Rigid lift: hand01 rotates up by this much while hand02 rises liftElbowRaiseDegrees (the ㄱ tips into >). */
+  liftRigidShoulderDegrees: 30,
+  /** After LIFT: hand02 raised this much more (deg, sign that lifts the box), hand04 kept level; unraised if blocked. */
+  liftElbowRaiseDegrees: 10,
+  /** RESTORE_SHOULDER: hand01 이 올라가는 동안 들고 있는 박스(툴 포인트)가 로봇 몸체(hand00 축) 쪽으로 들어오는 허용치(m).
+   *  이 이상 안쪽으로 당겨지는 자세/경로는 버림 → hand02 가 위로 들려 박스가 몸체와 간격 유지. 0 = 리프트 지점보다 절대 안쪽 금지 */
+  liftInwardToleranceM: 0.02,
+  /** 위 간격 검사를 hand01/02/04 보간 경로 위 몇 지점에서 할지 (애니메이션이 관절 동기 보간이라 경로 전체 보장) */
+  liftPathSamples: 10,
+  /** true: suction at the exact centre of the box top face. false (experiment only): legacy off-centre snap below. */
+  centerGrasp: true,
+  suctionSnap: { reach: 1.75, margin: 0.06, seconds: 0.15 },
+  /** Per-tick hand04 compensation (tool straight down) during loaded joint-space moves. */
+  toolLevelCompensation: true,
   releaseSeconds: 0.15,
   releaseAngularSpeed: Math.PI,
   loadedSpeedScale: 0.8,
@@ -130,7 +150,7 @@ export const COLLISION = {
   cargoLiftClearance: 0.015,
 };
 export const IK_CONFIG = {
-  wristTravelDegrees: [-180, 180] as const,
+  wristTravelDegrees: [-270, 270] as const,
   // Planned motion only: the upper arm (hand01->hand02) must not pitch below horizontal toward the pallet/conveyor. Manual joint control stays unlimited.
   shoulderMinimumElevationDegrees: 0,
   /**
@@ -164,6 +184,16 @@ export const IK_CONFIG = {
   beltClipCost: 1000,
   // Locked hand03 limits orientation freedom; the wrist-above-cargo check remains mandatory.
   lockedRollTiltToleranceDegrees: 60,
+  /** Suction face down: tool axis = world -Y. Fallback cap (deg off vertical) when vertical is unreachable; beyond it the solve fails. */
+  toolTiltFallbackCapDegrees: 25,
+  /** Pick poses leaning more than this are a last resort (only when no straighter pose has a free path). */
+  pickTiltCapDegrees: 35,
+  /** Ranking penalty (s of equivalent joint travel) per degree of tool tilt: vertical wins unless it is unreachable. */
+  toolTiltCostPerDegree: 0.2,
+  /** Per line/track step, how far (deg) a tilted tool is turned back toward vertical. */
+  toolTiltRecoverDegreesPerStep: 1.5,
+  /** PLACE(내려놓기 수직 하강): hand04(툴)를 월드 수직으로 고정. 시작 시 기울어 있으면 스텝마다 이 각도(deg)씩 수직으로 복귀 (상한 없음) */
+  placeVerticalRecoverDegreesPerStep: 3,
   releaseWorldXDegrees: [-100, 80] as const,
   settledAngle: 0.002,
   settledBaseAngle: 0.002,

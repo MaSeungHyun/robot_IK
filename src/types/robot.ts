@@ -11,7 +11,7 @@ export type RobotState =
 
 export type RobotTransferMode = "base" | "shoulder";
 
-export type RobotPhase = "HOME" | "PRE_GRASP" | "GRASP" | "ATTACH" | "LIFT"
+export type RobotPhase = "HOME" | "PRE_GRASP" | "GRASP" | "ATTACH" | "LIFT" | "RESTORE_SHOULDER"
   | "SHOULDER_TRANSFER" | "ALIGN_BASE" | "TRANSIT" | "PRE_PLACE"
   | "PLACE" | "RELEASE" | "RETREAT";
 
@@ -28,6 +28,8 @@ export type Transfer = {
   onPlace?: () => void;
   onMiss?: () => void;
   available?: () => boolean;
+  /** After the pick: false while the destination cannot take the box (the arm then waits at HOME holding it). */
+  canPlace?: () => boolean;
   replanPlacement?: (restart?: boolean) => boolean;
   advancePlacementLevel?: () => boolean;
   onPlanEvent?: (event: PlanningEvent) => void;
