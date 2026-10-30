@@ -14,6 +14,7 @@ import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
 import { focusSphere, selectedFocusId } from "@/viewport/camera/frameSelected";
 import { useWalkModeStore } from "@/stores/useWalkModeStore";
 import { bookmarkScope, bookmarkSlot, loadBookmarks, saveBookmark, showBookmarkToast, slotLabel } from "@/viewport/camera/cameraBookmarks";
+import { loadView, saveView } from "@/viewport/camera/cameraPersist";
 
 const TARGET: [number, number, number] = [0, 0.45, 0];
 const MAX_POLAR = Math.PI / 2.05;
@@ -26,6 +27,8 @@ const CLIP_MARGIN = 200;
 /** Gizmo view directions below the horizon (the -Y axis head) are ignored. */
 const MIN_VIEW_Y = -1e-3;
 const PANEL_WIDTH = 320 + 16;
+/** Debounce (ms) before the current view is written to localStorage. */
+const SAVE_DELAY = 400;
 /** Lens and start view per template lighting preset (factory.glb "Camera"); near never below 0.5 (FloorMarking z-fighting). */
 const TEMPLATE_VIEW = {
   factory: {
@@ -510,10 +513,49 @@ export default function CameraRig() {
     if (view && c) {
       perspective.position.set(...view.position);
       c.target.set(...view.target);
-      c.update();
+    }
+    // The last view the user left this template at wins over the start view.
+    const saved = loadView(bookmarkScope(templateProps));
+    if (saved && c) {
+      cancelTween();
+      toPerspective();
+      focus.current = null;
+      perspective.position.set(...saved.position);
+      c.target.set(...saved.target);
     }
     perspective.updateProjectionMatrix();
+    c?.update();
   }, [lighting, templateProps, defaultLens, toPerspective, cancelTween]);
+
+  // Persist the view (debounced). Waits out fly-to / gizmo tweens and skips tracking, walking and ortho.
+  useEffect(() => {
+    const c = controls.current;
+    if (!c) return;
+    let timer = 0;
+    const flush = () => {
+      if (focus.current || tween.current) {
+        timer = window.setTimeout(flush, SAVE_DELAY);
+        return;
+      }
+      timer = 0;
+      if (useCameraTrackingStore.getState().trackedId || useWalkModeStore.getState().active) return;
+      const camera = get().camera;
+      if (camera !== perspectiveRef.current) return;
+      saveView(bookmarkScope(useSceneStore.getState().props), {
+        position: camera.position.toArray(),
+        target: c.target.toArray(),
+      });
+    };
+    const change = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(flush, SAVE_DELAY);
+    };
+    c.addEventListener("change", change);
+    return () => {
+      c.removeEventListener("change", change);
+      window.clearTimeout(timer);
+    };
+  }, [get]);
 
   return (
     <>
