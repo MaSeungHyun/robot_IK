@@ -1,6 +1,7 @@
 import { useGLTF as useDreiGLTF } from "@react-three/drei";
 import { DoubleSide, Mesh, WebGLRenderer, type Material, type Object3D } from "three";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { LoaderUtils } from "three";
 import { fetchGlb } from "@/lib/three/glbCache";
 
@@ -36,6 +37,8 @@ type ExtendLoader = NonNullable<Parameters<typeof useDreiGLTF>[3]>;
 /** drei's GLTFLoader (three-stdlib) supports KHR_texture_basisu through setKTX2Loader. */
 export const extendGLTFLoader: ExtendLoader = (loader) => {
   loader.setKTX2Loader(getKTX2Loader() as unknown as Parameters<typeof loader.setKTX2Loader>[0]);
+  // factory.glb uses EXT_meshopt_compression; set the decoder explicitly so every path (useGLTF, preload, warmup) decodes it.
+  loader.setMeshoptDecoder(MeshoptDecoder as unknown as Parameters<typeof loader.setMeshoptDecoder>[0]);
   // Bytes come from the shared session/Cache Storage store (glbCache), so every loader instance downloads a URL at most once.
   loader.load = (url, onLoad, _onProgress, onError) => {
     const manager = loader.manager;
@@ -62,7 +65,7 @@ function prepareMaterials(scene: Object3D) {
   });
 }
 
-/** drei useGLTF with KTX2 wired (Draco / Meshopt defaults unchanged). */
+/** drei useGLTF with KTX2 and Meshopt wired (Draco default unchanged). */
 export function useGLTF(url: string) {
   const gltf = useDreiGLTF(url, true, true, extendGLTFLoader);
   for (const item of Array.isArray(gltf) ? gltf : [gltf]) prepareMaterials(item.scene);
