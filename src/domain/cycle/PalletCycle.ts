@@ -159,6 +159,8 @@ const forward = (yaw: number) => new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
 /** Fork heading along a pallet's axis (pallets are 180° symmetric), nearest the preferred approach heading. */
 const alongPallet = (palletYaw: number, near: number) => palletYaw + Math.PI * Math.round((near - palletYaw) / Math.PI);
 const yawOf = (group: Group) => new Euler().setFromQuaternion(group.getWorldQuaternion(group.quaternion.clone()), "YXZ").y;
+/** World yaw of the pallet's fork axis: runtime pallets carry their 90° turn inside the group (userData.palletTurn). */
+const forkYawOf = (group: Group) => yawOf(group) + ((group.userData.palletTurn as number | undefined) ?? 0);
 const AMR_CIRCLES = [{ z: -0.42, r: 0.84 }, { z: 0.42, r: 0.84 }];
 const FORK_CIRCLES = FORKLIFT_CIRCLES.map((z) => ({ z, r: FORKLIFT_CONFIG.footprint.radius }));
 /** Tines + gap kept between the Forklift_point and the support edge before driving in. */
@@ -926,7 +928,7 @@ export class PalletCycle<C extends CycleCargo> {
     this.setShuttle(shuttle, "swapping", "Rack_m 없음 · 랙 직접 적재");
     this.setForklift(f, "toPick");
     shuttle.load!.group.updateWorldMatrix(true, false);
-    const heading = alongPallet(yawOf(shuttle.load!.group), shuttle.dock.yaw);
+    const heading = alongPallet(forkYawOf(shuttle.load!.group), shuttle.dock.yaw);
     const deck = shuttle.vehicle.position.clone().setY(shuttle.pallet.baseY);
     const half = STREAM_CONFIG.palletDepth / 2;
     this.pick(f, deck, heading, half, () => {
@@ -963,7 +965,7 @@ export class PalletCycle<C extends CycleCargo> {
     this.setForklift(f, "toPick");
     // Approach along the pallet actually on the AMR (its world yaw), not the dock's nominal yaw.
     shuttle.load!.group.updateWorldMatrix(true, false);
-    const heading = alongPallet(yawOf(shuttle.load!.group), shuttle.dock.yaw);
+    const heading = alongPallet(forkYawOf(shuttle.load!.group), shuttle.dock.yaw);
     const deck = shuttle.vehicle.position.clone().setY(shuttle.pallet.baseY);
     const half = STREAM_CONFIG.palletDepth / 2;
     this.pick(f, deck, heading, half, () => {
@@ -1014,7 +1016,8 @@ export class PalletCycle<C extends CycleCargo> {
       source.busy = f;
     }
     const top = source.top.position.clone();
-    this.pick(f, top, source.dock.yaw, half, () => {
+    source.top.updateWorldMatrix(true, false);
+    this.pick(f, top, alongPallet(forkYawOf(source.top), source.dock.yaw), half, () => {
       const group = source.top;
       source.top = this.placeStatic(this.host.newPallet(), source.dock, top.y);
       return { group, boxes: [] };
@@ -1074,7 +1077,7 @@ export class PalletCycle<C extends CycleCargo> {
     const deck = shuttle.vehicle.position.clone().setY(shuttle.pallet.baseY);
     const half = STREAM_CONFIG.palletDepth / 2;
     // Either end of the pallet axis: the one whose standoff is nearer the forklift.
-    const along = alongPallet(yawOf(group), shuttle.dock.yaw), from = f.vehicle.position;
+    const along = alongPallet(forkYawOf(group), shuttle.dock.yaw), from = f.vehicle.position;
     const heading = [along, along + Math.PI]
       .map((h) => ({ h, d: forkliftStop(deck, h, half + FORK_BACK).distanceTo(from) }))
       .sort((a, b) => a.d - b.d)[0].h;
@@ -1090,7 +1093,8 @@ export class PalletCycle<C extends CycleCargo> {
       this.goHome(shuttle, null);
     });
     const top = source.top.position.clone().setY(source.top.position.y + STREAM_CONFIG.palletHeight);
-    this.place(f, top, source.dock.yaw, half, (load) => {
+    source.top.updateWorldMatrix(true, false);
+    this.place(f, top, alongPallet(forkYawOf(source.top), source.dock.yaw), half, (load) => {
       this.attachTo(this.host.root, load.group);
       load.group.position.copy(top);
       load.group.rotation.set(0, source.dock.yaw, 0);

@@ -60,6 +60,14 @@ import { palletBaseY } from "@/domain/layout/robotPedestals";
 import { remapStopLinks, withStopPoints } from "@/domain/layout/stopPoints";
 import { isDepalletizer } from "@/domain/robot/robotRole";
 
+/** Runtime-spawned pallets (belt holds, cycle swaps, rack stock) carry the same turn as layout pallets: model and box grid. */
+const PALLET_TURN = (PALLET_STACKING.palletYawDegrees * Math.PI) / 180, PALLET_UP = new Vector3(0, 1, 0);
+function turnedPalletModel(asset: Group) {
+  const model = createPalletModel(asset);
+  model.rotation.y += PALLET_TURN;
+  return model;
+}
+
 /** Small seeded PRNG (mulberry32), uniform in [0, 1). */
 function mulberry32(seed: number) {
   let state = seed >>> 0;
@@ -360,6 +368,9 @@ export class FactorySimulator {
     autoConnect = true,
   ) {
     this.auto = autoConnect;
+    // Every pallet is turned (runtime only, layouts untouched): fork openings and the box grid follow it, so forklifts,
+    // AMRs, rails and racks handle it on the turned heading and robots place belt boxes without a ~90° box turn.
+    objects = objects.map((o) => (o.kind === "pallet" ? { ...o, yaw: o.yaw + PALLET_TURN } : o));
     // Free-standing ScanTunnel scanners run boxes on their own belt (sim-only conveyor; see scannerBelt.ts).
     ({ objects, getSettings } = withScannerBelts(objects, getSettings));
     // Floor-click stop points (하역/교체/출고/출하 대기/Rack_m 하차) of robots, forklifts and AMRs become sim docks.
@@ -1153,7 +1164,8 @@ export class FactorySimulator {
   }
   private spawnHeldPallet(hold: PalletHold) {
     const group = new Group();
-    group.add(createPalletModel(this.palletAsset));
+    group.add(turnedPalletModel(this.palletAsset));
+    group.userData.palletTurn = PALLET_TURN; // fork openings are turned inside the group
     const size = new Vector3(STREAM_CONFIG.palletWidth, STREAM_CONFIG.palletHeight, STREAM_CONFIG.palletDepth);
     const max = planStack(1, size, BOX_SIZES[0], 0).capacity * PALLET_STACKING.layers;
     const total = Math.max(1, Math.min(max, Math.round(this.settings()[hold.belt.id]?.palletBoxes ?? PALLET_STACKING.defaultBoxes)));
@@ -1163,7 +1175,8 @@ export class FactorySimulator {
       node.userData.cargo = true;
       const id = this.cargo.spawnBox({ t: this.elapsed, beltId: hold.belt.id });
       node.userData.boxId = id;
-      node.position.copy(slot.position).add(new Vector3(0, STREAM_CONFIG.palletHeight + BOX_SIZES[0].y, 0));
+      node.position.copy(slot.position).applyAxisAngle(PALLET_UP, PALLET_TURN).add(new Vector3(0, STREAM_CONFIG.palletHeight + BOX_SIZES[0].y, 0));
+      node.rotation.y = PALLET_TURN; // box yaw follows the turned pallet (rigid unit)
       group.add(node);
       this.spawned++;
       const item: Cargo = { id, node, belt: hold.belt, distance: 0, state: "departing", attempted: new Set() };
@@ -1239,13 +1252,15 @@ export class FactorySimulator {
       unrender: (group) => this.unrender(group),
       newPallet: () => {
         const group = new Group();
-        group.add(createPalletModel(palletAsset));
+        group.add(turnedPalletModel(palletAsset));
+        group.userData.palletTurn = PALLET_TURN; // fork openings are turned inside the group
         this.render(group);
         return group;
       },
       loadedPallet: (beltId, pallet) => {
         const group = new Group();
-        group.add(createPalletModel(palletAsset));
+        group.add(turnedPalletModel(palletAsset));
+        group.userData.palletTurn = PALLET_TURN; // fork openings are turned inside the group
         this.render(group);
         // Boxes at the station's slot layout, in pallet-local coordinates (origin = pallet bottom centre).
         const local = new Vector3(), base = new Vector3(pallet.object.x, pallet.baseY, pallet.object.z);
@@ -1256,8 +1271,9 @@ export class FactorySimulator {
           node.userData.cargo = true;
           const id = this.cargo.spawnBox({ t: this.elapsed, beltId });
           node.userData.boxId = id;
-          local.copy(slot).sub(base).applyAxisAngle(new Vector3(0, 1, 0), -pallet.object.yaw);
+          local.copy(slot).sub(base).applyAxisAngle(PALLET_UP, PALLET_TURN - pallet.object.yaw);
           node.position.copy(local);
+          node.rotation.y = PALLET_TURN;
           group.add(node);
           this.render(node);
           this.spawned++;
@@ -1407,7 +1423,7 @@ export class FactorySimulator {
       const total = Math.max(0, Math.min(max, Math.round(content.boxes)));
       if (!content.pallet && !total) continue;
       const group = new Group();
-      if (content.pallet) group.add(createPalletModel(this.palletAsset));
+      if (content.pallet) { group.add(turnedPalletModel(this.palletAsset)); group.userData.palletTurn = PALLET_TURN; }
       const base = (content.pallet ? STREAM_CONFIG.palletHeight : 0) + BOX_SIZES[0].y;
       const boxes = total ? planStack(total, size, BOX_SIZES[0], 0).slots.map((s) => {
         const node = new Group();
@@ -1415,7 +1431,8 @@ export class FactorySimulator {
         node.userData.cargo = true;
         // Stock stored in a rack (from the layout / glb) counts as already inspected (normal): never re-scanned.
         node.userData.inspected = true;
-        node.position.copy(s.position).add(new Vector3(0, base, 0));
+        node.position.copy(s.position).applyAxisAngle(PALLET_UP, PALLET_TURN).add(new Vector3(0, base, 0));
+        node.rotation.y = PALLET_TURN;
         group.add(node);
         return node;
       }) : [];
@@ -2005,6 +2022,8 @@ export class FactorySimulator {
       moving: true,
       yaw: pallet.object.yaw,
       velocity: new Vector3(),
+      // The reserved slot can still take the box (pallet not leaving or disabled).
+      canPlace: () => !pallet.shipping && pallet.states[slot] === "reserved" && this.settings()[pallet.object.id]?.enabled !== false,
       available: () =>
         // A reserved box that stopped (stopper / queue) outside the reach never comes back: give it up.
         box.state === "reserved" && box.distance < beltLength(box.belt)
