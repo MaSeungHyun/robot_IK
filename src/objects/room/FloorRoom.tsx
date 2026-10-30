@@ -15,14 +15,14 @@ const noRaycast = () => {};
 /** `interactive={false}`: floor, walls and roof ignore pointer rays (simulation mode). */
 type Props = FloorSize & { preview?: boolean; interactive?: boolean; /** World pose of the room; doors standing in its wall planes cut openings. */ pose?: EquipmentPose };
 /** A drawn footprint owns its finishes, perimeter frame and connected roof. */
-export default function FloorRoom({ width, depth, wallHeight, roof = true, preview = false, interactive = true, pose }: Props) {
+export default function FloorRoom({ width, depth, wallHeight, roof = true, glbShell = false, preview = false, interactive = true, pose }: Props) {
   const openings = useWallOpenings(pose, width, depth, wallHeight);
   const floor = useMemo(() => createRoomTexture("floor", width / C.floorTileSize, depth / C.floorTileSize), [width, depth]);
   useEffect(() => () => floor.dispose(), [floor]);
   // Enviroment BG_Floor kit (glb material, world-space glb UVs); flat procedural fallback on the performance tier.
   const kit = useKitMaterials();
   const px = pose?.x ?? 0, pz = pose?.z ?? 0, pyaw = pose?.yaw ?? 0;
-  const kitFloor = useMemo(() => (kit && !preview ? buildKitFloor(width, depth, { x: px, z: pz, yaw: pyaw }) : null), [kit, preview, width, depth, px, pz, pyaw]);
+  const kitFloor = useMemo(() => (kit && !preview && !glbShell ? buildKitFloor(width, depth, { x: px, z: pz, yaw: pyaw }) : null), [kit, preview, glbShell, width, depth, px, pz, pyaw]);
   useEffect(() => () => kitFloor?.dispose(), [kitFloor]);
   const room = useRef<Group>(null);
   // Walls, frame and roof carry baked shading: no shadows at all (cut-away walls and the roof would
@@ -35,6 +35,16 @@ export default function FloorRoom({ width, depth, wallHeight, roof = true, previ
       else if (node.raycast === noRaycast && !preview) delete (node as { raycast?: unknown }).raycast;
     });
   });
+  // glb shell (factory.glb "Enviroment" walls + BG_Floor): no kit floor / walls / roof; only an invisible plane at floor
+  // height so floor clicks (stop points, placement) still hit (the glb props never raycast).
+  if (glbShell && !preview) return (
+    <group ref={room}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.003, 0]}>
+        <planeGeometry args={[width, depth]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} />
+      </mesh>
+    </group>
+  );
   return (
     <group ref={room}>
       {kitFloor && kit ? (

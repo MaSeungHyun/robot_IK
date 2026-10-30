@@ -6,7 +6,7 @@ export type EquipmentKind="robot"|"pallet"|"conveyor"|"amr"|"dock"|"scanner"|"fl
 export type EquipmentPose={x:number;z:number;yaw:number};
 export type FactoryLayout=Record<Exclude<EquipmentKind,"scanner"|"floor"|"rack"|"door"|"rail"|"transfer">,EquipmentPose>;
 /** Floor/wall room: integer grid cells, centered on the object pose; wallHeight 0 = floor only. */
-export type FloorSize={width:number;depth:number;wallHeight:number;/** false: no generated roof (e.g. the template draws its own glb roof). */roof?:boolean};
+export type FloorSize={width:number;depth:number;wallHeight:number;/** false: no generated roof (e.g. the template draws its own glb roof). */roof?:boolean;/** true: the template's glb shell (factory.glb "Enviroment") draws the walls and floor; the room keeps only an invisible floor-click plane. */glbShell?:boolean};
 export type ConveyorTurn="straight"|"left"|"right";
 export type SceneEquipment=EquipmentPose&{id:string;kind:EquipmentKind;name:string;metadata?:EquipmentMetadata;conveyorTurn?:ConveyorTurn;/** Spline conveyor: whole glb rail + extracted belt centreline (see domain/conveyor/conveyorPaths). */conveyorPath?:ConveyorPathId;/** Straight belt length in metres (default CONVEYOR_LAYOUT.length). */conveyorLength?:number;floor?:FloorSize;/** Mount height in metres (e.g. a robot on a GLB pedestal; default 0 = floor). */elevation?:number};
 /** Inspection grade of a box (unscanned boxes count as normal) and of the pallet that collects it. */

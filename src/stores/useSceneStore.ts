@@ -1,4 +1,5 @@
 import { migrateRobotArmPlace } from "@/domain/layout/placeMigration";
+import { migrateFactoryShell } from "@/domain/layout/factoryShellMigration";
 import { create } from "zustand";
 import { migrateTemplateDocks } from "@/domain/layout/dockMigration";
 import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,ConveyorTurn,FloorSize } from "../types/layout";
@@ -275,7 +276,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const state = get();
     if (!state.editing) return false;
     // Placed docks other than 빈 팔레트 적치장 become stop points on their equipment (links retargeted).
-    const template = migrateRobotArmPlace(migrateTemplateDocks(source));
+    const template = migrateFactoryShell(migrateRobotArmPlace(migrateTemplateDocks(source)));
     const objects = template.equipment.map((entry, index) => ({
       kind: entry.kind, x: entry.x, z: entry.z, yaw: entry.yaw, conveyorTurn: entry.conveyorTurn,
       ...(entry.conveyorPath ? { conveyorPath: entry.conveyorPath } : {}), ...(entry.conveyorLength ? { conveyorLength: entry.conveyorLength } : {}), ...(entry.elevation ? { elevation: entry.elevation } : {}),
