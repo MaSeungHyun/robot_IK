@@ -1,0 +1,978 @@
+{
+  "id": "factory-glb-v2",
+  "name": "Factory (GLB · 신규 배치)",
+  "lighting": "factory",
+  "description": "새 factory.glb(2026-10-30) 노드 배치에 맞춘 공장입니다. 05(레일) 설정과 링크를 그대로 쓰고, 아래 셔틀 라인(AMR·하역 로봇·탑재 팔레트)을 glb의 AMR/AMR.005/AMR.006 위치로 옮겼습니다. Prop* 노드는 glb 그대로 배치됩니다.",
+  "equipment": [
+    {
+      "kind": "robot",
+      "x": -21.018,
+      "z": 20.438,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "robotRole": "palletize",
+        "robotPedestal": "base",
+        "pickFilter": "defect"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 13.5,
+      "z": -10,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -10.1978,
+      "z": -2.2104,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 1.2317,
+      "z": 11.2227,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 3,
+      "z": 20.438,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "palletize",
+        "robotPedestal": "base",
+        "pickFilter": "defect"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 22.9,
+      "z": 20.438,
+      "yaw": 0,
+      "settings": {
+        "robotRole": "palletize",
+        "robotPedestal": "base",
+        "pickFilter": "defect"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -18.6785,
+      "z": 37.1353,
+      "yaw": 0,
+      "settings": {
+        "robotPedestal": "place",
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 1.2541,
+      "z": 37.1353,
+      "yaw": 0,
+      "settings": {
+        "robotPedestal": "place",
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 21.2598,
+      "z": 37.1353,
+      "yaw": 0,
+      "settings": {
+        "robotPedestal": "place",
+        "robotRole": "depalletize"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 3.6298,
+      "z": -1.8604,
+      "yaw": 0,
+      "settings": {
+        "amrCargo": "pallet",
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 12.6017,
+      "z": -2.2104,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -22.5003,
+      "z": 56.8017,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": -8.9559,
+      "z": 56.8017,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 11.1087,
+      "z": 56.8017,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": 24.6532,
+      "z": 56.8017,
+      "yaw": 0
+    },
+    {
+      "kind": "scanner",
+      "x": -18.6773,
+      "z": 30.0879,
+      "yaw": 0
+    },
+    {
+      "kind": "scanner",
+      "x": 1.2137,
+      "z": 30.0879,
+      "yaw": 0
+    },
+    {
+      "kind": "scanner",
+      "x": 21.1046,
+      "z": 30.0879,
+      "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": -8.8627,
+      "z": -8.3558,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "service",
+        "stopPoints": [
+          {
+            "role": "service",
+            "x": 0,
+            "z": -5.2,
+            "yaw": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": "rack",
+      "x": 4.2188,
+      "z": -7.689,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -2.3514,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -7.1509,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -11.9504,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -16.7499,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -21.5494,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -26.3489,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -31.1484,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -35.948,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 34.9004,
+      "z": -40.7475,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 4.1845,
+      "z": -12.6228,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 4.1845,
+      "z": -17.4224,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 4.1845,
+      "z": -22.2219,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 4.1845,
+      "z": -27.0214,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 4.1845,
+      "z": -31.8209,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": 4.1845,
+      "z": -36.6204,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -3.8198,
+      "z": -7.8233,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -3.8198,
+      "z": -12.6228,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -3.8198,
+      "z": -17.4224,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -3.8198,
+      "z": -22.2219,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -3.8198,
+      "z": -27.0214,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -3.8198,
+      "z": -31.8209,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -3.8198,
+      "z": -36.6204,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.8241,
+      "z": -7.8233,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.8241,
+      "z": -12.6228,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.8241,
+      "z": -17.4224,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.8241,
+      "z": -22.2219,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.8241,
+      "z": -27.0214,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.8241,
+      "z": -31.8209,
+      "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -11.8241,
+      "z": -36.6204,
+      "yaw": 0
+    },
+    {
+      "kind": "floor",
+      "x": 1.5,
+      "z": 0,
+      "yaw": 0,
+      "floor": {
+        "width": 69,
+        "depth": 138,
+        "wallHeight": 12,
+        "roof": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -13.2399,
+      "z": 11.7934,
+      "yaw": 0,
+      "conveyorPath": "rail_c",
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 14.0409,
+      "z": 15.6028,
+      "yaw": 0,
+      "conveyorPath": "rail_001",
+      "settings": {
+        "autoSpawn": false
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -22.4916,
+      "z": 63.6875,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "inbound",
+        "autoSpawn": true,
+        "inboundUnit": "pallet"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -8.9857,
+      "z": 63.6875,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "inbound",
+        "autoSpawn": true,
+        "inboundUnit": "pallet"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 11.1686,
+      "z": 63.6875,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "inbound",
+        "autoSpawn": true,
+        "inboundUnit": "pallet"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 24.6745,
+      "z": 63.6581,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "inbound",
+        "autoSpawn": true,
+        "inboundUnit": "pallet"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -22.4916,
+      "z": -64.0529,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "outbound"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": -8.9857,
+      "z": -64.0529,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "outbound"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 11.1686,
+      "z": -64.0529,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "outbound"
+      }
+    },
+    {
+      "kind": "conveyor",
+      "x": 24.6745,
+      "z": -64.0823,
+      "yaw": 3.141592653589793,
+      "conveyorLength": 11.7079,
+      "settings": {
+        "conveyorRole": "outbound"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 12.6017,
+      "z": -2.2104,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-11"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 3.6298,
+      "z": -1.8604,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-10"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -10.1978,
+      "z": -2.2104,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-3"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.3000000000000003,
+      "z": 52,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 4.6000000000000005,
+      "z": 52,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 4.3,
+      "z": 56.6,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -2.4000000000000004,
+      "z": 56.6,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "forklift"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -10.100000000000001,
+      "z": 0.1,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "robotPedestal": "base"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 3.15,
+      "z": -0.05,
+      "yaw": 0,
+
+      "settings": {
+        "robotPedestal": "base"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 12.07,
+      "z": 0.1,
+      "yaw": 0,
+
+      "settings": {
+        "robotPedestal": "base"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 2.9,
+      "z": 18.5,
+      "yaw": 0,
+      "settings": {
+        "grade": "defect"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 22.8,
+      "z": 18.5,
+      "yaw": 0,
+      "settings": {
+        "grade": "defect"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -21,
+      "z": 18.5,
+      "yaw": 0,
+      "settings": {
+        "grade": "defect"
+      }
+    },
+    {
+      "kind": "door",
+      "x": 24.8,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": 11.200000000000001,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -8.9,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -22.5,
+      "z": 69,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -22.400000000000002,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": -8.9,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": 11.3,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "door",
+      "x": 24.8,
+      "z": -69,
+      "yaw": 0,
+      "settings": {
+        "doorOpen": true
+      }
+    },
+    {
+      "kind": "rail",
+      "x": -8.6614,
+      "z": 36.9861,
+      "yaw": 0
+    },
+    {
+      "kind": "rail",
+      "x": 11.3036,
+      "z": 36.9861,
+      "yaw": 0
+    },
+    {
+      "kind": "transfer",
+      "x": -16.5234,
+      "z": 35.3239,
+      "yaw": 0
+    },
+    {
+      "kind": "transfer",
+      "x": -0.6943,
+      "z": 35.3239,
+      "yaw": 0
+    },
+    {
+      "kind": "transfer",
+      "x": 3.4415,
+      "z": 35.3239,
+      "yaw": 0
+    },
+    {
+      "kind": "transfer",
+      "x": 19.2707,
+      "z": 35.3239,
+      "yaw": 0
+    }
+  ],
+  "links": [
+    {
+      "type": "feed",
+      "from": 54,
+      "to": 13
+    },
+    {
+      "type": "feed",
+      "from": 53,
+      "to": 12
+    },
+    {
+      "type": "feed",
+      "from": 52,
+      "to": 11
+    },
+    {
+      "type": "feed",
+      "from": 55,
+      "to": 14
+    },
+    {
+      "type": "emptyReturn",
+      "from": 14,
+      "to": 65
+    },
+    {
+      "type": "emptyReturn",
+      "from": 13,
+      "to": 65
+    },
+    {
+      "type": "emptyReturn",
+      "from": 12,
+      "to": 66
+    },
+    {
+      "type": "emptyReturn",
+      "from": 11,
+      "to": 66
+    },
+    {
+      "type": "emptyReturn",
+      "from": 66,
+      "to": 63
+    },
+    {
+      "type": "emptyReturn",
+      "from": 65,
+      "to": 64
+    },
+    {
+      "type": "emptyReturn",
+      "from": 2,
+      "to": 18
+    },
+    {
+      "type": "emptyReturn",
+      "from": 9,
+      "to": 18
+    },
+    {
+      "type": "emptyReturn",
+      "from": 10,
+      "to": 18
+    },
+    {
+      "type": "feed",
+      "from": 53,
+      "to": 81
+    },
+    {
+      "type": "feed",
+      "from": 54,
+      "to": 82
+    },
+    {
+      "type": "feed",
+      "from": 55,
+      "to": 82
+    },
+    {
+      "type": "feed",
+      "from": 52,
+      "to": 81
+    },
+    {
+      "type": "collect",
+      "from": 83,
+      "to": 66
+    },
+    {
+      "type": "collect",
+      "from": 84,
+      "to": 66
+    },
+    {
+      "type": "collect",
+      "from": 85,
+      "to": 65
+    },
+    {
+      "type": "collect",
+      "from": 86,
+      "to": 65
+    },
+    {
+      "type": "distribute",
+      "from": 81,
+      "to": 83
+    },
+    {
+      "type": "distribute",
+      "from": 81,
+      "to": 84
+    },
+    {
+      "type": "distribute",
+      "from": 82,
+      "to": 85
+    },
+    {
+      "type": "distribute",
+      "from": 82,
+      "to": 86
+    }
+  ],
+  "props": [
+    {
+      "source": "factory",
+      "node": "Enviroment",
+      "excludeMaterials": ["wall", "BG_Floor"]
+    },
+    {
+      "source": "factory",
+      "node": "pallet.002"
+    },
+    {
+      "source": "agv",
+      "node": "AGV",
+      "position": [-21.1382, 0.2084, -28.2874]
+    },
+    {
+      "source": "factory",
+      "node": "Rack_m.002"
+    },
+    {
+      "source": "factory",
+      "node": "column"
+    },
+    {
+      "source": "factory",
+      "node": "fence.001"
+    },
+    {
+      "source": "factory",
+      "node": "barrier"
+    },
+    {
+      "source": "factory",
+      "node": "guardrail"
+    },
+    {
+      "source": "factory",
+      "node": "walkway"
+    },
+    {
+      "source": "factory",
+      "node": "barrier.001"
+    },
+    {
+      "source": "factory",
+      "node": "barrier.002"
+    },
+    {
+      "source": "factory",
+      "node": "pallet.009"
+    },
+    {
+      "source": "factory",
+      "node": "fence"
+    },
+    {
+      "source": "factory",
+      "node": "guardrail.001"
+    },
+    {
+      "source": "factory",
+      "node": "Rack_m.001"
+    },
+    {
+      "source": "factory",
+      "node": "Rack_m"
+    },
+    {
+      "source": "agv",
+      "node": "AGV",
+      "position": [-21.1417, 0.2084, -15.1456],
+      "yaw": 3.141592653589793
+    },
+    {
+      "source": "agv",
+      "node": "AGV",
+      "position": [-21.1417, 0.2084, -19.5344],
+      "yaw": 3.141592653589793
+    },
+    {
+      "source": "agv",
+      "node": "AGV",
+      "position": [-21.1417, 0.2084, -23.9232],
+      "yaw": 3.141592653589793
+    },
+    {
+      "source": "agv",
+      "node": "AGV",
+      "position": [-29.6568, 0.2084, -28.1064],
+      "yaw": 3.141592653589793
+    },
+    {
+      "source": "factory",
+      "node": "pallet"
+    },
+    {
+      "source": "factory",
+      "node": "FloorMarking"
+    },
+    {
+      "source": "factory",
+      "node": "Rack.001"
+    },
+    {
+      "source": "factory",
+      "node": "Rack.008"
+    },
+    {
+      "source": "factory",
+      "node": "Rack.010"
+    },
+    {
+      "source": "factory",
+      "node": "Rack.012"
+    },
+    {
+      "source": "factory",
+      "node": "Prop_Rack.001"
+    },
+    {
+      "source": "factory",
+      "node": "Prop_Rack"
+    },
+    {
+      "source": "factory",
+      "node": "Prop_Rack_m"
+    },
+    {
+      "source": "factory",
+      "node": "Prop_Rack_m.001"
+    },
+    {
+      "source": "factory",
+      "node": "Prop_Rack_m.002"
+    },
+    {
+      "source": "factory",
+      "node": "prop_pallet"
+    },
+    {
+      "source": "factory",
+      "node": "prop_pallet.001"
+    }
+  ]
+}
