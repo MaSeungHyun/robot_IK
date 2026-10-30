@@ -44,6 +44,9 @@ function loadKit() {
   return shared;
 }
 
+/** Starts (or joins) the shared kit texture load; the startup warm-up calls this so the first template does not wait on it. */
+export const preloadKitMaterials = loadKit;
+
 /** Shared Enviroment kit materials, or null while loading / on the "performance" tier / if images fail (procedural fallback). */
 export function useKitMaterials(): KitMaterials | null {
   const lowQuality = useViewportSettingsStore((state) => state.renderQuality === "performance");
