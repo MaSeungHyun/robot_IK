@@ -41,9 +41,11 @@ function hashScope(props: readonly TemplateProp[]) {
   return (hash >>> 0).toString(36);
 }
 
-export function loadBookmarks(scope: string): (CameraBookmark | null)[] {
+/** Saved slots for the scope; with no entry in this browser, the template's shipped `defaults` (else empty). */
+export function loadBookmarks(scope: string, defaults?: readonly (CameraBookmark | null)[] | null): (CameraBookmark | null)[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_PREFIX + scope) ?? "[]") as unknown;
+    const stored = localStorage.getItem(STORAGE_PREFIX + scope);
+    const parsed = (stored === null ? defaults ?? [] : JSON.parse(stored)) as unknown;
     if (Array.isArray(parsed)) return Array.from({ length: 10 }, (_, i) => (parsed[i] as CameraBookmark | null) ?? null);
   } catch {
     // Corrupt entry: start empty.
@@ -51,8 +53,8 @@ export function loadBookmarks(scope: string): (CameraBookmark | null)[] {
   return Array.from({ length: 10 }, () => null);
 }
 
-export function saveBookmark(scope: string, slot: number, bookmark: CameraBookmark) {
-  const slots = loadBookmarks(scope);
+export function saveBookmark(scope: string, slot: number, bookmark: CameraBookmark, defaults?: readonly (CameraBookmark | null)[] | null) {
+  const slots = loadBookmarks(scope, defaults);
   slots[slot] = bookmark;
   try {
     localStorage.setItem(STORAGE_PREFIX + scope, JSON.stringify(slots));

@@ -26,6 +26,14 @@ export type TemplateProp = {
   excludeMaterials?: readonly string[];
 };
 
+/** Camera pose: eye position + orbit target (world m). */
+export type TemplateCameraPose = { position: [number, number, number]; target: [number, number, number] };
+/**
+ * Shipped camera defaults: start view and play-mode bookmarks (slot 0 = key 1 .. slot 9 = key 0, null = empty).
+ * Used when this browser has no saved view / bookmarks for the template's scope; localStorage wins when present.
+ */
+export type TemplateCamera = { view?: TemplateCameraPose; bookmarks?: readonly (TemplateCameraPose | null)[] };
+
 /** Template lighting preset; "factory" = factory.glb lights + HDR + AgX (see viewport/lighting/FactoryLighting.tsx). */
 export type TemplateLighting = "factory";
 
@@ -42,4 +50,6 @@ export type SceneTemplate = {
   lighting?: TemplateLighting;
   /** Global "자동 연결" (default true): relations without a 🔗 link pick the nearest target; false = they wait with a warning. */
   autoConnect?: boolean;
+  /** Optional default camera view + bookmarks (see TemplateCamera). */
+  camera?: TemplateCamera;
 };

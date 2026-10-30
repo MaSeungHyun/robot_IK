@@ -349,11 +349,11 @@ export default function CameraRig() {
       const scope = bookmarkScope(scene.props);
       event.preventDefault();
       if (event.shiftKey) {
-        saveBookmark(scope, slot, { position: camera.position.toArray(), target: c.target.toArray() });
+        saveBookmark(scope, slot, { position: camera.position.toArray(), target: c.target.toArray() }, scene.camera?.bookmarks);
         showBookmarkToast(`카메라 ${slotLabel(slot)}번 위치 저장`);
         return;
       }
-      const bookmark = loadBookmarks(scope)[slot];
+      const bookmark = loadBookmarks(scope, scene.camera?.bookmarks)[slot];
       if (!bookmark) {
         showBookmarkToast(`카메라 ${slotLabel(slot)}번: 저장된 위치 없음 (Shift+${slotLabel(slot)}로 저장)`);
         return;
@@ -514,8 +514,9 @@ export default function CameraRig() {
       perspective.position.set(...view.position);
       c.target.set(...view.target);
     }
-    // The last view the user left this template at wins over the start view.
-    const saved = loadView(bookmarkScope(templateProps)) ?? loadView(legacyBookmarkScope(templateProps));
+    // The last view the user left this template at wins over the start view; else the template's shipped view.
+    const shipped = useSceneStore.getState().camera?.view;
+    const saved = loadView(bookmarkScope(templateProps)) ?? loadView(legacyBookmarkScope(templateProps)) ?? (shipped ? { position: [...shipped.position] as [number, number, number], target: [...shipped.target] as [number, number, number] } : null);
     if (saved && c) {
       cancelTween();
       toPerspective();

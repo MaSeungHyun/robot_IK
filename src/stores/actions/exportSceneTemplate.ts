@@ -1,3 +1,5 @@
+import { bookmarkScope, loadBookmarks } from "@/viewport/camera/cameraBookmarks";
+import { loadView } from "@/viewport/camera/cameraPersist";
 import { settingsFor, useSceneStore } from "@/stores/useSceneStore";
 import { templateErrors } from "@/domain/layout/templateValidation";
 import type { SceneTemplate, TemplateEquipment } from "@/types/sceneTemplate";
@@ -13,7 +15,12 @@ const same = (a: unknown, b: unknown) =>
  * Loading the result with loadTemplate reproduces the scene (names regenerate as "<종류> <순번>").
  */
 export function buildSceneTemplate(meta: { id?: string; name?: string; description?: string } = {}): SceneTemplate {
-  const { objects, settings, links, props, lighting, autoConnect } = useSceneStore.getState();
+  const { objects, settings, links, props, lighting, autoConnect, camera: templateCamera } = useSceneStore.getState();
+  // Camera defaults: this browser's view/bookmarks for the scope win, else the loaded template's shipped ones.
+  const scope = bookmarkScope(props);
+  const view = loadView(scope) ?? templateCamera?.view;
+  const bookmarks = loadBookmarks(scope, templateCamera?.bookmarks);
+  const camera = { ...(view ? { view } : {}), ...(bookmarks.some(Boolean) ? { bookmarks } : {}) };
   const equipment: TemplateEquipment[] = objects.map((o) => {
     const entry: TemplateEquipment = { kind: o.kind, x: round(o.x), z: round(o.z), yaw: round(o.yaw) };
     const out = entry as { -readonly [K in keyof TemplateEquipment]: TemplateEquipment[K] };
@@ -44,6 +51,7 @@ export function buildSceneTemplate(meta: { id?: string; name?: string; descripti
     ...(templateLinks.length ? { links: templateLinks } : {}),
     ...(autoConnect ? {} : { autoConnect: false }),
     ...(props.length ? { props: props.map((p) => ({ ...p })) } : {}),
+    ...(camera.view || camera.bookmarks ? { camera } : {}),
   };
 }
 
