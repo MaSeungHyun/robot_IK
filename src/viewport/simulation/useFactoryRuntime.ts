@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { useGLTF } from "@/lib/three/gltfLoader";
 import { useShallow } from "zustand/react/shallow";
 import { boxUrl, palletUrl } from "@/constants/modelAssets";
+import { useCycleGlbModels } from "@/viewport/simulation/useCycleGlbModels";
 import { FactorySimulator } from "@/domain/simulation/FactorySimulator";
 import type { SimulatorRunProps } from "@/viewport/simulation/types";
 import { useSceneInstances } from "@/viewport/instancing/useInstanceModel";
@@ -35,6 +36,7 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   const instances = useSceneInstances();
   const box = useGLTF(boxUrl);
   const pallet = useGLTF(palletUrl);
+  useCycleGlbModels();
   const reportElapsed = useRef(0);
   const ikLogged = useRef(0);
   const world = useMemo(

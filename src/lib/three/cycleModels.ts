@@ -1,5 +1,6 @@
 import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from "three";
 import { CylinderGeometry } from "three";
+import type { Object3D } from "three";
 import { AGV_MODEL, AMR_DECK, CYCLE_ACCENT, RACK_M_MODEL, ROLLER_TOP_MODEL } from "@/constants/cycle";
 
 /**
@@ -25,11 +26,35 @@ function part(geometry: BoxGeometry, material: MeshStandardMaterial, x: number, 
   return mesh;
 }
 
+/** Loaded AGV.glb / Rack_m.glb scenes (registered by useCycleGlbModels); procedural fallback until then / headless. */
+const glb: { agv?: Object3D; rackM?: Object3D } = {};
+export function setCycleGlbModels(models: { agv?: Object3D; rackM?: Object3D }) {
+  if (models.agv) glb.agv = models.agv;
+  if (models.rackM) glb.rackM = models.rackM;
+}
+function glbClone(source: Object3D, name: string) {
+  const clone = source.clone(true);
+  clone.name = name;
+  clone.traverse((child) => {
+    if ((child as Mesh).isMesh) child.castShadow = child.receiveShadow = true;
+  });
+  return clone;
+}
+
 /** Low-profile lifting AGV; `lift` (AGV.Lift) is the plate raised by AGV_MODEL.liftStroke. */
 export function createAgvModel() {
   const { width, length, height } = AGV_MODEL;
   const root = new Group();
   root.name = "AGV";
+  if (glb.agv) {
+    // AGV.glb has no separate lift mesh: the (empty) lift group sits at AGV_point (top, y 0.387) and carries the rack.
+    root.add(glbClone(glb.agv, "AGV.Body"));
+    const lift = new Group();
+    lift.name = "AGV.Lift";
+    lift.position.y = height;
+    root.add(lift);
+    return { root, lift };
+  }
   const bodyH = height - 0.04;
   root.add(part(box(width, bodyH, length), materials.body, 0, bodyH / 2 + 0.02, 0));
   // Accent bumpers front / rear and a light strip on each side.
@@ -76,6 +101,10 @@ export function createRackMobileModel() {
   const height = RACK_M_MODEL.height;
   const root = new Group();
   root.name = "Rack_m";
+  if (glb.rackM) {
+    root.add(glbClone(glb.rackM, "Rack_m.Model"));
+    return root;
+  }
   const postGeometry = box(post, height, post);
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
