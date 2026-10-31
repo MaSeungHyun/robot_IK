@@ -4,6 +4,7 @@ import { SIMULATOR_CONFIG, AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { layoutPath } from "@/domain/amr/navigation/layoutNavigation";
 import { RACK_CONFIG } from "@/constants/rack";
 import { AMR_DECK } from "@/constants/cycle";
+import { AMR_PALLET_TURN } from "@/constants/simulation";
 import type { NavigationObstacle } from "@/domain/amr/navigation/layoutNavigation";
 
 export type DispatchRoutes = {
@@ -475,7 +476,8 @@ export class PalletDispatchController {
     this.carrier.updateWorldMatrix(true, true);
     this.carrier.attach(this.payload);
     this.payload.position.y = AMR_DECK;
-    this.payload.rotation.y = (Math.PI / 2) * Math.round(this.payload.rotation.y / (Math.PI / 2));
+    // Kept turned AMR_PALLET_TURN (mod 180deg) relative to the AMR heading; boxes are children and turn with it.
+    this.payload.rotation.y = AMR_PALLET_TURN + Math.PI * Math.round((this.payload.rotation.y - AMR_PALLET_TURN) / Math.PI);
     this.follow(this.routes.dispatch, "dispatch");
   }
   /** Lift to the shelf, drive in, set the pallet down (complete), back out, then return home. */

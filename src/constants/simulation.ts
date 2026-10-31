@@ -26,7 +26,11 @@ export const PALLET_STACKING = {
   /** Every pallet is turned this much (deg) at runtime (fork openings on the turned side): belt boxes reach their
    *  slot already aligned (no ~90° box turn between pick and place); forklifts/AMRs/rails carry it turned. */
   palletYawDegrees: 90,
+  /** A pallet on an AMR deck sits this much (deg) turned relative to the AMR heading (boxes turn with it). */
+  amrPalletYawDegrees: 90,
 };
+/** AMR-local pallet yaw (rad): pallets on an AMR deck are kept at this yaw (mod 180deg) relative to the AMR. */
+export const AMR_PALLET_TURN = (PALLET_STACKING.amrPalletYawDegrees * Math.PI) / 180;
 export const STREAM_CONFIG = {
   // pallet.glb as authored (see modelPoints.generated.ts); no rescaling.
   palletHeight: PALLET_MODEL.max[1] - PALLET_MODEL.min[1],
