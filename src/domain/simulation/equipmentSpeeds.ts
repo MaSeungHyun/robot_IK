@@ -1,3 +1,4 @@
+import { normalizeForkliftTask } from "@/constants/forkliftTask";
 import { STREAM_CONFIG } from "@/constants/simulation";
 import { ROBOT_REACH_MAX, SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import type { EquipmentKind, EquipmentSettings } from "@/types/layout";
@@ -76,7 +77,7 @@ export const amrSpeedFactor = (config: Config) => amrSpeedOf(config) / SIMULATOR
  * - robot: old 하역(depalletize) + 정상/불량 filter was really a belt → pallet picker → palletize with that grade.
  *   Depalletizers (pallet → belt, unscanned boxes) drop pickFilter; palletize "all" is dropped (unset = legacy any-grade).
  * - amr: box AMRs → pallet AMRs; boxUnload/emptyPallet removed (empties always go to a forklift);
- *   forkliftRole emptyReturn merged into supply (빈 팔레트 전담).
+ *   forkliftRole emptyReturn merged into supply (빈 팔레트 전담); forkliftTask service/carrier → mobileRack/palletSwap/unload.
  * - conveyor: inbound always carries pallets. rack: rackStorage removed (full pallets only). pallet: default capacity 4.
  */
 function migrateSimplified(kind: EquipmentKind, input: EquipmentSettings): EquipmentSettings {
@@ -90,6 +91,7 @@ function migrateSimplified(kind: EquipmentKind, input: EquipmentSettings): Equip
     if (config.amrCargo === "box") config.amrCargo = "pallet";
     delete config.boxUnload;
     delete config.emptyPallet;
+    if (config.forkliftTask) config.forkliftTask = normalizeForkliftTask(config);
     if (config.forkliftRole === "emptyReturn") config.forkliftRole = "supply";
   }
   if (kind === "conveyor" && config.conveyorRole === "inbound") config.inboundUnit = "pallet";

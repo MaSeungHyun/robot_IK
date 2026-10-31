@@ -31,29 +31,30 @@ export const ROLLER_TOP_MODEL = {
   rollerRadius: 0.03,
 } as const;
 
+/** Sized to AGV.glb (1.08 ? 1.19 m body, AGV_point lift top at 0.387 m). */
 export const AGV_MODEL = {
-  width: 1.0,
-  length: 1.3,
-  height: 0.3,
+  width: 1.076,
+  length: 1.194,
+  height: 0.387,
   /** Lift plate stroke (m) when it raises a Rack_m off the floor. */
   liftStroke: 0.05,
   liftSpeed: 0.1,
   speed: 1.2,
-  radius: Math.hypot(0.5, 0.65),
+  radius: Math.hypot(0.538, 0.597),
 } as const;
 
-/** Mobile rack (Rack_m): 4 legs, two pallet levels, AGV clearance under the bottom level. */
+/** Mobile rack (Rack_m), sized to Rack_m.glb: 2.84 (X, loading face) ? 3.23 (Z) m, three pallet levels. */
 export const RACK_M_MODEL = {
-  width: 1.45,
-  depth: 1.45,
-  /** Pallet bottom heights (m) of the levels; level 1 sits above the AGV (height + stroke + margin). */
-  levels: [0.45, +(0.45 + loadHeight + 0.3).toFixed(3)] as readonly number[],
+  width: 2.844,
+  depth: 3.226,
+  /** Pallet bottom heights (m) = Rack_m1/2/3_point; level 1 sits above the AGV (height + stroke + margin). */
+  levels: [0.666, 2.184, 3.697] as readonly number[],
   get height() {
-    return this.levels[this.levels.length - 1] + loadHeight + 0.25;
+    return Math.max(5.181, this.levels[this.levels.length - 1] + loadHeight + 0.25);
   },
   post: 0.06,
   /** Loaded body radius while an AGV carries it. */
-  radius: Math.hypot(0.725, 0.725),
+  radius: Math.hypot(1.422, 1.613),
 } as const;
 
 export const CYCLE_CONFIG = {

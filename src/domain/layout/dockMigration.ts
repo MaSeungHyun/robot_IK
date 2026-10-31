@@ -4,7 +4,7 @@ import type { SceneTemplate, TemplateEquipment } from "@/types/sceneTemplate";
 /**
  * Load-time migration of placed docks: only 빈 팔레트 적치장 (palletSource) stays equipment. Every other dock becomes a
  * stop point (same pose/grade) on the nearest equipment that uses it, and 🔗 deliver links to it now point at that owner:
- * 하역 → depalletizing robot, 교체 → service forklift, 출하 대기 → rack forklift, Rack_m 하차 → AGV, 출고 → pallet AMR.
+ * 하역 → depalletizing robot, 교체 → mobileRack / palletSwap forklift, 출하 대기 → rack forklift, Rack_m 하차 → AGV, 출고 → pallet AMR.
  * Templates without such docks are returned unchanged (same object).
  */
 export function migrateTemplateDocks(template: SceneTemplate): SceneTemplate {
@@ -16,7 +16,7 @@ export function migrateTemplateDocks(template: SceneTemplate): SceneTemplate {
   const agv = (e: TemplateEquipment) => e.kind === "amr" && s(e).amrRole === "agv";
   const prefer: Record<StopRole, ((e: TemplateEquipment) => boolean)[]> = {
     unload: [(e) => e.kind === "robot" && s(e).robotRole === "depalletize" && !["normal", "defect"].includes(s(e).pickFilter ?? ""), (e) => e.kind === "robot"],
-    service: [(e) => forklift(e) && (s(e).forkliftTask ?? "rack") === "service", forklift],
+    service: [(e) => forklift(e) && ["service", "mobileRack", "palletSwap"].includes(s(e).forkliftTask ?? "rack"), forklift],
     stage: [(e) => forklift(e) && (s(e).forkliftTask ?? "rack") === "rack", forklift],
     rackDrop: [agv, (e) => e.kind === "amr"],
     ship: [(e) => e.kind === "amr" && !forklift(e) && !agv(e), (e) => e.kind === "amr"],

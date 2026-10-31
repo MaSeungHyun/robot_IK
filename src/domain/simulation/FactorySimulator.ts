@@ -15,7 +15,7 @@ import type {
 import type { Transfer } from "@/types/robot";
 import type { StreamStats } from "@/types/conveyor";
 import type { EquipmentSnapshot } from "@/types/simulation";
-import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING, CONVEYOR_STOPPER_CONTACT } from "@/constants/simulation";
+import { BOX_SIZES, STREAM_CONFIG, ROBOT_PICKING, PALLET_STACKING, CONVEYOR_STOPPER_CONTACT, AMR_PALLET_TURN } from "@/constants/simulation";
 import { DEFAULT_LAYOUT, AMR_TRAFFIC, AMR_BATTERY, SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import { createUnitBox } from "@/lib/three/modelNormalization";
 import { amrSpeedFactor, autoSpawns, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
@@ -272,6 +272,9 @@ const palletGrade = (config: EquipmentSettings | undefined): CargoGrade =>
 /** Warning for a relation without a 🔗 link while 자동 연결 is off. */
 const noLink = (relation: string) => `링크 없음 · ${relation} 🔗 링크가 없어 대기합니다 (자동 연결 꺼짐)`;
 
+/** Rack → door retrieve (출하) by simulator forklifts: off, forklifts only store (see constants/forkliftTask.ts). */
+const FORKLIFT_DOOR_SHIP = false;
+
 export class FactorySimulator {
   readonly root = new Group();
   readonly inspection: ScannerInspection;
@@ -385,7 +388,7 @@ export class FactorySimulator {
     this.instances = instances;
     this.settings = getSettings;
     this.boxAsset = createUnitBox(box);
-    const owned = PalletCycle.owned(objects, this.settings());
+    const owned = PalletCycle.owned(objects, this.settings(), (id) => this.links.incoming(id, "emptyReturn"));
     // Roller-top shuttles fed by a pallet-unit inbound belt carry their pallet at the belt height.
     const rollerShuttles = owned ? palletFeeds(objects, this.settings(), (id) => this.links.outgoing(id, "feed")) : new Map<string, SceneEquipment>();
     for (const object of objects) {
@@ -551,7 +554,7 @@ export class FactorySimulator {
     };
     for (const pallet of this.pallets) this.startPalletRecord(pallet);
     this.cycle = owned
-      ? new PalletCycle(objects, this.pallets, this.cycleHost(pallet), (id) => this.links.outgoing(id, "deliver"), (id) => this.links.outgoing(id, "feed"))
+      ? new PalletCycle(objects.filter((o) => o.kind !== "amr" || owned.has(o.id)), this.pallets, this.cycleHost(pallet), (id) => this.links.outgoing(id, "deliver"), (id) => this.links.outgoing(id, "feed"))
       : null;
     // Pallet-inbound belts not served by a pallet-cycle shuttle: a full pallet runs to the belt-end stopper and an AMR is
     // dispatched to the receive pose (🔗-linked AMR first, else the nearest free empty pallet AMR); re-evaluated every tick.
@@ -1228,7 +1231,8 @@ export class FactorySimulator {
         // Over the belt at belt height; across the gap it eases down to the AMR deck (roller transfer, never from the floor).
         const over = Math.max(0, Math.min(1, (held.distance - length) / Math.max(1e-6, transfer - length)));
         held.group.position.set(point.x + Math.sin(point.yaw) * extra, ROLLER_DECK + (AMR_DECK - ROLLER_DECK) * over, point.z + Math.cos(point.yaw) * extra);
-        held.group.rotation.set(0, point.yaw, 0);
+        // Turns AMR_PALLET_TURN while crossing onto the deck (pallet sits turned on the AMR).
+        held.group.rotation.set(0, point.yaw + AMR_PALLET_TURN * over, 0);
       }
       if (!lead?.agent?.dispatch.readyToReceive || lead.distance < transfer - 1e-6) continue;
       lead.agent.dispatch.received();
@@ -2426,7 +2430,8 @@ export class FactorySimulator {
       pickup: { point: new Vector3(pallet.object.x, 0, pallet.object.z), heading: pallet.object.yaw },
       take: () => handed,
       // Parallel to the AMR first (forks along its body), sideways only when those approaches are unreachable.
-      targets: () => this.aroundTargets(deck, agent.object.id, receiveHeading),
+      // Forks across the AMR body (AMR_PALLET_TURN) so the pallet lands already turned on the deck.
+      targets: () => this.aroundTargets(deck, agent.object.id, receiveHeading === undefined ? undefined : receiveHeading + AMR_PALLET_TURN),
       store: (payload) => {
         this.root.attach(payload);
         payload.position.copy(deck);
@@ -3212,7 +3217,8 @@ export class FactorySimulator {
         break;
       }
     }
-    if (!idle.length) return;
+    // Forklifts no longer ship stored pallets out through a door (FORKLIFT_DOOR_SHIP).
+    if (!idle.length || !FORKLIFT_DOOR_SHIP) return;
     // Every stored pallet in an enabled rack that no forklift has claimed yet (racks need not be full).
     const candidates: { rack: SceneEquipment; slot: number }[] = [];
     for (const rack of this.racks) {

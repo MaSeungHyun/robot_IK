@@ -44,7 +44,8 @@ export type EquipmentSettings={speed:number;reach:number;capacity:number;
   boxUnload?:"self"|"robot";
   /** Forklift only, pallet cycle: "service" = swaps pallets on shuttle AMRs (full → Rack_m, empty → AMR), "rack" = Rack_m → Rack and Rack → 출하,
    * "carrier" = holds a pallet on its forks at the pallet in front of it (the robot loads it there) and carries it to an unload dock robot. */
-  forkliftTask?:"service"|"rack"|"carrier";
+  /** See constants/forkliftTask.ts; "service" / "carrier" are legacy values migrated at load. */
+  forkliftTask?:"mobileRack"|"rack"|"palletSwap"|"unload"|"service"|"carrier";
   /** Forklift job split ("emptyReturn" = only lifts emptied pallets off AMRs onto the empty-pallet stack).
    * Service forklift: job split when several forklifts share a cell. "auto" (default) = any job; "unload" = only full
    * pallets AMR → Rack_m; "supply" = only empty pallets (source → AMR, and empty pallets off inbound AMRs → source). */

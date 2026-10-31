@@ -1,3 +1,4 @@
+import { normalizeForkliftTask } from "@/constants/forkliftTask";
 import type { EquipmentSettings } from "@/types/layout";
 
 /** Empty-pallet flow defaults (absent settings = older layouts). */
@@ -19,7 +20,15 @@ export const selfUnloadOf = (config: Settings) => config?.selfUnload ?? true;
 /** AMR: a forklift always lifts its emptied pallet off and stacks it. The old "return" (return line) value was never
  * modelled; saved layouts with it are migrated to forklift recovery, so this is always true. */
 export const emptyByForkliftOf = (_config: Settings) => true;
-/** Forklift role allows lifting empty pallets off AMRs onto the stack. */
-export const takesEmptyPallets = (config: Settings) => (config?.forkliftRole ?? "auto") !== "unload";
-/** Forklift role allows the other (non empty-return) jobs. */
-export const doesGeneralJobs = (config: Settings) => !["supply", "emptyReturn"].includes(config?.forkliftRole ?? "auto");
+/** Forklift lifts empty pallets off AMRs onto the stack: palletSwap / mobileRack tasks (the cycle splits a pair by roleOf);
+ * a legacy forklift without a task by its forkliftRole. */
+export const takesEmptyPallets = (config: Settings) => {
+  const task = config?.forkliftTask ? normalizeForkliftTask(config) : undefined;
+  if (task) return task === "palletSwap" || task === "mobileRack";
+  return (config?.forkliftRole ?? "auto") !== "unload";
+};
+/** Forklift also does the other (non empty-pallet) jobs: every task but palletSwap; legacy forklifts by forkliftRole. */
+export const doesGeneralJobs = (config: Settings) => {
+  if (config?.forkliftTask) return normalizeForkliftTask(config) !== "palletSwap";
+  return !["supply", "emptyReturn"].includes(config?.forkliftRole ?? "auto");
+};

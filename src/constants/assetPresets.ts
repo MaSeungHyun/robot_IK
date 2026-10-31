@@ -65,9 +65,10 @@ export const ASSET_PRESETS: { kind: EquipmentKind; icon: string; presets: AssetP
       { id: "boxAmr", section: "AMR", label: "박스 AMR", description: "낱개 박스를 싣고 박스 컨베이어에서만 받습니다.", settings: { amrCargo: "box" } },
       { id: "agv", section: "AMR", label: "AGV (Rack_m 운반)", description: "Rack_m 아래로 들어가 들어 올려 랙 구역으로 옮깁니다.", settings: { amrRole: "agv" }, thumbnail: "agv" },
       { id: "forklift", section: "지게차", label: "지게차", description: "포크로 랙의 팔레트를 들어 꺼내 문 밖으로 반출합니다.", settings: { amrRole: "forklift" } },
-      { id: "serviceForklift", section: "지게차", label: "서비스 지게차", description: "셔틀의 적재 팔레트를 Rack_m에 싣고 빈 팔레트를 셔틀에 올립니다.", settings: { amrRole: "forklift", forkliftTask: "service" } },
-      { id: "rackForklift", section: "지게차", label: "랙 지게차", description: "Rack_m의 팔레트를 랙에 보관하고 랙에서 출하 스테이지로 꺼냅니다.", settings: { amrRole: "forklift", forkliftTask: "rack" } },
-      { id: "carrierForklift", section: "지게차", label: "운반 지게차", description: "포크 앞 팔레트를 든 채 로봇 적재를 받고, 다 차면 하역 로봇 옆으로 운반한 뒤 빈 팔레트를 되가져옵니다.", settings: { amrRole: "forklift", forkliftTask: "carrier" } },
+      { id: "serviceForklift", section: "지게차", label: "이동식 랙 적재 지게차", description: "AMR의 만재 팔레트를 내려 Rack_m(이동식 랙)에 적재합니다.", settings: { amrRole: "forklift", forkliftTask: "mobileRack" } },
+      { id: "palletSwapForklift", section: "지게차", label: "팔레트 교체 지게차", description: "빈 팔레트 적치장에서 빈 팔레트를 AMR에 올리고, 비운 팔레트를 회수합니다.", settings: { amrRole: "forklift", forkliftTask: "palletSwap" } },
+      { id: "rackForklift", section: "지게차", label: "랙 적재 지게차", description: "Rack_m의 팔레트를 랙에 적재합니다.", settings: { amrRole: "forklift", forkliftTask: "rack" } },
+      { id: "carrierForklift", section: "지게차", label: "하역 지게차", description: "포크 위 팔레트에 로봇 적재를 받고, 다 차면 랙에 적재한 뒤 빈 팔레트를 가져와 복귀합니다.", settings: { amrRole: "forklift", forkliftTask: "unload" } },
     ],
   },
   {

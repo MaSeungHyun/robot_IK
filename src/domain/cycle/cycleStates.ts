@@ -43,9 +43,9 @@ export const FORKLIFT_JOBS = {
   storeDirect: "만재 팔레트 AMR → 랙 (Rack_m 없음)",
   swapEmpty: "빈 팔레트 적치장 → AMR",
   store: "Rack_m → 랙 적재",
-  ship: "랙 → 출하 로봇 옆",
+  ship: "랙 → 출하 로봇 옆 (사용 안 함)",
   takeEmpty: "빈 팔레트 AMR → 빈 팔레트 적치장",
-  carry: "팔레트 운반 (적재 로봇 → 하역 로봇)",
+  carry: "하역: 만재 팔레트 → 랙 적재 · 빈 팔레트 복귀",
 } as const;
 export type ForkliftJobKind = keyof typeof FORKLIFT_JOBS;
 

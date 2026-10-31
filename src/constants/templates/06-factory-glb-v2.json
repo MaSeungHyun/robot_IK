@@ -179,7 +179,7 @@
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",
-        "forkliftTask": "service",
+        "forkliftTask": "mobileRack",
         "stopPoints": [
           {
             "role": "service",
@@ -193,181 +193,181 @@
     {
       "kind": "rack",
       "x": 4.2188,
-      "z": -7.689,
+      "z": -9.689,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -2.3514,
+      "z": -4.3514,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -7.1509,
+      "z": -9.1509,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -11.9504,
+      "z": -13.9504,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -16.7499,
+      "z": -18.7499,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -21.5494,
+      "z": -23.5494,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -26.3489,
+      "z": -28.3489,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -31.1484,
+      "z": -33.1484,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -35.948,
+      "z": -37.948,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 34.9004,
-      "z": -40.7475,
+      "z": -42.7475,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 4.1845,
-      "z": -12.6228,
+      "z": -14.6228,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 4.1845,
-      "z": -17.4224,
+      "z": -19.4224,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 4.1845,
-      "z": -22.2219,
+      "z": -24.2219,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 4.1845,
-      "z": -27.0214,
+      "z": -29.0214,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 4.1845,
-      "z": -31.8209,
+      "z": -33.8209,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": 4.1845,
-      "z": -36.6204,
+      "z": -38.6204,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -3.8198,
-      "z": -7.8233,
+      "z": -9.8233,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -3.8198,
-      "z": -12.6228,
+      "z": -14.6228,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -3.8198,
-      "z": -17.4224,
+      "z": -19.4224,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -3.8198,
-      "z": -22.2219,
+      "z": -24.2219,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -3.8198,
-      "z": -27.0214,
+      "z": -29.0214,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -3.8198,
-      "z": -31.8209,
+      "z": -33.8209,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -3.8198,
-      "z": -36.6204,
+      "z": -38.6204,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -11.8241,
-      "z": -7.8233,
+      "z": -9.8233,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -11.8241,
-      "z": -12.6228,
+      "z": -14.6228,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -11.8241,
-      "z": -17.4224,
+      "z": -19.4224,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -11.8241,
-      "z": -22.2219,
+      "z": -24.2219,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -11.8241,
-      "z": -27.0214,
+      "z": -29.0214,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -11.8241,
-      "z": -31.8209,
+      "z": -33.8209,
       "yaw": 0
     },
     {
       "kind": "rack",
       "x": -11.8241,
-      "z": -36.6204,
+      "z": -38.6204,
       "yaw": 0
     },
     {
@@ -541,7 +541,8 @@
       "z": 56.6,
       "yaw": 3.141592653589793,
       "settings": {
-        "amrRole": "forklift"
+        "amrRole": "forklift",
+        "forkliftTask": "palletSwap"
       }
     },
     {
@@ -550,7 +551,8 @@
       "z": 56.6,
       "yaw": 3.141592653589793,
       "settings": {
-        "amrRole": "forklift"
+        "amrRole": "forklift",
+        "forkliftTask": "palletSwap"
       }
     },
     {
@@ -718,6 +720,129 @@
       "x": 19.2707,
       "z": 35.3239,
       "yaw": 0
+    },
+    {
+      "kind": "rack",
+      "x": -17,
+      "z": -4,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "rackType": "mobile"
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -15.6522,
+      "z": -67.6645,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "rackType": "mobile",
+        "enabled": false
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -15.6522,
+      "z": -64.4135,
+      "yaw": -1.754,
+      "settings": {
+        "rackType": "mobile",
+        "enabled": false
+      }
+    },
+    {
+      "kind": "rack",
+      "x": -2.2337,
+      "z": -57.3127,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "rackType": "mobile",
+        "enabled": false
+      }
+    },
+    {
+      "kind": "dock",
+      "x": -2.2,
+      "z": -47,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "dockRole": "rackDrop"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 6,
+      "z": -50,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "rack"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -21.1382,
+      "z": -28.2874,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -21.1417,
+      "z": -15.1456,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -21.1417,
+      "z": -19.5344,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -21.1417,
+      "z": -23.9232,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -29.6568,
+      "z": -28.1064,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "agv"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -6.3,
+      "z": -8.3558,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "palletSwap"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 2.889,
+      "z": 17.204,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "unload"
+      }
     }
   ],
   "links": [
@@ -858,15 +983,6 @@
       "node": "pallet.002"
     },
     {
-      "source": "agv",
-      "node": "AGV",
-      "position": [-21.1382, 0.2084, -28.2874]
-    },
-    {
-      "source": "factory",
-      "node": "Rack_m.002"
-    },
-    {
       "source": "factory",
       "node": "column"
     },
@@ -905,38 +1021,6 @@
     {
       "source": "factory",
       "node": "guardrail.001"
-    },
-    {
-      "source": "factory",
-      "node": "Rack_m.001"
-    },
-    {
-      "source": "factory",
-      "node": "Rack_m"
-    },
-    {
-      "source": "agv",
-      "node": "AGV",
-      "position": [-21.1417, 0.2084, -15.1456],
-      "yaw": 3.141592653589793
-    },
-    {
-      "source": "agv",
-      "node": "AGV",
-      "position": [-21.1417, 0.2084, -19.5344],
-      "yaw": 3.141592653589793
-    },
-    {
-      "source": "agv",
-      "node": "AGV",
-      "position": [-21.1417, 0.2084, -23.9232],
-      "yaw": 3.141592653589793
-    },
-    {
-      "source": "agv",
-      "node": "AGV",
-      "position": [-29.6568, 0.2084, -28.1064],
-      "yaw": 3.141592653589793
     },
     {
       "source": "factory",

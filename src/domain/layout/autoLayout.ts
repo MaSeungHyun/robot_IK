@@ -275,9 +275,9 @@ export function forkliftsFor(constraints: LayoutConstraints, lines: number) {
   const pallets = constraints.targetPerHour / (constraints.boxesPerPallet ?? PALLET_CAPACITY);
   return Math.max(lines, Math.ceil(pallets / FORKLIFT_PALLETS_PER_HOUR));
 }
-/** Deterministic forklift mode: carrier when AMRs are fewer than the cells, otherwise service (re-load onto AMRs). */
-export function forkliftModeFor(amrs: number, lines: number): "carrier" | "service" {
-  return amrs < lines ? "carrier" : "service";
+/** Deterministic forklift mode: unload (robot → rack) when AMRs are fewer than the cells, otherwise mobileRack (re-load onto AMRs). */
+export function forkliftModeFor(amrs: number, lines: number): "unload" | "mobileRack" {
+  return amrs < lines ? "unload" : "mobileRack";
 }
 function buildUncached(constraints: LayoutConstraints, params: LayoutParams): LayoutCandidate {
   if (params.rackPlacement) return buildOriented(constraints, params);
