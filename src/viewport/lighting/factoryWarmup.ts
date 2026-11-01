@@ -8,6 +8,7 @@ import { applyShadowQuality, buildFactoryLights } from "@/viewport/lighting/fact
 import { loadEnvironment } from "@/viewport/lighting/sceneEnvironmentConfig";
 import { PROP_SOURCES } from "@/viewport/props/propSources";
 import { propScenes } from "@/viewport/props/propWarmupState";
+import { compileInBatches, initTexturesInBatches } from "@/lib/three/compileInBatches";
 
 /**
  * Startup compile with the factory lighting's exact program inputs: the factory.glb light rig (same count, types and
@@ -128,32 +129,35 @@ export async function warmFactoryPrograms(gl: WebGLRenderer, camera: Camera, liv
   root.add(new InstancedMesh(probe, overlayKeep[5], 1));
 
   // compile() also gathers lights from the compiled object: hide the live scene's own (default-mode) lights meanwhile.
+  // Compiled in frame-budget slices (compileInBatches): the state below is applied around every slice and undone in
+  // between, so the frames drawn meanwhile see the live lights / shadow type / canvas target.
   const hidden: Light[] = [];
-  live.traverse((o) => { if ((o as Light).isLight && o.visible) { hidden.push(o as Light); o.visible = false; } });
   const previousType = gl.shadowMap.type;
   const previousTarget = gl.getRenderTarget();
   const offscreen = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
   gl.shadowMap.type = PCFShadowMap;
+  live.traverse((o) => { if ((o as Light).isLight && o.visible) { hidden.push(o as Light); o.visible = false; } });
   const depthRoot = shadowDepthRoot([warmRoot, root, live, depthStandIns(probe, bare)]);
-  gl.setRenderTarget(offscreen);
-  let pending: Promise<unknown>[];
-  try {
-    // compileAsync creates every program synchronously, so the state above only has to hold for these calls.
-    pending = [gl.compileAsync(warmRoot, camera, target), gl.compileAsync(root, camera, target), gl.compileAsync(live, camera, target)];
-    // Shadow pass depth programs (compile only, no offscreen shadow render: that broke context creation before).
-    // The shadow / depth passes render without scene lights: compile against an empty scene.
-    pending.push(gl.compileAsync(depthRoot, camera, new Scene()));
-  } finally {
+  for (const light of hidden) light.visible = true;
+  gl.shadowMap.type = previousType;
+  const enterRig = () => {
+    hidden.length = 0;
+    live.traverse((o) => { if ((o as Light).isLight && o.visible) { hidden.push(o as Light); o.visible = false; } });
+    gl.shadowMap.type = PCFShadowMap;
+    gl.setRenderTarget(offscreen);
+  };
+  const leaveRig = () => {
     gl.setRenderTarget(previousTarget);
     gl.shadowMap.type = previousType;
     for (const light of hidden) light.visible = true;
-  }
+  };
+  // Shadow pass depth programs (compile only, no offscreen shadow render: that broke context creation before).
+  // The shadow / depth passes render without scene lights: compile against an empty scene.
+  await compileInBatches(gl, camera, [{ scene: warmRoot, target }, { scene: root, target }, { scene: live, target }, { scene: depthRoot, target: new Scene() }], enterRig, leaveRig);
   // Template apply's first frames still run under the default rig (ambient + shadow-casting sun): compile for it too.
-  gl.setRenderTarget(offscreen);
   // Same for the props / overlays (warmRoot is compiled for the default rig by ModelWarmup already).
-  try { pending.push(gl.compileAsync(depthRoot, camera, live), gl.compileAsync(root, camera, live)); } finally { gl.setRenderTarget(previousTarget); }
-  await Promise.all(pending);
-  for (const texture of textures) gl.initTexture(texture);
+  await compileInBatches(gl, camera, [{ scene: depthRoot, target: live }, { scene: root, target: live }], () => gl.setRenderTarget(offscreen), () => gl.setRenderTarget(previousTarget));
+  await initTexturesInBatches(gl, textures);
   offscreen.dispose();
   probe.dispose();
   bare.dispose();

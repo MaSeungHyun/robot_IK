@@ -833,10 +833,7 @@
     {
       "source": "factory",
       "node": "Enviroment",
-      "excludeMaterials": [
-        "wall",
-        "BG_Floor"
-      ]
+      "excludeMaterials": ["wall", "BG_Floor"]
     },
     {
       "source": "factory",
@@ -845,11 +842,7 @@
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1382,
-        0.2084,
-        -28.2874
-      ]
+      "position": [-21.1382, 0.2084, -28.2874]
     },
     {
       "source": "factory",
@@ -906,41 +899,25 @@
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1417,
-        0.2084,
-        -15.1456
-      ],
+      "position": [-21.1417, 0.2084, -15.1456],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1417,
-        0.2084,
-        -19.5344
-      ],
+      "position": [-21.1417, 0.2084, -19.5344],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -21.1417,
-        0.2084,
-        -23.9232
-      ],
+      "position": [-21.1417, 0.2084, -23.9232],
       "yaw": 3.141592653589793
     },
     {
       "source": "agv",
       "node": "AGV",
-      "position": [
-        -29.6568,
-        0.2084,
-        -28.1064
-      ],
+      "position": [-29.6568, 0.2084, -28.1064],
       "yaw": 3.141592653589793
     },
     {

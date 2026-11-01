@@ -63,6 +63,21 @@ const palletAlong = () => STREAM_CONFIG.palletWidth;
 const slotPitch = () => palletAlong() + RAIL_CONFIG.slotGap;
 const slotTarget = (side: -1 | 1, i: number) => side * (RAIL_CONFIG.halfLength - palletAlong() / 2 - RAIL_CONFIG.slotGap - i * slotPitch());
 const smooth = (t: number) => t * t * (3 - 2 * t);
+/** Bottom height of the entry ramp at local z. The deck sits above the ramp foot, so the approach eases down onto the lip instead of stepping off it. */
+function rampSurface(z: number, deckY: number) {
+  const { outerZ, innerZ, rise } = RAIL_CONFIG.ramp, top = RAIL_CONFIG.point.y, foot = top - rise;
+  if (z <= innerZ) return top;
+  if (z < outerZ) return foot + rise * ((outerZ - z) / (outerZ - innerZ));
+  const meet = outerZ + 0.55;
+  if (z >= meet) return deckY;
+  return deckY + (foot - deckY) * smooth((meet - z) / (meet - outerZ));
+}
+/** Pallet bottom on the ramp. Pitch is the slope between the two ends, so a short chamfer does not tip the whole pallet. */
+function rampRide(lateral: number, deckY: number) {
+  const half = STREAM_CONFIG.palletDepth / 2;
+  const fore = rampSurface(lateral - half, deckY), aft = rampSurface(lateral + half, deckY);
+  return { y: (fore + aft) / 2, pitch: Math.atan2(aft - fore, half * 2) };
+}
 
 export class RailNetwork {
   readonly rails: RailUnit[];
@@ -124,17 +139,13 @@ export class RailNetwork {
     const centre = rail.centre;
     if (centre?.phase === "deposit") {
       centre.t = Math.min(1, centre.t + dt / RAIL_CONFIG.depositSeconds);
-      const to = this.world(rail, 0, RAIL_CONFIG.point.z, RAIL_CONFIG.point.y);
       const g = centre.item.group;
-      g.position.lerpVectors(centre.from!, to, smooth(centre.t));
-      // Ride up the entry ramp and settle back on the rollers (lift + pitch while the pallet centre crosses it).
-      const ramp = RAIL_CONFIG.ramp, depth = STREAM_CONFIG.palletDepth, span = ramp.outerZ - ramp.innerZ + depth;
-      const lateral = this.local(rail, g.position).lateral;
-      const u = Math.min(1, Math.max(0, (ramp.outerZ + depth / 2 - lateral) / span));
-      const inside = u > 0 && u < 1;
-      g.position.y += inside ? ramp.rise * Math.sin(Math.PI * u) : 0;
-      const pitch = inside ? Math.atan((ramp.rise * Math.PI / span) * Math.cos(Math.PI * u)) * Math.sign(lateral - RAIL_CONFIG.point.z) : 0;
-      g.rotation.set(pitch, rail.object.yaw, 0, "YXZ");
+      const from = this.local(rail, centre.from!);
+      const u = smooth(centre.t);
+      const lateral = from.lateral + (RAIL_CONFIG.point.z - from.lateral) * u;
+      const ride = rampRide(lateral, centre.from!.y);
+      g.position.copy(this.world(rail, from.s * (1 - u), lateral, ride.y));
+      g.rotation.set(ride.pitch, rail.object.yaw, 0, "YXZ");
       if (centre.t >= 1) centre.phase = "wait";
     }
     // Centre → a free half (prefer the alternating side; only sides that have a lift).

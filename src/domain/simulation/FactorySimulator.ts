@@ -42,12 +42,12 @@ import { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import { log } from "@/stores/useLogStore";
 import { ForkliftController, type ForkliftJob, type ForkliftTarget } from "@/domain/amr/ForkliftController";
 import { isForkliftRole } from "@/types/layout";
-import { FORKLIFT_CONFIG, FORKLIFT_TRAFFIC, forkliftStop } from "@/constants/forklift";
+import { FORKLIFT_CONFIG, FORKLIFT_NAV_RADIUS, FORKLIFT_TRAFFIC, forkliftStop } from "@/constants/forklift";
 import { AMR_COOPERATION } from "@/constants/amr";
 
 const ROUTE_CACHE_SIZE = 256;
 import { DOOR_CONFIG } from "@/constants/door";
-import { wallSegments } from "@/domain/room/roomWalls";
+import { doorShape, wallSegments } from "@/domain/room/roomWalls";
 import { PALLET_CONVEYOR } from "@/constants/palletConveyor";
 import { PalletCycle, type PalletCycleHost } from "@/domain/cycle/PalletCycle";
 import { AMR_DECK, ROLLER_DECK } from "@/constants/cycle";
@@ -542,6 +542,7 @@ export class FactorySimulator {
       pallet.orderFrom(loaders.map((robot) => ({ x: robot.object.x, z: robot.object.z, reach: this.settings()[robot.object.id]?.reach ?? Infinity })));
     }
     this.scanners = objects.filter((o) => o.kind === "scanner");
+    this.rackObstacles.push(...this.scanners.map((s) => ({ kind: s.kind, pose: s })));
     // Scan gate: only boxes without an inspection result are inspected (one result per box, never re-scanned).
     this.inspection.isInspected = (node) => node.userData.inspected === true || (this.cargo.box(node.userData.boxId)?.inspection ?? null) !== null;
     this.inspection.onScan = (node, scannerId, result) => {
@@ -947,6 +948,7 @@ export class FactorySimulator {
         ...this.pallets.filter((p) => !p.shipping).map((p) => ({ kind: p.object.kind, pose: p.object })),
         ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
         ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
+        ...this.blockingObstacles(),
       ];
       for (const agent of candidates) {
         if (dock.id.startsWith("deckfeed:") !== selfUnloads(agent)) continue;
@@ -1073,6 +1075,7 @@ export class FactorySimulator {
       ...this.pallets.filter((p) => !p.shipping).map((p) => ({ kind: p.object.kind, pose: p.object })),
       ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
       ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
+      ...this.blockingObstacles(),
     ];
     const fwd = { x: Math.sin(receive.yaw), z: Math.cos(receive.yaw) };
     let best: { agent: FactoryAgent; layout: FactoryLayout; routes: DispatchRoutes; park: SceneEquipment; cost: number } | null = null;
@@ -1192,6 +1195,9 @@ export class FactorySimulator {
     });
     this.render(group);
     this.root.add(group);
+    // Fixed at spawn: 90° past the previous belt-aligned pose. Travel and the AMR handoff do not change it.
+    const exit = beltPoint(hold.belt, beltLength(hold.belt));
+    group.rotation.set(0, exit.yaw + AMR_PALLET_TURN * 2, 0);
     hold.pallets.push({ group, boxes, distance: STREAM_CONFIG.palletDepth / 2, agent: null });
     log("info", `${hold.belt.name}: 입하 팔레트 투입`, `박스 ${total}`);
   }
@@ -1231,8 +1237,6 @@ export class FactorySimulator {
         // Over the belt at belt height; across the gap it eases down to the AMR deck (roller transfer, never from the floor).
         const over = Math.max(0, Math.min(1, (held.distance - length) / Math.max(1e-6, transfer - length)));
         held.group.position.set(point.x + Math.sin(point.yaw) * extra, ROLLER_DECK + (AMR_DECK - ROLLER_DECK) * over, point.z + Math.cos(point.yaw) * extra);
-        // Turns AMR_PALLET_TURN while crossing onto the deck (pallet sits turned on the AMR).
-        held.group.rotation.set(0, point.yaw + AMR_PALLET_TURN * over, 0);
       }
       if (!lead?.agent?.dispatch.readyToReceive || lead.distance < transfer - 1e-6) continue;
       lead.agent.dispatch.received();
@@ -1254,8 +1258,8 @@ export class FactorySimulator {
       settings: this.settings,
       emptyReturnTo: (amrId) => this.links.outgoing(amrId, "emptyReturn"),
       autoConnect: this.auto,
-      plan: (from, to, loaded, extra) =>
-        this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r }))),
+      plan: (from, to, loaded, extra, span) =>
+        this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r })), span ?? null),
       render: (group) => this.render(group),
       unrender: (group) => this.unrender(group),
       newPallet: () => {
@@ -1307,6 +1311,12 @@ export class FactorySimulator {
       unload: (dock, group, boxes, palletId, keep, onEmpty) =>
         this.unloadLoads.push({ dock, group, boxes, palletId, top: 0, keep, onEmpty }),
       unloadBusy: (dockId) => this.unloadLoads.some((l) => l.dock.id === dockId),
+      outboundBelts: () => this.outboundBelts,
+      outboundPose: (belt) => this.outboundPose(belt),
+      outboundBusy: (belt) => this.outboundBusy(belt),
+      rollOut: (belt, group, boxes, palletId) => {
+        this.rolling.push({ belt, group, boxes, distance: -PALLET_CONVEYOR.transferOffset, fromY: group.position.y, palletId });
+      },
       rackFree: (booked, accept, forklift) => {
         // Lowest free slot per rack; with a forklift: only racks it serves, nearest by route first (list order on ties).
         const free: { rack: SceneEquipment; slot: number; length: number }[] = [];
@@ -1855,8 +1865,10 @@ export class FactorySimulator {
     // Move guards for the route-less moves (rack insert / retreat, forklift turns and fork creeps); installed once per agent.
     for (const agent of this.agents) agent.dispatch.guard ??= this.amrGuard(agent);
     for (const agent of this.forkliftAgents) agent.controller.guard ??= this.forkliftGuard(agent);
-    this.trafficBodies = forkliftBodies;
-    this.traffic.advance(this.trafficVehicles, dt, this.trafficPlan, forkliftBodies);
+    this.syncCycleTraffic();
+    const traffic: TrafficBody[] = [...forkliftBodies, ...this.cycleTraffic];
+    this.trafficBodies = traffic;
+    this.traffic.advance(this.trafficVehicles, dt, this.trafficPlan, traffic);
     this.advanceBatteries(dt, settings);
     this.advanceForklifts(dt, settings);
     this.advanceEmptyPicks(settings);
@@ -2347,6 +2359,7 @@ export class FactorySimulator {
         .map((p) => ({ kind: p.object.kind, pose: p.object })),
       ...this.racks.map((r) => ({ kind: r.kind, pose: r })),
       ...this.outboundBelts.map((b) => ({ kind: b.kind, pose: b })),
+      ...this.blockingObstacles(),
     ];
     const approach = layoutPath(layout, layout.amr, layout.pallet, false, obstacles);
     if (!approach) {
@@ -2891,19 +2904,84 @@ export class FactorySimulator {
     this.render(pallet.group);
     this.startPalletRecord(pallet);
   }
-  /** Forklift floor route around fixed equipment (other AMRs are not considered). */
-  private forkliftRoute(from: Vector3, to: Vector3, loaded: boolean, extra: NavigationObstacle[] = []) {
+  /** Scanners and closed doors. AMR routes used to treat both as empty floor. */
+  private blockingObstacles(): NavigationObstacle[] {
+    return [
+      ...this.scanners.map((s) => ({ kind: s.kind, pose: s })),
+      ...this.doorObstacles(),
+    ];
+  }
+  /** A closed door fills its wall opening; an open one (fraction near 1) does not. */
+  private doorObstacles(): NavigationObstacle[] {
+    let sig = "";
+    for (const door of this.doors) sig += (this.doorFraction.get(door.id) ?? 0) >= 0.85 ? "1" : "0";
+    if (sig === this.doorSig) return this.doorCache;
+    this.doorSig = sig;
+    const settings = this.settings();
+    this.doorCache = [];
+    for (const door of this.doors) {
+      if ((this.doorFraction.get(door.id) ?? 0) >= 0.85) continue;
+      const shape = doorShape(door, settings[door.id]);
+      const hx = Math.cos(shape.yaw) * shape.width / 2;
+      const hz = -Math.sin(shape.yaw) * shape.width / 2;
+      this.doorCache.push({
+        kind: "floor",
+        pose: { x: shape.x, z: shape.z, yaw: 0 },
+        radius: DOOR_CONFIG.frameDepth / 2,
+        path: [new Vector3(shape.x - hx, 0, shape.z - hz), new Vector3(shape.x + hx, 0, shape.z + hz)],
+      });
+    }
+    return this.doorCache;
+  }
+  /**
+   * Cycle vehicles and Rack_m frames as discs. A circle that already contains the route's start or goal is left out:
+   * the AGV's bay approach and a forklift's own body would otherwise make the route fail and fall back to a straight line.
+   */
+  private cycleNav(from: Vector3, to: Vector3, reach = AMR_TRAFFIC.emptyRadius): NavigationObstacle[] {
+    const circles = this.cycle?.collisionCircles() ?? [];
+    const out: NavigationObstacle[] = [];
+    for (const c of circles) {
+      const inside = (p: Vector3) => Math.hypot(c.x - p.x, c.z - p.z) < c.r + reach;
+      if (inside(from) || inside(to)) continue;
+      out.push({ kind: "amr", pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r });
+    }
+    return out;
+  }
+  private syncCycleTraffic() {
+    const circles = this.cycle?.collisionCircles() ?? [];
+    while (this.cycleTraffic.length < circles.length) this.cycleTraffic.push({ position: new Vector3(), radius: 0 });
+    this.cycleTraffic.length = circles.length;
+    for (let i = 0; i < circles.length; i++) {
+      const body = this.cycleTraffic[i], c = circles[i];
+      body.position.set(c.x, 0, c.z);
+      body.radius = c.r;
+      body.owner = c.id;
+    }
+  }
+  /**
+   * Floor route. Forklifts (`span` = fork-swing radius, the default) keep that circle clear so a turn does not
+   * sweep the tines through equipment. A span that does not fit the aisle falls back to the body circle.
+   * `span` null is an AMR/AGV: the body circle only. Cycle vehicles pass their own obstacles in `extra`.
+   */
+  private forkliftRoute(from: Vector3, to: Vector3, loaded: boolean, extra: NavigationObstacle[] = [], span: number | null = FORKLIFT_NAV_RADIUS) {
     // layoutPath is a pure function of its inputs and rackLayout / rackObstacles are fixed for the run, so a route
     // with exactly the same start, goal, load and extra obstacles is the same route. Held forklifts retry the same
     // (often unreachable, whole-grid) search every second while nothing around them moves; those become lookups.
-    let key = `${from.x},${from.z}>${to.x},${to.z}:${loaded ? 1 : 0}`;
+    const doors = this.doorObstacles();
+    const moving = this.cycleNav(from, to, span ?? AMR_TRAFFIC.emptyRadius);
+    let key = `${span ?? "body"}|${from.x},${from.z}>${to.x},${to.z}:${loaded ? 1 : 0}`;
     for (const o of extra) {
       key += `|${o.kind},${o.pose.x},${o.pose.z},${o.pose.yaw},${o.radius ?? ""}`;
       if (o.path) for (const p of o.path) key += `;${p.x},${p.z}`;
     }
+    for (const o of doors) key += `|d,${Math.round(o.pose.x)},${Math.round(o.pose.z)}`;
+    for (const o of moving) key += `|m,${Math.round(o.pose.x * 2)},${Math.round(o.pose.z * 2)}`;
     let path = this.routeCache.get(key);
     if (path === undefined) {
-      path = layoutPath(this.rackLayout, from, to, loaded, extra.length ? [...this.rackObstacles, ...extra] : this.rackObstacles);
+      const obstacles = [...this.rackObstacles, ...extra, ...doors, ...moving];
+      path = span ? layoutPath(this.rackLayout, from, to, false, obstacles, { radius: span }) : null;
+      // Swing does not fit (narrow aisle, or the stand itself sits inside it): keep the body-circle route.
+      path ??= layoutPath(this.rackLayout, from, to, loaded, span ? [...this.rackObstacles, ...extra, ...doors, ...this.cycleNav(from, to)] : obstacles);
       if (this.routeCache.size >= ROUTE_CACHE_SIZE) this.routeCache.delete(this.routeCache.keys().next().value!);
       this.routeCache.set(key, path);
     }
@@ -2960,6 +3038,10 @@ export class FactorySimulator {
   }
   /** Forklift footprint circles of the current step (AMR traffic planner and forklift make-way). */
   private trafficBodies: TrafficBody[] = [];
+  /** Cycle vehicles and floor Rack_m, reused so the AMR traffic step does not allocate. */
+  private cycleTraffic: TrafficBody[] = [];
+  private doorCache: NavigationObstacle[] = [];
+  private doorSig = "";
   /** AMR traffic replanner (stall / detour / side step / evade): axis-aligned route around the other AMRs and forklifts. */
   private readonly trafficPlan: TrafficPlanner = (vehicle, target, inflate = 0, ignore) => {
     const navigation = this.navigation.get(vehicle.id);

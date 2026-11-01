@@ -26,8 +26,8 @@ export const RAIL_CONFIG = {
   slotGap: 0.05,
   /**
    * Entry ramp on the AMR side (+z) of the rail centre, from rail_condition.glb (no side guides within x ±1.25):
-   * chamfer from z 1.066 (y 0.890) up to z 0.900 (y 0.963), then the roller top (0.958). A deposited pallet rides
-   * up the ramp and settles back on the rollers: lifted by `rise` while its centre crosses the ramp ± half a pallet.
+   * chamfer from z 1.066 (y 0.890) up to z 0.900 (y 0.963), then the roller top (0.958). A deposited pallet's
+   * bottom follows that face; it only tilts by the height difference under its own length.
    */
   ramp: { outerZ: 1.066, innerZ: 0.9, rise: 0.073 },
   /** A Transfer_Forklift whose pallet point is within this distance of a rail end serves that end (m). */

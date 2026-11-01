@@ -3,7 +3,7 @@ import { useProgress } from "@react-three/drei";
 import { useModelsSettled } from "@/stores/useModelStore";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
 import { useWarmupStore } from "@/stores/useWarmupStore";
-
+import logo from "@/assets/images/logo_grapicar.png";
 /** Loading stages in order: [from %, to %] of the single bar, label and the task line under it. */
 const STAGES = {
   download: {
@@ -71,6 +71,7 @@ export default function StartupOverlay() {
     const fade = setTimeout(() => setClosing(true), 900);
     return () => clearTimeout(fade);
   }, [done]);
+
   useEffect(() => {
     if (done) return;
     const enteredAt = performance.now();
@@ -122,7 +123,12 @@ export default function StartupOverlay() {
           <path d="M16 2v28M3 9.5l26 13M29 9.5 3 22.5" opacity="0.5" />
         </svg>
         <span className="h-6 w-px bg-text-primary/30" />
-        <span>GRAPICAR TWIN STUDIO</span>
+        {/* <span>GRAPICAR TWIN STUDIO</span> */}
+        <img
+          src={logo}
+          alt="Grapicar Twin Studio"
+          className="relative h-10 -left-5"
+        />
       </div>
       <div className="absolute bottom-1/5 left-12 max-w-4xl">
         <h1 className="text-5xl leading-none font-semibold tracking-tight md:text-7xl xl:text-8xl">

@@ -18,6 +18,7 @@ import type { ConveyorTurn } from "@/types/layout";
 import { dockWarmupModel } from "@/objects/dock/Dock";
 import { preloadKitMaterials, type KitMaterials } from "@/objects/room/kit/kitMaterials";
 import { useViewportSettingsStore } from "@/stores/useViewportSettingsStore";
+import { compileInBatches, initTexturesInBatches, nextFrame, whenIdle } from "@/lib/three/compileInBatches";
 
 const TURNS: ConveyorTurn[] = ["straight", "left", "right"];
 const GHOSTS: Exclude<GhostModelKind, "rail" | "transfer">[] = ["robot", "pallet", "amr", "scanner", "rack", "forklift"];
@@ -45,6 +46,9 @@ export default function ModelWarmup() {
     started = true;
     const { setReady: ready, setPhase } = useWarmupStore.getState();
     setPhase("shaders");
+    // Started after the first frames are on screen (idle), then compiled in frame-budget slices.
+    void whenIdle().then(() => warmUp(ready, setPhase));
+    function warmUp(ready: () => void, setPhase: ReturnType<typeof useWarmupStore.getState>["setPhase"]) {
     // factory.glb "Enviroment" wall / floor kit (7 webp maps): fetched now, compiled and uploaded with the factory rig below.
     const kitReady: Promise<KitMaterials | null> =
       useViewportSettingsStore.getState().renderQuality === "performance" ? Promise.resolve(null) : preloadKitMaterials();
@@ -99,12 +103,13 @@ export default function ModelWarmup() {
     // compile for that target, otherwise every program is built for the canvas and again on the first real frame.
     const offscreen = isWebGPURenderer(gl) ? null : new WebGLRenderTarget(1, 1, { type: HalfFloatType });
     const previousTarget = gl.getRenderTarget();
-    let compiled: Promise<unknown>;
-    if (offscreen) gl.setRenderTarget(offscreen);
-    try { compiled = gl.compileAsync(root, camera, scene); } finally { if (offscreen) gl.setRenderTarget(previousTarget); }
+    const compiled: Promise<unknown> = isWebGPURenderer(gl)
+      ? gl.compileAsync(root, camera, scene)
+      : compileInBatches(gl as WebGLRenderer, camera, [{ scene: root, target: scene }], () => { if (offscreen) gl.setRenderTarget(offscreen); }, () => { if (offscreen) gl.setRenderTarget(previousTarget); });
     compiled
-      .then(() => {
-        for (const texture of textures) gl.initTexture(texture);
+      .then(async () => {
+        if (isWebGPURenderer(gl)) for (const texture of textures) gl.initTexture(texture);
+        else await initTexturesInBatches(gl as WebGLRenderer, textures);
         offscreen?.dispose();
       })
       .catch((error: unknown) => {
@@ -137,6 +142,7 @@ export default function ModelWarmup() {
           ready();
         });
       });
+    }
   }, [settled, gl, scene, camera]);
   return <Suspense fallback={null}><PropWarmup /></Suspense>;
 }
@@ -161,7 +167,6 @@ async function linkPrograms(gl: WebGLRenderer) {
   console.info("[warmup] program link", { programs: programs.length, ms: Math.round(performance.now() - started) });
 }
 
-const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 /**
  * Mounts the factory effect chain (selective bloom + AgX) for a few frames so the composer compiles its programs.

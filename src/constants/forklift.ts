@@ -48,6 +48,15 @@ function footprintOf() {
   };
 }
 
+/**
+ * Circle about the origin that contains the tine tips and a carried pallet. The route planner
+ * keeps this clear so an in-place turn does not sweep the forks through a rack or wall.
+ */
+export const FORKLIFT_NAV_RADIUS = Math.hypot(
+  Math.max(FORKLIFT_CONFIG.footprint.radius, STREAM_CONFIG.palletWidth / 2),
+  Math.max(FORKLIFT_CONFIG.footprint.frontZ, FORKLIFT_CONFIG.fork.z + FORKLIFT_CONFIG.point.z + STREAM_CONFIG.palletDepth / 2),
+);
+
 /** Circles (local z centres, shared radius) covering the capsule, for code that only knows circles. */
 /** Forklift traffic against AMRs. */
 /**

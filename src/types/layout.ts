@@ -19,7 +19,7 @@ export type RackStorageMode="pallet"|"boxes"|"both";
 export type RackSlotContent={slot:number;pallet:boolean;boxes:number};
 export type StopRole = "unload"|"service"|"ship"|"stage"|"rackDrop";
 export type DockAcceptGrade="any"|CargoGrade;
-export type EquipmentSettings={speed:number;reach:number;capacity:number;
+export type EquipmentSettings={outboundRatio?:number;speed:number;reach:number;capacity:number;
   /** Conveyor inlet: seconds between boxes (real time once `beltSpeed` is set; legacy = scaled by `speed`). */
   spawnInterval:number;enabled:boolean;defectRate?:number;
   /** Conveyor only: belt velocity in m/s (absent = legacy `speed` multiplier). */

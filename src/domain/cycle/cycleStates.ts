@@ -49,13 +49,32 @@ export const FORKLIFT_JOBS = {
 } as const;
 export type ForkliftJobKind = keyof typeof FORKLIFT_JOBS;
 
+/** Rack_m state machine: 대기 (home, filling) → 만재 → 이동 (AGV) → 만재 at the drop (rack forklift unloads) → 작업끝 (empty) → 이동 → 대기. */
 export const RACK_M_STATES = {
-  filling: "적재 중",
-  waitAgv: "만재 · AGV 호출",
-  transit: "AGV 운반 중",
-  unloading: "랙 지게차 하역 중",
-  returning: "빈 상태로 복귀 중",
+  waiting: "대기",
+  full: "만재",
+  moving: "이동",
+  done: "작업끝",
 } as const;
+/** Shuttle AMR phase (derived from ShuttleState): what palletSwap forklifts and the UI read. */
+export const SHUTTLE_PHASES = {
+  idle: "대기",
+  loading: "적재 중",
+  full: "만재",
+  waitSwap: "교체 대기",
+  moving: "이동",
+} as const;
+export type ShuttlePhase = keyof typeof SHUTTLE_PHASES;
+export const PALLET_STATES = {
+  empty: "빈 팔레트",
+  loading: "적재 중",
+  full: "만재",
+  outbound: "출하 지정",
+  stored: "랙 보관",
+  shipped: "출하 완료",
+} as const;
+export type PalletState = keyof typeof PALLET_STATES;
+export const YIELDING_LABEL = "양보(후진)";
 export type RackMState = keyof typeof RACK_M_STATES;
 
 export const AGV_STATES = {

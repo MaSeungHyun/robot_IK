@@ -74,9 +74,9 @@ function loadedOverlaps(x:number,z:number,yaw:number,kind:EquipmentKind,pose:Equ
 /** Room wall piece (kind "floor", 2-point path, radius = half thickness): blocks the AMR body circle, and when loaded
  * also the carried pallet as its real square at the planner's pallet yaw (separating axes), not the loaded envelope,
  * so docks set against a wall stay reachable while the pallet still never clips the wall. */
-function wallBlocker(o:NavigationObstacle,loaded:boolean,palletYaw:number):(x:number,z:number)=>boolean{
+function wallBlocker(o:NavigationObstacle,loaded:boolean,palletYaw:number,reach=AMR_TRAFFIC.emptyRadius):(x:number,z:number)=>boolean{
   const a=o.path![0],b=o.path![o.path!.length-1],r=o.radius??0,dx=b.x-a.x,dz=b.z-a.z,length=Math.hypot(dx,dz)||1e-9;
-  const ux=dx/length,uz=dz/length,cx=(a.x+b.x)/2,cz=(a.z+b.z)/2,limit=AMR_TRAFFIC.emptyRadius-1e-8;
+  const ux=dx/length,uz=dz/length,cx=(a.x+b.x)/2,cz=(a.z+b.z)/2,limit=reach-1e-8;
   const body=(x:number,z:number)=>{const t=Math.max(0,Math.min(length,(x-a.x)*ux+(z-a.z)*uz));return Math.hypot(x-a.x-t*ux,z-a.z-t*uz)-r<limit;};
   if(!loaded)return body;
   const [pw,pd]=footprint("pallet"),pc=Math.cos(palletYaw),ps=Math.sin(palletYaw);
@@ -99,8 +99,8 @@ function navigationClear(layout:FactoryLayout,x:number,z:number,loaded:boolean,e
  * (bucketed on a 1 m grid, then a tight bounding-box check). Pose tests reuse precomputed trig/extents, and
  * reserved paths are split per segment so a sample only measures the segments near it. Grid builds and segment
  * checks used to test every obstacle (and every point of every reserved path) per sample. */
-function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObstacle[]):(x:number,z:number)=>boolean{
-  const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius,size=1,limit=radius-1e-8,margin=.02;
+function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObstacle[],bodyRadius?:number):(x:number,z:number)=>boolean{
+  const radius=bodyRadius??(loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius),size=1,limit=radius-1e-8,margin=.02;
   const [pw,pd]=footprint("pallet"),palletHalf=Math.hypot(pw,pd)/2;
   type Entry={minX:number;maxX:number;minZ:number;maxZ:number;blocks:(x:number,z:number)=>boolean};
   const buckets=new Map<number,Entry[]>();
@@ -165,7 +165,7 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
   for(const o of extra){
     if(o.kind==="floor"&&o.path?.length){
       const a=o.path[0],b=o.path[o.path.length-1],reach=(o.radius??0)+(loaded?palletHalf+.01:radius);
-      add(Math.min(a.x,b.x),Math.max(a.x,b.x),Math.min(a.z,b.z),Math.max(a.z,b.z),Math.max(reach,(o.radius??0)+AMR_TRAFFIC.emptyRadius),wallBlocker(o,loaded,layout.pallet.yaw));
+      add(Math.min(a.x,b.x),Math.max(a.x,b.x),Math.min(a.z,b.z),Math.max(a.z,b.z),Math.max(reach,(o.radius??0)+(bodyRadius??AMR_TRAFFIC.emptyRadius)),wallBlocker(o,loaded,layout.pallet.yaw,bodyRadius??AMR_TRAFFIC.emptyRadius));
     }else if(o.path?.length){
       // obstacleClearance takes the minimum over segments, so the path blocks exactly when one segment does.
       const path=o.path,r=o.radius??0;
@@ -206,10 +206,11 @@ export function routeFailureReason(layout:FactoryLayout,start:{x:number;z:number
   if(extra.some(o=>o.path?.length&&o.kind!=="floor"))return `${stage}: 다른 AMR의 운반·복귀 경로 예약이 해제되기를 기다립니다.`;
   return `${stage}: 연결 가능한 통로가 없습니다. 장비 배치를 확인해 주세요.`;
 }
-export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[],options:{axis?:boolean}={}):Vector3[]|null{
+export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[],options:{axis?:boolean;radius?:number}={}):Vector3[]|null{
   const axis=options.axis===true;
-  const radius=loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius,padding=C.navigationPadding;
-  const clear=preparedClear(layout,loaded,extra);
+  const radius=options.radius??(loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius),padding=C.navigationPadding;
+  // A custom radius is a vehicle circle (forklift fork swing), not an AMR pallet square.
+  const clear=preparedClear(layout,options.radius?false:loaded,extra,options.radius);
   if(!clear(start.x,start.z)||!clear(goal.x,goal.z))return null;
   const segmentClear=(a:{x:number;z:number},b:{x:number;z:number})=>{
     const steps=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/.025));

@@ -179,8 +179,11 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       if (world.cycle) {
         const c = world.cycle.stats;
         if (world.cycle) console.log(`    handoff: n=${world.cycle.handoff.count} xz=${world.cycle.handoff.xz.toFixed(3)}m y=${world.cycle.handoff.y.toFixed(3)}m yaw=${(world.cycle.handoff.yaw * 180 / Math.PI).toFixed(1)}° | pick xz=${world.cycle.handoff.pickXz.toFixed(3)}m y=${world.cycle.handoff.pickY.toFixed(3)}m yaw=${(world.cycle.handoff.pickYaw * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`    cycle: scanTrips ${c.scanTrips} serviceTrips ${c.serviceTrips} swaps ${c.swaps} rackMFull ${c.rackMFull} agvTrips ${c.agvTrips} storedToRack ${c.storedToRack} shippedPallets ${c.shippedPallets} shippedBoxes ${world.shippedBoxes} overrides ${c.overrides} fallbacks ${c.fallbacks} emptyStacked ${c.emptyStacked} carrierTrips ${c.carrierTrips} palletsFed ${c.palletsFed} forkliftBusy ${Math.round(c.forkliftBusy ?? 0)}s forkliftOverlap ${Math.round(c.forkliftOverlap ?? 0)}s`);
-        console.log(`    states: ${world.cycle.snapshot.map((s) => `${s.id}:${s.state}(${s.detail})`).join(" | ")}`);
+    console.log(`    cycle: scanTrips ${c.scanTrips} serviceTrips ${c.serviceTrips} swaps ${c.swaps} rackMFull ${c.rackMFull} agvTrips ${c.agvTrips} storedToRack ${c.storedToRack} shippedPallets ${c.shippedPallets} shippedBoxes ${world.shippedBoxes} overrides ${c.overrides} fallbacks ${c.fallbacks} emptyStacked ${c.emptyStacked} carrierTrips ${c.carrierTrips} palletsFed ${c.palletsFed} forkliftBusy ${Math.round(c.forkliftBusy ?? 0)}s forkliftOverlap ${Math.round(c.forkliftOverlap ?? 0)}s backoffs ${c.backoffs ?? 0} replans ${c.replans ?? 0} outbound ${c.outboundPallets ?? 0}`);
+        console.log(`    outboundBelts: ${(world.outboundBelts ?? []).map((b) => b.id ?? b.object?.id ?? "?").join(" ") || "-"}`);
+    console.log(`    docks: ${objects.filter((o) => o.kind === "dock").map((o) => `${o.id}:${getSettings()[o.id]?.dockRole ?? "?"}`).join(" ")} pallets: ${JSON.stringify(world.cycle.palletCounts ?? {})}`);
+    console.log(`    stages: ${(world.cycle.stages ?? []).map((s) => `${s.id}@${s.x.toFixed(1)},${s.z.toFixed(1)}`).join(" ") || "-"}`);
+    console.log(`    states: ${world.cycle.snapshot.map((s) => `${s.id}:${s.state}(${s.detail})`).join(" | ")}`);
         if (process.env.CYCLE_DEBUG) for (const v of [...world.cycle.forklifts, ...world.cycle.agvs]) {
           const p = v.vehicle.position, path = v.vehicle.path.map((q) => `${q.x.toFixed(1)},${q.z.toFixed(1)}`).join(" ");
           console.log(`    ${v.object.id} ${v.state} @${p.x.toFixed(2)},${p.z.toFixed(2)} h${v.vehicle.heading.toFixed(2)} held${v.vehicle.heldSeconds.toFixed(0)} cur${v.vehicle.pathCursor} path[${path}]`);

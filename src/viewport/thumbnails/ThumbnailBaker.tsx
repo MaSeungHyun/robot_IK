@@ -21,6 +21,7 @@ import { PALLET_CONVEYOR } from "@/constants/palletConveyor";
 import { CONVEYOR_LAYOUT } from "@/constants/conveyorLayoutConfig";
 import { AMR_DECK, CYCLE_ACCENT } from "@/constants/cycle";
 import { createAgvModel, createRackMobileModel } from "@/lib/three/cycleModels";
+import { nextFrame, whenIdle } from "@/lib/three/compileInBatches";
 
 const WIDTH = 192, HEIGHT = 144;
 let baked = false;
@@ -45,6 +46,9 @@ export default function ThumbnailBaker() {
   useEffect(() => {
     if (!settled || baked) return;
     baked = true;
+    // Baked after the first frames (idle), one model per frame: the asset rail shows icons until the images arrive.
+    void whenIdle().then(bake);
+    async function bake() {
     const scenes = useModelStore.getState().scenes;
     const models: Record<string, Object3D> = {};
     const disposers: (() => void)[] = [];
@@ -157,20 +161,26 @@ export default function ThumbnailBaker() {
     // WebGPURenderer has no synchronous readRenderTargetPixels: bake on a private WebGL renderer instead.
     const ownRenderer = isWebGPURenderer(canvasGl) ? new WebGLRenderer({ alpha: true }) : null;
     const gl = ownRenderer ?? canvasGl;
-    const previousTarget = gl.getRenderTarget(),
+    let previousTarget = gl.getRenderTarget(),
       previousColor = gl.getClearColor(new Color()),
       previousAlpha = gl.getClearAlpha();
     const sphere = new Sphere(), direction = new Vector3(1, 0.8, 1.2).normalize();
     const result: Record<string, string> = {};
     try {
-      gl.setClearColor(0x000000, 0);
       for (const [key, model] of Object.entries(models)) try {
+        previousTarget = gl.getRenderTarget();
+        gl.getClearColor(previousColor);
+        previousAlpha = gl.getClearAlpha();
+        gl.setClearColor(0x000000, 0);
         scene.add(model);
         model.updateMatrixWorld(true);
         new Box3().setFromObject(model).getBoundingSphere(sphere);
         const distance = (sphere.radius / Math.sin((camera.fov * Math.PI) / 360)) * 1.05;
         camera.position.copy(sphere.center).addScaledVector(direction, distance);
         camera.lookAt(sphere.center);
+        gl.setRenderTarget(target);
+        // Link this model's programs in parallel first (KHR_parallel_shader_compile): render() would block until they are.
+        await gl.compileAsync(scene, camera);
         gl.setRenderTarget(target);
         gl.clear();
         gl.render(scene, camera);
@@ -181,8 +191,13 @@ export default function ThumbnailBaker() {
         rawContext.putImageData(image, 0, 0);
         result[key] = trimmed(pixels) ?? raw.toDataURL("image/png");
         scene.remove(model);
+        gl.setRenderTarget(previousTarget);
+        gl.setClearColor(previousColor, previousAlpha);
+        await nextFrame();
       } catch (error) {
         scene.remove(model);
+        gl.setRenderTarget(previousTarget);
+        gl.setClearColor(previousColor, previousAlpha);
         log("warning", `썸네일 렌더 실패: ${key}`, error instanceof Error ? (error.stack ?? error.message) : String(error));
       }
     } finally {
@@ -195,6 +210,7 @@ export default function ThumbnailBaker() {
       }
       for (const dispose of disposers) dispose();
       setThumbnails(result);
+    }
     }
   }, [settled, canvasGl, setThumbnails]);
 
