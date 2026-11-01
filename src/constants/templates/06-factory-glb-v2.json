@@ -212,7 +212,7 @@
     {
       "kind": "amr",
       "x": -8.8627,
-      "z": -8.3558,
+      "z": -13.9,
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",
@@ -873,8 +873,8 @@
     },
     {
       "kind": "amr",
-      "x": 9.2,
-      "z": -8.3558,
+      "x": 7.4,
+      "z": -13.9,
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",
@@ -889,6 +889,42 @@
       "settings": {
         "amrRole": "forklift",
         "forkliftTask": "palletSwap"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -22.4916,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -8.9857,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 11.1686,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 24.6745,
+      "z": -55.1352,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
       }
     }
   ],
@@ -1017,6 +1053,26 @@
       "type": "distribute",
       "from": 82,
       "to": 86
+    },
+    {
+      "type": "handoff",
+      "from": 101,
+      "to": 56
+    },
+    {
+      "type": "handoff",
+      "from": 102,
+      "to": 57
+    },
+    {
+      "type": "handoff",
+      "from": 103,
+      "to": 58
+    },
+    {
+      "type": "handoff",
+      "from": 104,
+      "to": 59
     }
   ],
   "props": [

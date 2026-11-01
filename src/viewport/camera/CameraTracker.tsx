@@ -4,6 +4,7 @@ import { Box3, Sphere, Vector3 } from "three";
 import type { Object3D } from "three";
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
 import { useSceneStore } from "@/stores/useSceneStore";
+import { isShipAmrId } from "@/domain/cycle/cycleStates";
 import { SceneObjectResolver, setSceneRoot, worldYaw } from "@/viewport/scene/sceneObjects";
 
 type ControlsEvent = "start" | "end";
@@ -137,7 +138,7 @@ export default function CameraTracker() {
       const length = Math.max(1e-3, offset.length());
       const azimuth = Math.atan2(offset.x, offset.z);
       const kind = useSceneStore.getState().objects.find((candidate) => candidate.id === id)?.kind;
-      v.relAzimuth = wrap((kind === "amr" ? yaw + Math.PI : azimuth) - yaw);
+      v.relAzimuth = wrap((kind === "amr" || isShipAmrId(id) ? yaw + Math.PI : azimuth) - yaw);
       v.fly = { t: 0, azimuth: wrap(azimuth - yaw), elevation: Math.asin(clamp(offset.y / length, -1, 1)), distance: length };
       scratch.from.copy(controls.target);
     }

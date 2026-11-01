@@ -11,11 +11,11 @@ import type { RefObject } from "react";
 import { HalfFloatType, Matrix4 } from "three";
 import type { AmbientLight, Camera } from "three";
 import { useSimulationStore } from "@/stores/useSimulationStore";
-import { RENDER_QUALITY } from "@/constants/viewport";
+import { ANTIALIAS_SAMPLES } from "@/constants/viewport";
 import { usePostWarmup } from "@/viewport/postWarmupState";
 import {
+  selectAntialias,
   selectBloomEnabled,
-  selectRenderQuality,
   useViewportSettingsStore,
 } from "@/stores/useViewportSettingsStore";
 
@@ -34,7 +34,7 @@ export default function PostProcessing({
   /** The composer forces the renderer to NoToneMapping; "agx" adds an AgX pass at the end (factory lighting). */
   toneMapping?: "agx";
 }) {
-  const renderQuality = useViewportSettingsStore(selectRenderQuality);
+  const antialias = useViewportSettingsStore(selectAntialias);
   const bloomEnabled = useViewportSettingsStore(selectBloomEnabled);
   const selection = useContext(selectionContext);
   const warming = usePostWarmup((state) => state.active);
@@ -91,7 +91,7 @@ export default function PostProcessing({
     <EffectComposer
       ref={composer}
       camera={pinnedCamera}
-      multisampling={RENDER_QUALITY[renderQuality].multisampling}
+      multisampling={antialias ? ANTIALIAS_SAMPLES : 0}
       stencilBuffer
       // HalfFloat kept on purpose: UnsignedByte clamps at 1.0, so the HDR threshold (1.5) would never bloom.
       frameBufferType={HalfFloatType}

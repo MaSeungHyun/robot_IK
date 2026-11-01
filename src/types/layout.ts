@@ -35,8 +35,9 @@ export type EquipmentSettings={outboundRatio?:number;speed:number;reach:number;c
   /** Door only: opening width/height in m and whether it is open (persisted = initial state). */
   doorWidth?:number;doorHeight?:number;doorOpen?:boolean;
   /** AMR role: "forklift" = rack-unloading forklift (ForkliftController; legacy "rack" means the same); default pallet AMR.
-   * Pallet cycle (domain/cycle): "shuttle" = AMR carrying a pallet on its deck (robot loads it in place), "agv" = Rack_m lifting AGV. */
-  amrRole?:"pallet"|"forklift"|"rack"|"shuttle"|"agv";
+   * Pallet cycle (domain/cycle): "shuttle" = AMR carrying a pallet on its deck (robot loads it in place), "agv" = Rack_m lifting AGV,
+   * "ship" = roller AMR parked in front of an outbound conveyor (a forklift sets a pallet on it; it pushes the pallet onto the belt). */
+  amrRole?:"pallet"|"forklift"|"rack"|"shuttle"|"agv"|"ship";
   /** AMR (not forklift / AGV) cargo type: "pallet" (default) = served by pallet-inbound conveyors, carries pallets;
    * "box" = box AMR, served only by box conveyors (carries loose boxes). */
   amrCargo?:"pallet"|"box";

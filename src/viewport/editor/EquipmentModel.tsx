@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import Scanner from "@/objects/scanner/Scanner";
 import AMR from "@/objects/amr/AMR";
 import ForkliftModel from "@/objects/forklift/ForkliftModel";
@@ -15,6 +16,7 @@ import RobotPreview from "@/objects/robot/RobotPreview";
 import RobotPedestal from "@/objects/robot/RobotPedestal";
 import { pedestalYawOffset } from "@/domain/layout/robotPedestals";
 import FloorRoom from "@/objects/room/FloorRoom";
+import { createRollerTopModel } from "@/lib/three/cycleModels";
 import { isForkliftRole, type SceneEquipment } from "@/types/layout";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import ConveyorExtensionControls from "@/viewport/editor/ConveyorExtensionControls";
@@ -80,10 +82,16 @@ function EditorFloor({ object }: { object: SceneEquipment }) {
 }
 
 /** Forklift-role AMRs show the forklift model; AGV-role AMRs the lifting AGV. */
+function RollerTop() {
+  const model = useMemo(() => createRollerTopModel(), []);
+  return <primitive object={model} />;
+}
+
 function AMRModel({ id }: { id: string }) {
   const role = useSceneStore((state) => state.settings[id]?.amrRole);
   if (isForkliftRole(role)) return <ForkliftModel />;
-  return role === "agv" ? <AgvBody /> : <AMR />;
+  if (role === "agv") return <AgvBody />;
+  return role === "ship" ? <><AMR /><RollerTop /></> : <AMR />;
 }
 
 /** A pallet mounted on a shuttle AMR (mountedOn) sits on the AMR's AMR_point seat. */

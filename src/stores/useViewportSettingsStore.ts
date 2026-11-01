@@ -24,6 +24,8 @@ interface ViewportSettings {
   loadAnimation: boolean;
   /** Use three's WebGPURenderer (falls back to WebGL when unavailable). Off = WebGL. */
   webgpu: boolean;
+  /** Edge smoothing. WebGL: composer MSAA. WebGPU: canvas MSAA (applied when the renderer is created). */
+  antialias: boolean;
 }
 
 export type ActiveRenderer = "webgl" | "webgpu";
@@ -52,6 +54,7 @@ interface ViewportSettingsState extends ViewportSettings {
   toggleMinimap: () => void;
   setCeiling: (enabled: boolean) => void;
   setLoadAnimation: (enabled: boolean) => void;
+  setAntialias: (enabled: boolean) => void;
 }
 
 const DEFAULT_SETTINGS: ViewportSettings = {
@@ -64,6 +67,7 @@ const DEFAULT_SETTINGS: ViewportSettings = {
   ceiling: true,
   loadAnimation: true,
   webgpu: false,
+  antialias: true,
 };
 
 export const SETTINGS_COOKIE = "sf_settings";
@@ -90,6 +94,7 @@ function sanitize(raw: unknown): ViewportSettings {
     ceiling: typeof value.ceiling === "boolean" ? value.ceiling : DEFAULT_SETTINGS.ceiling,
     loadAnimation: typeof value.loadAnimation === "boolean" ? value.loadAnimation : DEFAULT_SETTINGS.loadAnimation,
     webgpu: typeof value.webgpu === "boolean" ? value.webgpu : DEFAULT_SETTINGS.webgpu,
+    antialias: typeof value.antialias === "boolean" ? value.antialias : DEFAULT_SETTINGS.antialias,
   };
 }
 
@@ -114,13 +119,14 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
         set((state) => ({ minimap: !state.minimap, minimapFullscreen: false })),
       setCeiling: (ceiling) => set({ ceiling }),
       setLoadAnimation: (loadAnimation) => set({ loadAnimation }),
+      setAntialias: (antialias) => set({ antialias }),
     }),
     {
       name: SETTINGS_COOKIE,
       version: SETTINGS_VERSION,
       // A corrupt cookie throws inside persist's hydrate, which is caught, so defaults stay.
       storage: createJSONStorage(() => createCookieStorage()),
-      partialize: ({ renderQuality, bloomEnabled, shadowQuality, perfOverlay, perfExpanded, minimap, ceiling, loadAnimation, webgpu }) => ({
+      partialize: ({ renderQuality, bloomEnabled, shadowQuality, perfOverlay, perfExpanded, minimap, ceiling, loadAnimation, webgpu, antialias }) => ({
         renderQuality,
         bloomEnabled,
         shadowQuality,
@@ -130,6 +136,7 @@ export const useViewportSettingsStore = create<ViewportSettingsState>()(
         ceiling,
         loadAnimation,
         webgpu,
+        antialias,
       }),
       // Future schema changes: transform `persisted` by `version` here; sanitize() covers the rest.
       migrate: (persisted) => sanitize(persisted),
@@ -145,3 +152,5 @@ export const selectBloomEnabled = (state: ViewportSettingsState) =>
   !state.minimapFullscreen && state.bloomEnabled;
 export const selectShadowQuality = (state: ViewportSettingsState): ShadowQuality =>
   state.minimapFullscreen ? "off" : state.shadowQuality;
+export const selectAntialias = (state: ViewportSettingsState) =>
+  !state.minimapFullscreen && state.antialias;

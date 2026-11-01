@@ -8,7 +8,7 @@ type Scene = { objects: SceneEquipment[]; settings: Record<string, EquipmentSett
 
 /** AMRs a pallet can ride on: shuttles and plain pallet AMRs (not forklifts / AGVs). */
 export const canCarryPallet = (settings: EquipmentSettings | undefined) =>
-  !isForkliftRole(settings?.amrRole) && settings?.amrRole !== "agv";
+  !isForkliftRole(settings?.amrRole) && settings?.amrRole !== "agv" && settings?.amrRole !== "ship";
 
 /** Free carrier AMR within PALLET_MOUNT_RADIUS of (x, z), nearest first (placement ghost / click snap). */
 export function mountCarrierAt(scene: Scene, x: number, z: number): SceneEquipment | undefined {

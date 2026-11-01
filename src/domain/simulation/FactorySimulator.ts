@@ -1257,6 +1257,7 @@ export class FactorySimulator {
       elapsed: () => this.elapsed,
       settings: this.settings,
       emptyReturnTo: (amrId) => this.links.outgoing(amrId, "emptyReturn"),
+      handoffTo: (amrId) => this.links.outgoing(amrId, "handoff"),
       autoConnect: this.auto,
       plan: (from, to, loaded, extra, span) =>
         this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r })), span ?? null),

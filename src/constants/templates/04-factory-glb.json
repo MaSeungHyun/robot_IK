@@ -856,6 +856,42 @@
       "settings": {
         "doorOpen": true
       }
+    },
+    {
+      "kind": "amr",
+      "x": -22.4916,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -8.9857,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 11.1686,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 24.6745,
+      "z": -55.1352,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
     }
   ],
   "links": [
@@ -943,6 +979,26 @@
       "type": "emptyReturn",
       "from": 10,
       "to": 18
+    },
+    {
+      "type": "handoff",
+      "from": 113,
+      "to": 88
+    },
+    {
+      "type": "handoff",
+      "from": 114,
+      "to": 89
+    },
+    {
+      "type": "handoff",
+      "from": 115,
+      "to": 90
+    },
+    {
+      "type": "handoff",
+      "from": 116,
+      "to": 91
     }
   ],
   "props": [

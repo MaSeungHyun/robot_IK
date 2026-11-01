@@ -27,6 +27,14 @@ export function validateScene(
     if (pallets && boxAmr) errors.push(`${belt.name}: 팔레트 입하 컨베이어는 팔레트 AMR만 연결할 수 있습니다 (${amr.name}은 박스 AMR).`);
     if (!pallets && !boxAmr) errors.push(`${belt.name}: 박스 컨베이어는 박스 AMR만 연결할 수 있습니다 (${amr.name}은 팔레트 AMR).`);
   }
+  for (const link of links) {
+    if (link.type !== "handoff") continue;
+    const amr = byId.get(link.from), belt = byId.get(link.to);
+    if (amr?.kind === "amr" && settings[amr.id]?.amrRole !== "ship")
+      errors.push(`${amr.name}: 출하 연결은 출하 AMR만 할 수 있습니다.`);
+    if (belt?.kind === "conveyor" && settings[belt.id]?.conveyorRole !== "outbound")
+      errors.push(`${belt?.name ?? "컨베이어"}: 출하 연결은 출하 컨베이어만 받을 수 있습니다.`);
+  }
 
   // Boxes on a pallet need a depalletizing robot: pallet-inbound lines without one cannot unload.
   const depalletizer = objects.some((o) => o.kind === "robot" && settings[o.id]?.enabled !== false && isDepalletizer(settings[o.id]));

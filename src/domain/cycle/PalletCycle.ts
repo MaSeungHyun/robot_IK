@@ -2,10 +2,10 @@ import { Euler, Group, Vector3 } from "three";
 import type { EquipmentSettings, SceneEquipment } from "@/types/layout";
 import type { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import type { PalletController } from "@/domain/pallet/PalletController";
-import { beginPlanningStep, CycleVehicle, type CycleBody } from "@/domain/cycle/CycleVehicle";
+import { beginPlanningStep, CycleVehicle, type CycleBody, type CyclePlanner } from "@/domain/cycle/CycleVehicle";
 import {
-  AGV_STATES, FORKLIFT_JOBS, FORKLIFT_TASK_STATES, RACK_M_STATES, SHUTTLE_STATES,
-  type AgvState, type ForkliftJobKind, type ShuttlePhase, type PalletState, SHUTTLE_PHASES, PALLET_STATES, YIELDING_LABEL, type ForkliftTaskState, type RackMState, type ShuttleState,
+  AGV_STATES, FORKLIFT_JOBS, FORKLIFT_TASK_STATES, RACK_M_STATES, SHIP_AMR_ID_PREFIX, SHIP_AMR_STATES, SHUTTLE_STATES,
+  type AgvState, type ForkliftJobKind, type ShuttlePhase, type PalletState, SHUTTLE_PHASES, PALLET_STATES, YIELDING_LABEL, type ForkliftTaskState, type RackMState, type ShipAmrState, type ShuttleState,
 } from "@/domain/cycle/cycleStates";
 import { AGV_MODEL, CYCLE_CONFIG, RACK_M_MODEL, ROLLER_DECK } from "@/constants/cycle";
 import { FORKLIFT_CIRCLES, FORKLIFT_CONFIG, FORKLIFT_NAV_RADIUS, forkLiftFor, forkliftStop } from "@/constants/forklift";
@@ -29,8 +29,8 @@ import { doesGeneralJobs, emptyByForkliftOf, stackCapacityOf, takesEmptyPallets 
  *    new empty pallet from the pallet source back on the shuttle.
    * 4. A full Rack_m is lifted by an AGV and carried to the rack zone drop point; the rack forklift
    *    stores its pallets into the Rack, the AGV brings the empty Rack_m back. Pallets drawn as outbound
-   *    are stored the same way, then the rack forklift takes those out to a stage dock or an outbound
-   *    conveyor.
+   *    are stored the same way, then the rack forklift sets them on the outbound AMR, which pushes the
+   *    pallet onto the outbound conveyor (or a stage dock when one is free).
  * Variants (per-model settings, defaults keep the flow above):
  * - Pallet-unit inbound shuttle with emptyPallet "forklift": after the scanner robot emptied it, the AMR waits at the unload
  *   dock, the cell's service forklift lifts the empty pallet off and stacks it on the empty-pallet source, then the AMR goes
@@ -80,6 +80,8 @@ export type PalletCycleHost<C extends CycleCargo> = {
   log(level: "info" | "warning", message: string, detail?: string): void;
   /** 🔗 빈 팔레트 회수 (emptyReturn) targets of an AMR: forklift / stack ids. */
   emptyReturnTo?(amrId: string): readonly string[];
+  /** 🔗 출하 (handoff) conveyors a ship AMR pushes onto. */
+  handoffTo?(amrId: string): readonly string[];
   /** Auto-connect: without a link the nearest forklift (by route) takes the empty pallet; off = only linked. */
   autoConnect?: boolean;
 };
@@ -129,6 +131,8 @@ type RackM<C> = {
   fills: number;
 };
 type Agv = { object: SceneEquipment; vehicle: CycleVehicle; lift: Group; state: AgvState; home: Vector3; homeYaw: number; trips: number };
+/** Outbound AMR parked upstream of an outbound belt. The rack forklift sets a pallet on its roller deck; it drives up and pushes the pallet onto the belt. */
+type ShipAmr = { id: string; vehicle: CycleVehicle; belt: SceneEquipment; home: Vector3; pose: Vector3; yaw: number; busy: boolean; trips: number };
 /** Empty-pallet source stack; `busy` = the forklift reserving it (one at a time). */
 type Source = { dock: SceneEquipment; top: Group; stack: Group[]; busy?: Forklift<unknown> | null };
 /** Forklifts no longer take stored pallets out (Rack → outbound stage); kept switchable for old flows. */
@@ -138,6 +142,8 @@ const AGV_FETCH_CLEAR = 10;
 /** Emptied rack waiting longer than this (s) for rack forklifts to clear: fetch anyway (only the drop itself must be free). */
 const AGV_FETCH_TIMEOUT = 45;
 const AGV_DROP_CLEAR = 6;
+/** How far (m) an outbound AMR waits upstream of the belt hand-off, then drives forward to push the pallet on. */
+const SHIP_PUSH = 1.2;
 const RACK_FORKLIFT_SHIPS = false;
 type Forklift<C> = {
   object: SceneEquipment;
@@ -153,7 +159,7 @@ type Forklift<C> = {
   /** Carrier forklifts: the pallet held on the forks, its loading station pose and target unload dock. */
   carrier: { pallet: PalletController; heading: number; dock: SceneEquipment | null } | null;
 };
-export type CycleSnapshotItem = { id: string; kind: "shuttle" | "forklift" | "agv" | "rackm"; state: string; label: string; detail: string };
+export type CycleSnapshotItem = { id: string; kind: "shuttle" | "forklift" | "agv" | "rackm" | "ship"; state: string; label: string; detail: string };
 export type CycleStats = {
   /** Service forklifts: summed busy seconds, and seconds with ≥ 2 of them busy at once (parallel split work). */
   forkliftBusy: number;
@@ -203,6 +209,8 @@ export class PalletCycle<C extends CycleCargo> {
   private readonly parked: CycleVehicle[] = [];
   readonly forklifts: Forklift<C>[] = [];
   readonly agvs: Agv[] = [];
+  /** One roller-top AMR per outbound conveyor, waiting to be loaded by the rack forklift. */
+  private readonly shipAmrs: ShipAmr[] = [];
   readonly racks: RackM<C>[] = [];
   private readonly sources: Source[] = [];
   private drops: SceneEquipment[] = [];
@@ -271,7 +279,7 @@ export class PalletCycle<C extends CycleCargo> {
     const cycle = objects.some((o) => o.kind === "amr" && (settings[o.id]?.amrRole === "shuttle" || settings[o.id]?.amrRole === "agv"
       || (settings[o.id]?.amrRole === "forklift" && normalizeForkliftTask(settings[o.id]) === "unload")));
     if (!cycle) return null;
-    const cycleAmr = (id: string) => ["shuttle", "agv"].includes(settings[id]?.amrRole ?? "");
+    const cycleAmr = (id: string) => ["shuttle", "agv", "ship"].includes(settings[id]?.amrRole ?? "");
     const simForklift = (o: SceneEquipment) => {
       if (normalizeForkliftTask(settings[o.id]) !== "palletSwap") return false;
       const from = emptyFrom(o.id);
@@ -421,10 +429,47 @@ export class PalletCycle<C extends CycleCargo> {
         this.racks.push({ object, group, bay: { x: object.x, z: object.z, yaw: object.yaw }, state: "waiting", at: "home", drop: null, levels: RACK_M_MODEL.levels.map(() => null), booked: new Set(), storing: 0, agv: null, fills: 0 });
       }
     }
+    this.spawnShipAmrs(objects, plan(true), bodies);
     // AMRs never lift a pallet off the floor: every empty pallet onto a shuttle deck is placed by a service forklift.
     for (const shuttle of this.shuttles)
       if (shuttle.mode === "service" && !this.forklifts.some((f) => isServiceTask(f.task) && this.cellOf(f.object.id) === this.cellOf(shuttle.dock.id)))
         host.log("warning", `${shuttle.object.name}: 서비스 지게차가 없어 빈 팔레트를 올려줄 수 없음`, "AMR은 바닥의 팔레트를 스스로 들지 못합니다. 같은 구역에 서비스 지게차를 두세요");
+  }
+  /**
+   * One roller-top AMR per outbound belt, waiting upstream of the hand-off so a forklift can set a pallet on it.
+   * A template AMR with amrRole "ship" is used when it sits at that wait pose; otherwise one is created at run time.
+   */
+  private spawnShipAmrs(objects: readonly SceneEquipment[], plan: CyclePlanner, bodies: () => readonly CycleBody[]) {
+    const belts = this.host.outboundBelts?.();
+    if (!belts || !this.host.outboundPose || !this.host.rollOut) return;
+    const settings = this.host.settings();
+    const placed = objects.filter((o) => o.kind === "amr" && settings[o.id]?.amrRole === "ship");
+    const taken = new Set<string>();
+    const beltsOf = (id: string) => this.host.handoffTo?.(id) ?? [];
+    const linkedTo = (beltId: string) => placed.find((o) => !taken.has(o.id) && beltsOf(o.id).includes(beltId));
+    for (const belt of belts) {
+      const at = this.host.outboundPose(belt);
+      const pose = new Vector3(at.x, 0, at.z);
+      const spot = pose.clone().addScaledVector(forward(at.yaw), -SHIP_PUSH);
+      const object = linkedTo(belt.id) ?? placed
+        .filter((o) => !taken.has(o.id) && beltsOf(o.id).length === 0)
+        .map((o) => ({ o, d: Math.hypot(o.x - spot.x, o.z - spot.z) }))
+        .sort((a, b) => a.d - b.d)[0]?.o;
+      if (object) taken.add(object.id);
+      const home = object ? new Vector3(object.x, 0, object.z) : spot;
+      const yaw = object ? object.yaw : at.yaw;
+      const id = object?.id ?? `${SHIP_AMR_ID_PREFIX}${belt.id}`;
+      const vehicle = new CycleVehicle(id, object?.name ?? `${belt.name} 출하`, { x: home.x, z: home.z, yaw }, {
+        speed: CYCLE_CONFIG.shuttleSpeed,
+        circles: AMR_CIRCLES,
+        clearance: CYCLE_CONFIG.amrClearance,
+        plan,
+        bodies,
+      });
+      vehicle.carrier.add(createRollerTopModel());
+      this.shipAmrs.push({ id, vehicle, belt, home, pose, yaw, busy: false, trips: 0 });
+      this.bodies.push(vehicle.body);
+    }
   }
 
   /**
@@ -588,6 +633,7 @@ export class PalletCycle<C extends CycleCargo> {
   get views(): readonly { id: string; kind: "shuttle" | "agv" | "forklift"; vehicle: CycleVehicle }[] {
     return [
       ...this.shuttles.map((s) => ({ id: s.object.id, kind: "shuttle" as const, vehicle: s.vehicle })),
+      ...this.shipAmrs.map((a) => ({ id: a.id, kind: "shuttle" as const, vehicle: a.vehicle })),
       ...this.parked.map((vehicle) => ({ id: vehicle.id, kind: "shuttle" as const, vehicle })),
       ...this.agvs.map((a) => ({ id: a.vehicle.id, kind: "agv" as const, vehicle: a.vehicle })),
       ...this.forklifts.map((f) => ({ id: f.vehicle.id, kind: "forklift" as const, vehicle: f.vehicle })),
@@ -613,6 +659,7 @@ export class PalletCycle<C extends CycleCargo> {
   }
   private *vehicles() {
     for (const s of this.shuttles) yield s.vehicle;
+    for (const a of this.shipAmrs) yield a.vehicle;
     for (const a of this.agvs) yield a.vehicle;
     for (const f of this.forklifts) yield f.vehicle;
   }
@@ -1417,10 +1464,10 @@ export class PalletCycle<C extends CycleCargo> {
     const stage = this.stages.find((s) => own(s) && !this.busyDocks.has(s.id) && !this.host.unloadBusy(s.id));
     const oldest = RACK_FORKLIFT_SHIPS && stage ? this.host.rackOldest(this.shipClaims, own, f.object.id) : null;
     const marked = this.nextOutbound(own);
-    const belt = !stage && marked && this.host.outboundBelts && this.host.outboundPose && this.host.rollOut
-      ? this.host.outboundBelts().find((b) => this.cellOf(b.id) === cell && !this.busyDocks.has(b.id) && !this.host.outboundBusy?.(b))
+    const shipper = !stage && marked
+      ? this.shipAmrs.find((a) => !a.busy && this.cellOf(a.belt.id) === cell && !this.busyDocks.has(a.belt.id) && !this.host.outboundBusy?.(a.belt))
       : undefined;
-    const canShip = (!!oldest && this.stored.has(`${oldest.rack.id}:${oldest.slot}`) && !!stage) || (!!marked && (!!stage || !!belt));
+    const canShip = (!!oldest && this.stored.has(`${oldest.rack.id}:${oldest.slot}`) && !!stage) || (!!marked && (!!stage || !!shipper));
     if (!canStore && !canShip) return;
     const ship = canShip && (!canStore || f.lastJob === "store");
     if (!ship) {
@@ -1429,7 +1476,7 @@ export class PalletCycle<C extends CycleCargo> {
     }
     const target = oldest ?? marked!;
     if (stage) this.shipJob(f, target.rack, target.slot, stage);
-    else this.shipBelt(f, target.rack, target.slot, belt!);
+    else this.shipOnAmr(f, target.rack, target.slot, shipper!);
   }
   private storeJob(f: Forklift<C>, rackM: RackM<C>, rack: SceneEquipment, slot: number) {
     // Top level first.
@@ -1497,12 +1544,12 @@ export class PalletCycle<C extends CycleCargo> {
     this.returnIfIdle(f);
     this.finish(f);
   }
-  /** Stored outbound pallet onto a free outbound conveyor of the cell (no stage dock). */
-  private shipBelt(f: Forklift<C>, rack: SceneEquipment, slot: number, belt: SceneEquipment) {
+  /** Stored outbound pallet onto the belt's outbound AMR. The AMR drives up and the roller pushes the pallet onto the belt. */
+  private shipOnAmr(f: Forklift<C>, rack: SceneEquipment, slot: number, amr: ShipAmr) {
     const key = `${rack.id}:${slot}`;
-    const pose = this.host.outboundPose!(belt);
     this.shipClaims.add(key);
-    this.busyDocks.add(belt.id);
+    this.busyDocks.add(amr.belt.id);
+    amr.busy = true;
     f.job = "ship";
     this.setForklift(f, "toPick");
     const { x } = RACK_CONFIG.slots[slot];
@@ -1515,16 +1562,23 @@ export class PalletCycle<C extends CycleCargo> {
       this.shipClaims.delete(key);
       return load && group ? { ...load, group } : null;
     }, [], RACK_CONFIG.liftClearance + 0.02);
-    const point = new Vector3(pose.x, 0, pose.z);
-    this.place(f, point, pose.yaw, STREAM_CONFIG.palletDepth / 2, (load) => {
-      this.attachTo(this.host.root, load.group);
-      load.group.position.set(pose.x, load.group.position.y, pose.z);
-      load.group.rotation.set(0, pose.yaw, 0);
-      this.host.rollOut!(belt, load.group, load.boxes.map((b) => b.node), load.palletId);
-      this.stats.shippedPallets++;
-    }, [], () => {
-      this.busyDocks.delete(belt.id);
-    });
+    const deck = amr.home.clone().setY(ROLLER_DECK);
+    this.place(f, deck, amr.yaw, STREAM_CONFIG.palletDepth / 2, (load) => {
+      this.attachTo(amr.vehicle.carrier, load.group);
+      load.group.position.set(0, ROLLER_DECK, 0);
+      load.group.rotation.set(0, 0, 0);
+      amr.vehicle.loaded = true;
+      amr.vehicle.straight(amr.pose, { speed: 0.6 }).then(() => {
+        this.attachTo(this.host.root, load.group);
+        load.group.position.set(amr.pose.x, ROLLER_DECK, amr.pose.z);
+        load.group.rotation.set(0, amr.yaw, 0);
+        this.host.rollOut!(amr.belt, load.group, load.boxes.map((b) => b.node), load.palletId);
+        this.stats.shippedPallets++;
+        amr.trips++;
+        amr.vehicle.loaded = false;
+        this.busyDocks.delete(amr.belt.id);
+      }).straight(amr.home, { backward: true, speed: 0.6 }).then(() => { amr.busy = false; });
+    }, [amr.id]);
     this.returnIfIdle(f);
     this.finish(f);
   }
@@ -1575,6 +1629,14 @@ export class PalletCycle<C extends CycleCargo> {
         id: r.object.id, kind: "rackm" as const, state: r.state, label: RACK_M_STATES[r.state],
         detail: `${r.at === "drop" ? "하역 위치" : "홈"} · 팔레트 ${r.levels.filter((l) => l).length}/${r.levels.length} · 만재 ${r.fills}`,
       })),
+      ...this.shipAmrs.map((a) => {
+        const phase = this.shipPhase(a);
+        return {
+          id: a.id, kind: "ship" as const, state: phase,
+          label: `${SHIP_AMR_STATES[phase]}${a.vehicle.yielding ? ` · ${YIELDING_LABEL}` : ""}`,
+          detail: `${a.belt.name} · ${a.vehicle.loaded ? "팔레트 적재" : "빈 적재"} · 출하 ${a.trips}`,
+        };
+      }),
     ];
   }
   /**
@@ -1612,6 +1674,18 @@ export class PalletCycle<C extends CycleCargo> {
       ...this.shuttles.map((s) => ({ id: s.object.id, name: s.object.name, state: shuttleState(s.state), status: `[${SHUTTLE_STATES[s.state]}] 적재 ${s.pallet.count}/${s.pallet.slots.length}`, target: s.dock.name, completed: s.trips, battery: 100 })),
       ...this.agvs.map((a) => ({ id: a.object.id, name: a.object.name, state: agvState(a.state), status: `[${AGV_STATES[a.state]}]`, target: this.racks.find((r) => r.agv === a)?.object.name ?? null, completed: a.trips, battery: 100 })),
       ...this.forklifts.map((f) => ({ id: f.object.id, name: f.object.name, state: forkState(f.state), status: `[${FORKLIFT_TASK_STATES[f.state]}]${f.job ? ` ${FORKLIFT_JOBS[f.job]}` : ""}`, target: null, completed: f.done, battery: 100 })),
+      ...this.shipAmrs.map((a) => {
+        const phase = this.shipPhase(a);
+        const row: Row = phase === "idle" ? "idle" : phase === "wait" ? "waiting" : phase === "push" ? "dispatch" : "returning";
+        return { id: a.id, name: a.vehicle.name, state: row, status: `[${SHIP_AMR_STATES[phase]}] ${a.belt.name}`, target: a.belt.name, completed: a.trips, battery: 100 };
+      }),
     ];
+  }
+  /** Outbound AMR: waiting at home, holding for the forklift, pushing onto the belt, or backing home. */
+  private shipPhase(a: ShipAmr): ShipAmrState {
+    if (!a.busy) return "idle";
+    if (a.vehicle.loaded) return "push";
+    if (!a.vehicle.idle) return "return";
+    return "wait";
   }
 }

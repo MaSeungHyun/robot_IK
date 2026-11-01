@@ -26,6 +26,8 @@ export default function RenderQualitySelect() {
   const setWebGPU = useViewportSettingsStore((state) => state.setWebGPU);
   const activeRenderer = useViewportSettingsStore((state) => state.activeRenderer);
   const notice = useViewportSettingsStore((state) => state.rendererNotice);
+  const antialias = useViewportSettingsStore((state) => state.antialias);
+  const setAntialias = useViewportSettingsStore((state) => state.setAntialias);
   const onWebGPU = activeRenderer === "webgpu";
 
   return (
@@ -41,6 +43,10 @@ export default function RenderQualitySelect() {
           현재: {activeRenderer === null ? "초기화 중" : onWebGPU ? "WebGPU" : "WebGL"}
         </p>
         {notice && <p className="mt-1 text-[11px] text-text-secondary">{notice}</p>}
+      </div>
+      <div className="mt-4">
+        <p className="mb-2 flex items-center text-xs text-text-secondary">안티앨리어싱<InfoTip label="안티앨리어싱 설명" text="가장자리 계단을 줄입니다. WebGL은 후처리 샘플 2, WebGPU는 화면 샘플링입니다. 끄면 프레임이 올라가고, WebGPU에서는 장면을 다시 불러옵니다." /></p>
+        <Select label="안티앨리어싱" value={antialias ? "on" : "off"} options={BLOOM_OPTIONS} onValueChange={(value) => setAntialias(value === "on")} />
       </div>
       <div className="mt-4">
         <p className="mb-2 flex items-center text-xs text-text-secondary">AMR 빛 번짐<InfoTip label="AMR 빛 번짐 설명" text="AMR 상태등의 빛 번짐(블룸) 효과입니다. 성능이 부족하면 끄세요." /></p>

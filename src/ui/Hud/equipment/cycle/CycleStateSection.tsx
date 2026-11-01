@@ -9,6 +9,7 @@ const CYCLE_ROLES: Record<CycleSnapshot["kind"], string> = {
   forklift: "사이클 지게차",
   agv: "랙 운반 AGV",
   rackm: "이동식 랙 (Rack_m)",
+  ship: "출하 AMR",
 };
 
 /** Pallet-cycle state row for shuttle / forklift / AGV / Rack_m; shown in Edit too (idle until a cycle run). */
@@ -20,7 +21,7 @@ export default function CycleStateSection({ id }: { id: string }) {
     if (kind === "rack") return settings?.rackType === "mobile" ? "rackm" : undefined;
     if (kind !== "amr") return undefined;
     const role = settings?.amrRole;
-    return role === "shuttle" || role === "forklift" || role === "agv" ? role : undefined;
+    return role === "shuttle" || role === "forklift" || role === "agv" || role === "ship" ? role : undefined;
   });
   if (!item) {
     if (!configured) return null;

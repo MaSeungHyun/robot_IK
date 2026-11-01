@@ -1,8 +1,11 @@
 export const RENDER_QUALITY = {
-  performance: { maxDpr: 1, multisampling: 0 },
-  balanced: { maxDpr: 1.25, multisampling: 2 },
-  high: { maxDpr: 1.5, multisampling: 2 },
+  performance: { maxDpr: 1 },
+  balanced: { maxDpr: 1.25 },
+  high: { maxDpr: 1.5 },
 } as const;
+
+/** EffectComposer MSAA samples when antialiasing is on. WebGL canvas MSAA stays off. */
+export const ANTIALIAS_SAMPLES = 2;
 
 export type RenderQuality = keyof typeof RENDER_QUALITY;
 

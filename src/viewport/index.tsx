@@ -39,6 +39,7 @@ export default function Viewport() {
   const renderQuality = useViewportSettingsStore(selectRenderQuality);
   // Requested renderer; a failed WebGPU init remounts as WebGL until the option is toggled again.
   const wantWebGPU = useViewportSettingsStore((s) => s.webgpu && !s.webgpuFailed);
+  const antialias = useViewportSettingsStore((s) => s.antialias);
   const webgpu = useViewportSettingsStore((s) => s.activeRenderer === "webgpu");
   const ambientLight = useRef<AmbientLight>(null);
   // Template lighting preset (factory.glb lights + HDR) replaces the default ambient + key light.
@@ -67,10 +68,10 @@ export default function Viewport() {
       <SceneBoundary resetKey={run}>
         <Canvas
           // Switching renderer needs a fresh canvas and root; R3F disposes the old renderer on unmount.
-          key={wantWebGPU ? "webgpu" : "webgl"}
+          key={wantWebGPU ? `webgpu-${antialias ? "aa" : "off"}` : "webgl"}
           camera={CAMERA}
           // WebGL: no canvas MSAA (the EffectComposer multisamples), stencil for the outline. See createRenderer.
-          gl={(props) => createRenderer(props, wantWebGPU)}
+          gl={(props) => createRenderer(props, wantWebGPU, antialias)}
           shadows="percentage"
           dpr={[1, RENDER_QUALITY[renderQuality].maxDpr]}
           onCreated={({ gl }) => {

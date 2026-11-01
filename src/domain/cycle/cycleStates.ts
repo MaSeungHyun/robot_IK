@@ -43,7 +43,7 @@ export const FORKLIFT_JOBS = {
   storeDirect: "만재 팔레트 AMR → 랙 (Rack_m 없음)",
   swapEmpty: "빈 팔레트 적치장 → AMR",
   store: "Rack_m → 랙 적재",
-  ship: "랙 → 출하 로봇 옆 (사용 안 함)",
+  ship: "랙 → 출하 AMR",
   takeEmpty: "빈 팔레트 AMR → 빈 팔레트 적치장",
   carry: "하역: 만재 팔레트 → 랙 적재 · 빈 팔레트 복귀",
 } as const;
@@ -75,6 +75,18 @@ export const PALLET_STATES = {
 } as const;
 export type PalletState = keyof typeof PALLET_STATES;
 export const YIELDING_LABEL = "양보(후진)";
+
+/** Synthetic id of the roller AMR that pushes a pallet onto one outbound belt (`ship:${beltId}`). */
+export const SHIP_AMR_ID_PREFIX = "ship:";
+export const isShipAmrId = (id: string) => id.startsWith(SHIP_AMR_ID_PREFIX);
+
+export const SHIP_AMR_STATES = {
+  idle: "대기",
+  wait: "팔레트 수령 대기",
+  push: "출하 컨베이어로 이동",
+  return: "대기 위치로 복귀",
+} as const;
+export type ShipAmrState = keyof typeof SHIP_AMR_STATES;
 export type RackMState = keyof typeof RACK_M_STATES;
 
 export const AGV_STATES = {

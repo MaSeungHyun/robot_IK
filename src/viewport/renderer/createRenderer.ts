@@ -28,7 +28,7 @@ function fallBack(props: DefaultGLProps, reason: string) {
  * R3F async `gl` factory. WebGL unless the user turned WebGPU on; WebGPU falls back to WebGL when
  * navigator.gpu or an adapter is missing (checked before the canvas gets a context), or when init fails.
  */
-export async function createRenderer(props: DefaultGLProps, wantWebGPU: boolean) {
+export async function createRenderer(props: DefaultGLProps, wantWebGPU: boolean, antialias = true) {
   const store = useViewportSettingsStore.getState();
   if (!wantWebGPU) {
     store.setActiveRenderer("webgl", null);
@@ -48,7 +48,7 @@ export async function createRenderer(props: DefaultGLProps, wantWebGPU: boolean)
       powerPreference: props.powerPreference === "default" ? undefined : props.powerPreference,
       alpha: props.alpha,
       // No post-processing composer under WebGPU, so the canvas multisamples itself.
-      antialias: true,
+      antialias,
       stencil: true,
     });
     await renderer.init();

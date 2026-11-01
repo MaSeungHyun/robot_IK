@@ -700,6 +700,42 @@
       "x": 19.2707,
       "z": 35.3239,
       "yaw": 0
+    },
+    {
+      "kind": "amr",
+      "x": -22.4916,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -8.9857,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 11.1686,
+      "z": -55.1058,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 24.6745,
+      "z": -55.1352,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "amrRole": "ship"
+      }
     }
   ],
   "links": [
@@ -827,6 +863,26 @@
       "type": "distribute",
       "from": 82,
       "to": 86
+    },
+    {
+      "type": "handoff",
+      "from": 87,
+      "to": 56
+    },
+    {
+      "type": "handoff",
+      "from": 88,
+      "to": 57
+    },
+    {
+      "type": "handoff",
+      "from": 89,
+      "to": 58
+    },
+    {
+      "type": "handoff",
+      "from": 90,
+      "to": 59
     }
   ],
   "props": [

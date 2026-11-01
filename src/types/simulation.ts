@@ -3,7 +3,7 @@ import type { ScannerSnapshot } from "@/types/scanner";
 import type { EquipmentCategory, OperationState } from "@/domain/state/equipmentState";
 
 /** Pallet cycle actor state (domain/cycle) for detail panels. */
-export type CycleSnapshot={id:string;kind:"shuttle"|"forklift"|"agv"|"rackm";state:string;label:string;detail:string};
+export type CycleSnapshot={id:string;kind:"shuttle"|"forklift"|"agv"|"rackm"|"ship";state:string;label:string;detail:string};
 export type EquipmentSnapshot={cycle?:CycleSnapshot[];
   elapsed:number;
   scanners?: ScannerSnapshot[];

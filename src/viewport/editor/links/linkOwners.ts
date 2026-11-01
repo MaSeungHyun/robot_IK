@@ -29,10 +29,20 @@ export function resolveOwnedLink(a: SceneEquipment, b: SceneEquipment, scene: Sc
   for (const x of ownedLinkEnds(a.id, scene))
     for (const y of ownedLinkEnds(b.id, scene)) {
       if (x === y || linkOwner(x, scene) === linkOwner(y, scene)) continue;
-      const link = orientEmptyReturn(resolveLink(byId.get(x)!, byId.get(y)!), byId, scene);
+      const link = orientHandoff(orientEmptyReturn(resolveLink(byId.get(x)!, byId.get(y)!), byId, scene), byId, scene);
       if (link) return link;
     }
   return null;
+}
+
+/** Ship AMR ↔ outbound conveyor is always 출하 (AMR → conveyor), whichever end was picked first. */
+function orientHandoff<L extends { type: string; from: string; to: string }>(link: L | null, byId: Map<string, SceneEquipment>, { settings }: Scene): L | null {
+  if (!link || (link.type !== "feed" && link.type !== "handoff")) return link;
+  const ends = [byId.get(link.from), byId.get(link.to)];
+  const amr = ends.find((o) => o?.kind === "amr" && settings[o.id]?.amrRole === "ship");
+  const belt = ends.find((o) => o?.kind === "conveyor" && settings[o.id]?.conveyorRole === "outbound");
+  if (!amr || !belt) return link;
+  return { ...link, type: "handoff", from: amr.id, to: belt.id };
 }
 
 /** emptyReturn between two AMRs: always plain AMR → forklift (pick order does not matter); two forklifts / two AMRs: no link. */

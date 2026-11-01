@@ -72,11 +72,11 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
           info="역할을 바꿔도 모델은 바뀌지 않습니다. 지게차·AGV는 에셋 목록에서 해당 장비로 배치하세요. 지게차 옵션은 지게차를 선택하면 '지게차 설정'에 있습니다."
           options={model === "agv"
               ? [{ value: "agv", label: "AGV (Rack_m 운반)" }]
-              : [{ value: "pallet", label: "팔레트 AMR (출고 운반)" }, { value: "shuttle", label: "셔틀 AMR (팔레트 순환)" }]}
+              : [{ value: "pallet", label: "팔레트 AMR (출고 운반)" }, { value: "shuttle", label: "셔틀 AMR (팔레트 순환)" }, { value: "ship", label: "출하 AMR (출하 컨베이어)" }]}
         />
         <DeckBaseSetting id={object.id} />
         <EquipmentNumberSetting id={object.id} field="amrSpeed" label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} />
-        <StopPointSetting id={object.id} roles={model === "agv" ? ["rackDrop"] : ["ship"]} />
+        {role !== "ship" && <StopPointSetting id={object.id} roles={model === "agv" ? ["rackDrop"] : ["ship"]} />}
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
     )

@@ -1,5 +1,7 @@
 import Panel from "@/ui/Hud/_components/Panel";
 import EquipmentDetails from "@/ui/Hud/equipment/details/EquipmentDetails";
+import ShipAmrDetails from "@/ui/Hud/equipment/amr/ShipAmrDetails";
+import { isShipAmrId } from "@/domain/cycle/cycleStates";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useCargoStore } from "@/stores/useCargoStore";
 import BoxDetails from "@/ui/Hud/cargo/BoxDetails";
@@ -9,6 +11,7 @@ export default function EquipmentDetailsPanel() {
   const selected = useSceneStore((state) => state.inspected ?? state.selected);
   const boxId = useCargoStore((state) => state.selectedBoxId);
   const object = objects.find((candidate) => candidate.id === selected);
+  const shipAmr = !object && selected != null && isShipAmrId(selected);
   return (
     <Panel
       aria-label="설비 상세"
@@ -20,6 +23,8 @@ export default function EquipmentDetailsPanel() {
           <BoxDetails id={boxId} />
         ) : object ? (
           <EquipmentDetails object={object} />
+        ) : shipAmr && selected ? (
+          <ShipAmrDetails id={selected} />
         ) : (
           <>
             <h2 className="text-sm font-semibold">Details</h2>
