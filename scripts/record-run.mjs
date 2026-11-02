@@ -46,11 +46,14 @@ try {
   const counts = (w) => { const s = w.stats, c = w.cycle?.stats ?? {}; return { inbound: w.cargo.totals.inbound, scanned: (w.inspection.snapshots ?? []).reduce((n, x) => n + x.scanned, 0), defects: (w.inspection.snapshots ?? []).reduce((n, x) => n + x.faults, 0), placed: w.placed, passed: w.passed, depalletized: w.depalletized ?? 0, palletsShipped: s.completedPallets ?? 0, outbound: c.outboundPallets ?? 0, storedToRack: c.storedToRack ?? 0, shippedPallets: c.shippedPallets ?? 0, carrierTrips: c.carrierTrips ?? 0, forkliftStored: w.forkliftStored ?? 0, wip: s.live }; };
   const snapshot = (t, { world, recorder }) => {
     const boxes = [];
-    for (const [id, b] of recorder.boxes) if (b.parent) { b.getWorldPosition(p); const k = (recorder.parentOf.get(id) ?? "||").split("|"); boxes.push([id, k[0], k[1] === "null" ? null : k[1], cm(p.x), cm(p.y), cm(p.z)]); }
+    for (const [id, b] of recorder.boxes) if (b.parent) { b.getWorldPosition(p); const k = (recorder.parentOf.get(id) ?? "||").split("|"); b.getWorldQuaternion(q); const q3 = (v) => Math.round(v * 1000) / 1000;
+      const row = [id, k[0], k[1] === "null" ? null : k[1], cm(p.x), cm(p.y), cm(p.z), q3(q.x), q3(q.y), q3(q.z), q3(q.w)]; const g = k[0] === "pallet" ? recorder.bound.get(k[1]) : undefined;
+      if (g) { const [l, lq] = recorder.palletLocal(b, g); row.push(cm(l[0]), cm(l[1]), cm(l[2]), ...lq); } boxes.push(row); }
     const pallets = [];
-    for (const rec of world.cargo.pallets.values()) if (rec.state !== "shipped") { const [pos, yaw] = recorder.palletPose(rec.id); pallets.push([rec.id, rec.state, rec.grade, rec.boxIds.length, pos, yaw, recorder.palletCarrier.get(rec.id) ?? null]); }
+    for (const rec of world.cargo.pallets.values()) if (rec.state !== "shipped" || recorder.pallets.get(rec.id)?.parent) { const [pos, yaw] = recorder.palletPose(rec.id); pallets.push([rec.id, rec.state, rec.grade, rec.boxIds.length, pos, yaw, recorder.palletCarrier.get(rec.id) ?? null]); }
+    for (const [id, g] of recorder.pallets) if (id.startsWith("IN-") && g.parent && recorder.groupPallet.get(g.uuid) === id) { const [pos, yaw] = recorder.palletPose(id); pallets.push([id, "inbound", null, g.children.filter((c) => c.userData.boxId).length, pos, yaw, null]); }
     const eq = world.equipment;
-    return { t: +t.toFixed(3), boxes, boxFields: ["id", "parentKind", "parentId", "x", "y", "z"], pallets, palletFields: ["id", "state", "grade", "boxes", "pos", "yaw", "carrierKey"],
+    return { t: +t.toFixed(3), boxes, boxFields: ["id", "parentKind", "parentId", "x", "y", "z", "qx", "qy", "qz", "qw", "lx", "ly", "lz", "lqx", "lqy", "lqz", "lqw"], boxLocal: "x,y,z,lx,ly,lz in cm; q* world quaternion; l* only for parentKind pallet: relative to pallet pos/yaw (world = pos + rotY(yaw)*l, qWorld = qYaw*lq)", pallets, palletFields: ["id", "state", "grade", "boxes", "pos", "yaw", "carrierKey"],
       racks: (eq.racks ?? []).map((r) => ({ id: r.id, slots: r.slots.map((s) => s.state === "empty" ? 0 : s.state === "reserved" ? [2, s.palletId ?? null] : [1, s.palletId ?? null, s.grade ?? null, s.boxes ?? null]) })),
       suction: Object.fromEntries(robotIds.map((id) => [id, suctionOn.get(id) ?? null])), counts: counts(world),
       states: Object.fromEntries(lastState) };
@@ -60,9 +63,10 @@ try {
     const d = ctx.recorder.data, recording = { version: d.version, template: d.template, seed: d.seed, seconds: d.seconds };
     for (const k of REC_KEYS) { recording[k] = d[k].slice(cursor[k]); d[k].length = 0; cursor[k] = 0; }
     // Box keyframes: omit boxes that moved < 1 cm since their last emitted position (hold last; chunk snapshot seeds positions).
-    const held = new Map(chunk.snapshot.boxes.map((b) => [b[0], [b[3] / 100, b[4] / 100, b[5] / 100]]));
-    recording.boxKeyframes = recording.boxKeyframes.map((k) => ({ t: k.t, boxes: k.boxes.filter((b) => { const h = held.get(b[0]); if (h && Math.hypot(h[0] - b[1], h[1] - b[2], h[2] - b[3]) < 0.01) return false; held.set(b[0], [b[1], b[2], b[3]]); return true; }) }));
-    recording.boxKeyframeEncoding = "only boxes moved >= 1 cm since their previous emitted position; hold last value (snapshot seeds)";
+    const held = new Map(chunk.snapshot.boxes.map((b) => [b[0], [b[3] / 100, b[4] / 100, b[5] / 100, b[6], b[7], b[8], b[9]]]));
+    const turned = (h, b) => Math.abs(h[4] * b[4] + h[5] * b[5] + h[6] * b[6] + h[7] * b[7]) < 0.99996; // > ~1 deg
+    recording.boxKeyframes = recording.boxKeyframes.map((k) => ({ t: k.t, boxes: k.boxes.filter((b) => { const h = held.get(b[0]); if (h && Math.hypot(h[0] - b[1], h[1] - b[2], h[2] - b[3]) < 0.01 && !turned(h, b)) return false; held.set(b[0], [b[1], b[2], b[3], b[4], b[5], b[6], b[7]]); return true; }) }));
+    recording.boxKeyframeEncoding = "[id,x,y,z,qx,qy,qz,qw] world; only boxes moved >= 1 cm or turned >= ~1 deg since their previous emitted pose; hold last value (snapshot seeds)";
     const file = `chunk-${String(chunk.i).padStart(3, "0")}.json`;
     const body = { meta: { runId, template: template.id, chunk: chunk.i, t0: chunk.t0, t1: chunk.t1, poseHz: 10, statusHz: 2, jointNames: JOINTS, jointUnits: "0.1 deg int", amrUnits: "x,z cm int, yaw 0.1 deg int", armMount: "pedestal" },
       snapshot: chunk.snapshot, tracks: { t: chunk.t, joints: chunk.joints, amrs: chunk.amrs }, status: chunk.status, events: chunk.events, recording };

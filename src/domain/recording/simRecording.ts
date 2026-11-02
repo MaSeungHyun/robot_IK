@@ -18,12 +18,13 @@ export type SuctionContact = { t: number; robotId: string; boxId: string | null;
 /** Where a box sits. "rack"/"dock"/"world"/"none" extend the requested set; "none" = removed from the scene. */
 export type BoxParentKind = "conveyor" | "pallet" | "arm" | "amr" | "rail" | "rack" | "dock" | "world" | "none";
 
-/** [t, boxId, parentKind, parentId, local position, local quaternion] (local to the box's three.js parent).
+/** [t, boxId, parentKind, parentId, local position, local quaternion] (local to the box's three.js parent; for parentKind
+ *  "pallet": relative to that pallet's stream pose, i.e. world = pallet position + rotateY(pallet yaw) * local).
  *  parentKind "pallet" always carries the pallet id (events are deferred until it is known). */
 export type BoxParentEvent = [t: number, boxId: string, kind: BoxParentKind, parentId: string | null, position: Vec3, quaternion: Quat];
 
-/** 1 Hz world-position sample of every box in the scene: [boxId, x, y, z]. */
-export type BoxKeyframe = { t: number; boxes: [boxId: string, x: number, y: number, z: number][] };
+/** 1 Hz world-pose sample of every box in the scene: [boxId, x, y, z, qx, qy, qz, qw] (world quaternion, 3 decimals). */
+export type BoxKeyframe = { t: number; boxes: [boxId: string, x: number, y: number, z: number, qx: number, qy: number, qz: number, qw: number][] };
 
 /** What carries a pallet group: amr (AMR / forklift / AGV carrier), rail (rail or transfer), arm, station, rack, dock, conveyor, world. */
 export type PalletCarrierKind = "amr" | "rail" | "arm" | "station" | "rack" | "dock" | "conveyor" | "world";

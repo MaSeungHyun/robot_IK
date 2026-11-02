@@ -1,7 +1,7 @@
 import { Box3, Euler, Object3D, Quaternion, Vector3 } from "three";
 import type { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import {
-  SIM_RECORDING_VERSION, type BoxParentKind, type PalletCarrierKind, type Quat, type SimRecording, type Vec3,
+  SIM_RECORDING_VERSION, type BoxKeyframe, type BoxParentKind, type PalletCarrierKind, type Quat, type SimRecording, type Vec3,
 } from "@/domain/recording/simRecording";
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
@@ -30,6 +30,11 @@ export class SimRecorder {
   private readonly boxes = new Map<string, Object3D>();
   private readonly pallets = new Map<string, Object3D>();
   private readonly groupPallet = new Map<string, string>(); // group uuid -> pallet id (learned)
+  /** pallet id -> the group its boxes actually sit in (authoritative; the pallet stream uses this group's pose). */
+  private readonly bound = new Map<string, Object3D>();
+  private readonly emitted = new Map<string, [Vec3, number]>(); // last pose written to the pallet stream
+  private readonly q2 = new Quaternion();
+  private readonly up = new Vector3(0, 1, 0);
   private readonly parentOf = new Map<string, string>();
   private readonly palletState = new Map<string, string>();
   private readonly palletCarrier = new Map<string, string>();
@@ -68,6 +73,8 @@ export class SimRecorder {
   }
   /** Pallet id of a pallet group: explicit tags, learned mapping, station's current pallet, or its boxes' pallet. */
   private palletIdOf(g: Object3D): string | null {
+    const b = this.groupPallet.get(g.uuid);
+    if (b && this.bound.get(b) === g) return b; // bound by its boxes' cargo record
     let id: string | null = ((g.userData.boxId ?? g.userData.rackPallet) as string | undefined) ?? null;
     if (!id && typeof g.userData.sceneId === "string") id = this.cargo.currentPallet(g.userData.sceneId)?.id ?? null; // station's live pallet
     if (!id) id = this.groupPallet.get(g.uuid) ?? null;
@@ -103,7 +110,13 @@ export class SimRecorder {
   private classify(id: string, box: Object3D): [BoxParentKind, string | null] | null {
     for (let n = box.parent; n; n = n.parent) {
       if (n.userData.recordArm) return ["arm", n.userData.recordArm as string];
-      if (this.isPallet(n)) { const pid = this.palletIdOf(n) ?? this.cargo.box(id)?.palletId ?? null; return pid ? ["pallet", pid] : null; }
+      if (this.isPallet(n)) {
+        // The box's cargo record names its pallet; bind that id to this group so ids and poses match the pallet stream.
+        const cp = this.cargo.box(id)?.palletId, pid = (cp && this.cargo.pallets.has(cp) ? cp : null) ?? this.palletIdOf(n);
+        if (!pid) return null;
+        this.bind(pid, n);
+        return ["pallet", pid];
+      }
     }
     const rec = this.cargo.box(id);
     if (!rec) return ["world", null];
@@ -116,6 +129,19 @@ export class SimRecorder {
       case "pallet": return rec.palletId ? ["pallet", rec.palletId] : null;
     }
   }
+  private bind(pid: string, g: Object3D) {
+    if (this.bound.get(pid) === g && this.groupPallet.get(g.uuid) === pid) return;
+    this.bound.set(pid, g); this.groupPallet.set(g.uuid, pid); this.pallets.set(pid, g);
+  }
+  /** Box pose relative to the pallet group's world position + yaw (what the pallet stream records). */
+  private palletLocal(box: Object3D, g: Object3D): [Vec3, Quat] {
+    g.updateWorldMatrix(true, false); box.updateWorldMatrix(true, false);
+    const gp = g.getWorldPosition(new Vector3()), yaw = this.e.setFromQuaternion(g.getWorldQuaternion(this.q2), "YXZ").y;
+    const inv = new Quaternion().setFromAxisAngle(this.up, -yaw);
+    const lp = box.getWorldPosition(new Vector3()).sub(gp).applyQuaternion(inv);
+    const lq = inv.multiply(box.getWorldQuaternion(new Quaternion()));
+    return [vec(lp), quat(lq)];
+  }
   private check(t: number, id: string, box: Object3D) {
     const c = box.parent ? this.classify(id, box) : (["none", null] as [BoxParentKind, null]);
     if (!c) return; // pallet id not resolvable yet: retry next frame instead of emitting a null parent
@@ -123,7 +149,10 @@ export class SimRecorder {
     const key = `${kind}|${parentId}|${box.parent?.uuid ?? ""}`;
     if (this.parentOf.get(id) === key) return;
     this.parentOf.set(id, key);
-    this.data.boxParents.push([r3(t), id, kind, parentId, vec(box.position), quat(box.quaternion)]);
+    const g = kind === "pallet" && parentId ? this.bound.get(parentId) : undefined;
+    const [lp, lq] = g ? this.palletLocal(box, g) : [vec(box.position), quat(box.quaternion)];
+    if (g && parentId) this.emitPose(t, parentId); // make sure the stream carries the pallet pose at this attach
+    this.data.boxParents.push([r3(t), id, kind, parentId, lp, lq]);
     if (kind === "none") this.boxes.delete(id);
   }
   private scan() {
@@ -134,8 +163,22 @@ export class SimRecorder {
     });
   }
   /** World position + yaw of a pallet group (last known pose if it left the scene). */
+  private readonly emittedAt = new Map<string, number>();
+  /** Emit a pallet "move" when its pose changed (>= 5 mm / 0.005 rad); non-forced emits are capped at 2 Hz (forced on 1 Hz keyframe ticks and box attaches). */
+  private emitPose(t: number, id: string, force = true) {
+    if (!this.palletState.has(id)) return;
+    if (!force && t - (this.emittedAt.get(id) ?? -1) < 0.499) return;
+    const [pos, yaw] = this.palletPose(id), last = this.emitted.get(id);
+    if (!pos || yaw === null) return;
+    if (last && Math.hypot(last[0][0] - pos[0], last[0][1] - pos[1], last[0][2] - pos[2]) < 0.005 && Math.abs(last[1] - yaw) < 0.005) return;
+    const g = this.pallets.get(id), c = g?.parent ? this.carrierOf(g) : null;
+    this.data.pallets.push([r3(t), id, "move", c ? `${c[0]}:${c[1]}` : "world", pos, yaw, c?.[0] ?? null, c?.[1] ?? null]);
+    this.emitted.set(id, [pos, yaw]); this.emittedAt.set(id, t);
+  }
   private palletPose(id: string): [Vec3 | null, number | null] {
     let g = this.pallets.get(id);
+    const b = this.bound.get(id);
+    if (b?.parent && this.groupPallet.get(b.uuid) === id) g = b;
     if (!g?.parent || this.palletIdOf(g) !== id) {
       const rec = this.cargo.pallets.get(id), sg = rec && rec.state === "loading" ? this.hooks.stationGroup?.(rec.stationId) : undefined;
       if (sg && this.palletIdOf(sg) === id) { g = sg; this.pallets.set(id, sg); }
@@ -165,6 +208,7 @@ export class SimRecorder {
       const ck = carrier?.[0] ?? null, cid = carrier?.[1] ?? null;
       if (was === undefined) ev.push([r3(t), rec.id, "create", rec.stationId, pos, yaw, ck, cid]);
       else if (was !== rec.state) ev.push([r3(t), rec.id, rec.state === "shipped" ? "ship" : "move", rec.state, pos, yaw, ck, cid]);
+      if ((was === undefined || was !== rec.state) && pos && yaw !== null) this.emitted.set(rec.id, [pos, yaw]);
       this.palletState.set(rec.id, rec.state);
       if (!g?.parent || rec.state === "shipped") continue;
       const key = `${ck}|${cid}|${g.parent.uuid}`;
@@ -172,8 +216,17 @@ export class SimRecorder {
         const first = !this.palletCarrier.has(rec.id);
         this.palletCarrier.set(rec.id, key);
         this.data.palletParents?.push([r3(t), rec.id, ck ?? "world", cid]);
-        if (!first) ev.push([r3(t), rec.id, "move", ck ? `${ck}:${cid}` : "world", pos, yaw, ck, cid]);
-      } else if (tick && (ck === "amr" || ck === "rail")) ev.push([r3(t), rec.id, "move", `${ck}:${cid}`, pos, yaw, ck, cid]);
+        if (!first) { ev.push([r3(t), rec.id, "move", ck ? `${ck}:${cid}` : "world", pos, yaw, ck, cid]); if (pos && yaw !== null) { this.emitted.set(rec.id, [pos, yaw]); this.emittedAt.set(rec.id, t); } }
+      } else if (tick || (ck !== "amr" && ck !== "rail")) { this.emitPose(t, rec.id, tick); }
+    }
+    // Inbound / loose pallets (synthetic IN-xxxx ids, no CargoRegistry record) are streamed too, as state "inbound".
+    for (const [id, g] of this.pallets) {
+      if (!id.startsWith("IN-")) continue;
+      if (!g.parent || this.groupPallet.get(g.uuid) !== id) continue; // gone: retired below
+      seen.add(id);
+      const c = this.carrierOf(g), [pos, yaw] = this.palletPose(id);
+      if (!this.palletState.has(id)) { ev.push([r3(t), id, "create", "inbound", pos, yaw, c?.[0] ?? null, c?.[1] ?? null]); this.palletState.set(id, "inbound"); if (pos && yaw !== null) { this.emitted.set(id, [pos, yaw]); this.emittedAt.set(id, t); } }
+      else this.emitPose(t, id, tick);
     }
     for (const [id, state] of this.palletState) if (!seen.has(id)) {
       const [pos, yaw] = this.palletPose(id);
@@ -181,8 +234,8 @@ export class SimRecorder {
       this.palletState.delete(id);
     }
     if (tick) {
-      const boxes: [string, number, number, number][] = [];
-      for (const [id, box] of this.boxes) if (box.parent) { const w = box.getWorldPosition(this.p); boxes.push([id, r3(w.x), r3(w.y), r3(w.z)]); }
+      const boxes: BoxKeyframe["boxes"] = [];
+      for (const [id, box] of this.boxes) if (box.parent) { const w = box.getWorldPosition(this.p), q = box.getWorldQuaternion(this.q); boxes.push([id, r3(w.x), r3(w.y), r3(w.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w)]); }
       this.data.boxKeyframes.push({ t: r3(t), boxes });
       this.nextKey = Math.floor(t) + 1;
     }
