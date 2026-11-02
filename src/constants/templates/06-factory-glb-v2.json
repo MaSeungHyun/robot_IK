@@ -220,8 +220,8 @@
         "stopPoints": [
           {
             "role": "service",
-            "x": 0,
-            "z": -5.2,
+            "x": -2.9,
+            "z": -0.3,
             "yaw": 0
           }
         ]
@@ -760,8 +760,8 @@
     },
     {
       "kind": "rack",
-      "x": -17,
-      "z": -4,
+      "x": -21.3,
+      "z": 0,
       "yaw": -3.141592653589793,
       "settings": {
         "rackType": "mobile"
@@ -863,12 +863,20 @@
     },
     {
       "kind": "amr",
-      "x": -15.5,
-      "z": -8.3558,
+      "x": 13.1,
+      "z": -18.4,
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",
-        "forkliftTask": "palletSwap"
+        "forkliftTask": "palletSwap",
+        "stopPoints": [
+          {
+            "role": "service",
+            "x": -2.9,
+            "z": -0.3,
+            "yaw": 0
+          }
+        ]
       }
     },
     {
@@ -883,8 +891,8 @@
     },
     {
       "kind": "amr",
-      "x": -15.5,
-      "z": -11.6,
+      "x": -13.8,
+      "z": -13.2,
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",

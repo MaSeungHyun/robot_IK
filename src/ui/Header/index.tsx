@@ -7,6 +7,7 @@ import ConnectionStatus from "@/ui/Header/ConnectionStatus";
 import ViewToggles from "@/ui/Header/ViewToggles";
 import AutoLayoutToggle from "@/ui/Header/AutoLayoutToggle";
 import WalkModeButton from "@/viewport/walk/WalkModeButton";
+import logo from "@/assets/images/logo_grapicar@2x.png";
 
 export default function Header() {
   return (
@@ -33,10 +34,18 @@ function Logo() {
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <Box className="size-7 shrink-0 bg-brand-primary/20">
-        <Icon icon="Box" aria-hidden="true" className="size-4 text-brand-primary" />
+        <Icon
+          icon="Box"
+          aria-hidden="true"
+          className="size-4 text-brand-primary"
+        />
       </Box>
       <p className="truncate text-sm font-semibold tracking-wide">
-        Digital Twin <span className="text-text-secondary">–</span> SMART FACTORY
+        <img
+          src={logo}
+          alt="Grapicar Twin Studio"
+          className="relative h-10 -left-3"
+        />
       </p>
     </div>
   );
