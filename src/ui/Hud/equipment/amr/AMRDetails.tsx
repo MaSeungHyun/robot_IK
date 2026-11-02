@@ -16,6 +16,7 @@ import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/Equip
 import DeckBaseSetting from "@/ui/Hud/equipment/amr/DeckBaseSetting";
 import ForkliftSettings from "@/ui/Hud/equipment/amr/ForkliftSettings";
 import StopPointSetting from "@/ui/Hud/equipment/details/_components/StopPointSetting";
+import AgvPathSetting from "@/ui/Hud/equipment/amr/AgvPathSetting";
 import AMRLivePose from "@/ui/Hud/equipment/amr/AMRLivePose";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
@@ -77,6 +78,7 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
         <DeckBaseSetting id={object.id} />
         <EquipmentNumberSetting id={object.id} field="amrSpeed" label="최대 주행 속도" unit="m/s" {...SPEED_LIMITS.amrSpeed} />
         {role !== "ship" && <StopPointSetting id={object.id} roles={model === "agv" ? ["rackDrop"] : ["ship"]} />}
+        {model === "agv" && <AgvPathSetting id={object.id} />}
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
     )

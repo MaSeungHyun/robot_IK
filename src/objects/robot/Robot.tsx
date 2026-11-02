@@ -17,6 +17,7 @@ import { simulationClock } from "@/domain/simulation/simulationClock";
 import { planningScheduler } from "@/domain/robot/ik/planningScheduler";
 import { MOTION } from "@/constants/simulation";
 import { poseRobotHome } from "@/domain/robot/ik/joints";
+import { liveSuction } from "@/domain/recording/liveRecording";
 
 
 type Props = ThreeElements["group"] & {
@@ -60,6 +61,7 @@ export default function Robot({
       getJobs: () => inputs.current.jobs.current,
       getKeepOut: () => conveyorKeepOut(useSceneStore.getState().objects),
       onProgress: (count, status) => inputs.current.onProgress(count, status),
+      onSuction: (on, box, tool) => liveSuction(robotId ?? instanceId, on, box, tool), // no-op unless ?record=1
     });
     controller.current = instance;
     return () => {

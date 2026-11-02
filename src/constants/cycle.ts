@@ -59,7 +59,7 @@ export const RACK_M_MODEL = {
 
 export const CYCLE_CONFIG = {
   /** Share of full service pallets sent out (출하) to a stage dock by the shuttle AMR (seeded draw). */
-  outboundRatio: 0.3,
+  outboundRatio: 0.1,
   /** Shuttle AMR / forklift travel speeds (m/s). */
   shuttleSpeed: 1.6,
   forkliftSpeed: 1.4,

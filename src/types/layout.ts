@@ -28,6 +28,8 @@ export type EquipmentSettings={outboundRatio?:number;speed:number;reach:number;c
   amrSpeed?:number;
   /** Robot only; default "all". */
   pickFilter?:PickFilter;
+  /** Palletizer: also picks boxes with no scanner result (no-scanner layouts), ignoring pickFilter / pallet grade for them. Absent = off. */
+  pickUnscanned?:boolean;
   /** Pallet only; default "normal". */
   grade?:CargoGrade;
   /** Dock and rack; default "any". */
@@ -88,6 +90,9 @@ export type EquipmentSettings={outboundRatio?:number;speed:number;reach:number;c
   /** Robot/forklift/AGV/AMR: floor-click stop points (replace placed docks): unload = 하역, service = 교체, stage = 출하 대기,
    * rackDrop = Rack_m 하차, ship = 출고. The sim turns each into a virtual dock (domain/layout/stopPoints). */
   stopPoints?:{role:StopRole;x:number;z:number;yaw:number;acceptGrade?:DockAcceptGrade}[];
+  /** AGV only: 경로 ? floor waypoints (editor clicks) the AGV follows while it carries Rack_m (bay → drop; reversed on the
+   * way back). Empty / absent = the planner picks the route. */
+  agvPath?:{x:number;z:number}[];
   /** Conveyor role (rail.glb as is): "box" spawns boxes (default), "inbound" = 입하 box feed, "fed" = boxes only come from
    * a depalletizing robot (no spawning), "outbound" = 출하 pallet conveyor (an AMR's top roller hands its pallet over). */
   conveyorRole?:ConveyorRole;

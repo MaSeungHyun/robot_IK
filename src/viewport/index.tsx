@@ -18,6 +18,7 @@ import ShadowLight from "@/viewport/shadows/ShadowLight";
 import SceneEnvironment from "@/viewport/lighting/SceneEnvironment";
 import WorldAxes from "@/viewport/WorldAxes";
 import ShuttleZones from "@/viewport/editor/ShuttleZones";
+import AgvPaths from "@/viewport/editor/AgvPaths";
 import PostProcessing from "./PostProcessing";
 import WebGPUFrame from "@/viewport/renderer/WebGPUFrame";
 import { createRenderer, isWebGPURenderer } from "@/viewport/renderer/createRenderer";
@@ -108,6 +109,7 @@ export default function Viewport() {
           ))}
           {showGrid && <WorldAxes />}
           <ShuttleZones />
+          <AgvPaths />
 
           <CameraRig />
           <CameraTracker />

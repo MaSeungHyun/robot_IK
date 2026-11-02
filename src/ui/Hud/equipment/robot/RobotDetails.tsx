@@ -10,6 +10,7 @@ import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection"
 import EquipmentSpeedSetting from "@/ui/Hud/equipment/details/_components/EquipmentSpeedSetting";
 import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
 import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
+import EquipmentToggleSetting from "@/ui/Hud/equipment/details/_components/EquipmentToggleSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSimulationStore } from "@/stores/useSimulationStore";
@@ -102,6 +103,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
             ]}
           />
           {!depalletizer && (
+            <>
             <EquipmentChoiceSetting
               id={object.id}
               field="pickFilter"
@@ -113,6 +115,13 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
                 { value: "defect", label: "불량" },
               ]}
             />
+            <EquipmentToggleSetting
+              id={object.id}
+              field="pickUnscanned"
+              label="미검수 박스도 집기"
+              info="스캐너 결과가 없는 박스도 정상/불량 구분 없이 집어 이 로봇의 팔레트에 적재합니다. 스캐너가 없는 레이아웃용입니다."
+            />
+            </>
           )}
           <EquipmentChoiceSetting
             id={object.id}

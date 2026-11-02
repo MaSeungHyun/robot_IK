@@ -10,7 +10,7 @@ export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean, avoid?:
 export type CycleBody = { id: string; circles: () => readonly { x: number; z: number; r: number }[]; clearance?: number; center?: () => { x: number; z: number }; held?: () => number; loaded?: () => boolean };
 
 type Action =
-  | { type: "path"; to: Vector3; loaded: boolean; ignore?: readonly string[] }
+  | { type: "path"; to: Vector3; loaded: boolean; ignore?: readonly string[]; via?: readonly Vector3[] }
   | { type: "straight"; to: Vector3; backward: boolean; speed: number; ignore?: readonly string[] }
   | { type: "turn"; heading: number; symmetric: boolean }
   | { type: "fork"; y: number }
@@ -252,8 +252,9 @@ export class CycleVehicle {
   }
 
   /** Queues actions (fluent). */
-  goTo(to: Vector3, loaded = this.loaded, ignore?: readonly string[]) {
-    this.queue.push({ type: "path", to: to.clone().setY(0), loaded, ignore });
+  /** `via`: fixed waypoints (e.g. an AGV 경로) driven in order instead of a planned route; traffic still holds it, no detours. */
+  goTo(to: Vector3, loaded = this.loaded, ignore?: readonly string[], via?: readonly Vector3[]) {
+    this.queue.push({ type: "path", to: to.clone().setY(0), loaded, ignore, via: via?.length ? via.map((p) => p.clone().setY(0)) : undefined });
     return this;
   }
   straight(to: Vector3, options: { backward?: boolean; speed?: number; ignore?: readonly string[] } = {}) {
@@ -368,7 +369,10 @@ export class CycleVehicle {
           this.velocity = 0;
           this.detour = null;
           // A diverting vehicle waits for the side search instead of driving the straight route again.
-          if (this.replanAfterBack && this.options.divert) {
+          if (action.via) {
+            this.replanAfterBack = false;
+            this.plan(action);
+          } else if (this.replanAfterBack && this.options.divert) {
             this.replanAfterBack = false;
             this.replans++;
             this.path = [];
@@ -381,6 +385,16 @@ export class CycleVehicle {
               this.detour = this.detourSearch(action);
             }
           }
+        }
+        if (action.via) {
+          // Fixed route: brake for traffic on it, never search a detour.
+          const speed = this.lookAhead(this.options.speed, dt, action.ignore);
+          const left = speed > 0 ? this.drive(this.path, speed, dt, false, action.ignore, true) : false;
+          if (left !== false) {
+            this.path = [];
+            this.version++;
+          }
+          return left;
         }
         if (this.options.divert) {
           const here = this.carrier.position;
@@ -479,6 +493,10 @@ export class CycleVehicle {
   }
   private plan(action: Extract<Action, { type: "path" }>) {
     const from = this.carrier.position.clone();
+    if (action.via) {
+      this.setPath([from, ...action.via, action.to.clone()]);
+      return;
+    }
     let route = this.options.plan(from, action.to, action.loaded) ?? run(this.approach(from, action.to, action.loaded));
     if (!route || route.length < 2) {
       this.fallbacks += route ? 0 : 1;

@@ -10,6 +10,7 @@ import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/c
 import { scannerExtension,scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate, TemplateCamera, TemplateLighting, TemplateProp } from "@/types/sceneTemplate";
+import { placementDefaults } from "@/constants/equipmentDefaults";
 import { DEFAULT_BELT_SPEED, migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
 import { log } from "@/stores/useLogStore";
 import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
@@ -161,7 +162,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     set(state=>{
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
-      const config=settingsFor(kind,{...(kind==="conveyor"?{autoSpawn:false,beltSpeed:DEFAULT_BELT_SPEED}:{}),...(state.pending===kind?state.pendingPreset:null)});
+      const config=settingsFor(kind,{...placementDefaults(kind,state.pending===kind?state.pendingPreset:null),...(state.pending===kind?state.pendingPreset:null)});
       let object=kind==="conveyor"?snapBelt(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
       // [pedestal] a robot added over robot_base / robot_arm_place sits on its top face (base: XZ centre).
       if(kind==="robot"&&pose.elevation===undefined){const m=robotMountAt(object.x,object.z,true);object={...object,x:m.x,z:m.z,...(m.elevation?{elevation:m.elevation}:{})};}

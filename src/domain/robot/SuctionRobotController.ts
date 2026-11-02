@@ -261,6 +261,7 @@ export class SuctionRobotController implements RobotController {
         job.box.quaternion.copy(r.releaseRotation); job.box.scale.copy(scale);
       }
       this.ik.collisions.setHeld(null);
+      this.options.onSuction?.(false,job.box,this.ik.grip.getWorldPosition(new Vector3()));
     }
     const label=phase==="LIFT"&&this.transferMode==="shoulder"
       ?"hand00 고정 · 상승하며 후퇴 · 후방 경로 계산":PHASE_LABELS[phase];
@@ -458,6 +459,7 @@ export class SuctionRobotController implements RobotController {
     const r=this.runtime, ik=this.ik;
     r.parent=job.box.parent;
     ik.grip.attach(job.box); // Preserve world position; no pickup snap.
+    this.options.onSuction?.(true,job.box,ik.grip.getWorldPosition(new Vector3()));
     job.box.quaternion.normalize();
     r.snapTime=Infinity;
     if(!ROBOT_PICKING.centerGrasp){ // legacy off-centre contact: slide the box under the cup

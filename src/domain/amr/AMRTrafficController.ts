@@ -406,7 +406,9 @@ export class AMRTrafficController {
     const c = AMR_STALL_REPLAN,
       position = vehicle.dispatch.carrier.position;
     motion.cooldown -= dt;
-    if (!vehicle.dispatch.moving || Math.hypot(position.x - motion.anchor.x, position.z - motion.anchor.z) >= c.progress) {
+    // A dock-gated AMR waits on purpose: never brake it to pace 0 (advance() re-checks the gate; at pace 0 it
+    // was never called again, so the AMR stayed gated forever and its inbound line halted).
+    if (!vehicle.dispatch.moving || vehicle.dispatch.gated || Math.hypot(position.x - motion.anchor.x, position.z - motion.anchor.z) >= c.progress) {
       motion.anchor.copy(position);
       motion.still = 0;
       motion.pace = Math.min(1, motion.pace + dt / c.brake);

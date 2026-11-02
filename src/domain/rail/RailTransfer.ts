@@ -46,7 +46,7 @@ export type RailUnit = {
   overlaps: number;
   transfers: Partial<Record<-1 | 1, TransferUnit>>;
   next: -1 | 1;
-  /** Pallets rolled onto this rail (KPI / tests); overruns = deposits while the centre was not clear (must stay 0). */
+  /** Pallets rolled onto this rail (KPI / tests); overruns = refused deposit attempts (callers check canAccept first: must stay 0). */
   received: number;
   overruns: number;
 };
@@ -115,21 +115,32 @@ export class RailNetwork {
   transfer(id: string) {
     return this.transfers.find((t) => t.object.id === id);
   }
-  /** The centre is empty, no side pallet is still near it, and a side with a lift still has a free slot (else the AMR must not push). */
+  /**
+   * A side can take the next pallet only when its queue is empty and its lift is ready (empty, forks up): a lift still
+   * holding a pallet (boxes left to depalletize), lowering it or waiting for the empty-pallet forklift blocks its side.
+   * Pallets never stack up on the rail; the AMR keeps its pallet on the deck and waits instead.
+   */
+  private sideFree(rail: RailUnit, side: -1 | 1) {
+    const tf = rail.transfers[side];
+    return !!tf && tf.phase === "ready" && !tf.item && rail.halves[side].length === 0;
+  }
+  /** The centre is empty and a side with a ready lift has an empty queue (else the AMR must not push). */
   canAccept(id: string) {
     const rail = this.rail(id);
     if (!rail || rail.centre) return false;
-    if (!rail.transfers[-1] && !rail.transfers[1]) return false;
-    if (!([-1, 1] as const).some((side) => rail.transfers[side] && rail.halves[side].length < RAIL_CONFIG.slotsPerSide)) return false;
-    return ([-1, 1] as const).every((side) => { const q = rail.halves[side], last = q[q.length - 1]; return !last || Math.abs(last.s) >= RAIL_CONFIG.clearCentre; });
+    return ([-1, 1] as const).some((side) => this.sideFree(rail, side));
   }
-  /** AMR deck → rail centre (the group is re-parented to the root, world pose kept). */
-  deposit(id: string, item: RailItem) {
-    const rail = this.rail(id)!;
-    if (!this.canAccept(id)) rail.overruns++;
+  /** AMR deck → rail centre (the group is re-parented to the root, world pose kept). False = refused (the AMR waits). */
+  deposit(id: string, item: RailItem): boolean {
+    const rail = this.rail(id);
+    if (!rail || !this.canAccept(id)) {
+      if (rail) rail.overruns++;
+      return false;
+    }
     this.root.attach(item.group);
     rail.centre = { item, s: 0, lateral: RAIL_CONFIG.point.z, target: 0, phase: "deposit", t: 0, from: item.group.position.clone() };
     rail.received++;
+    return true;
   }
   advance(dt: number) {
     for (const rail of this.rails) this.advanceRail(rail, dt);
@@ -151,8 +162,7 @@ export class RailNetwork {
     // Centre → a free half (prefer the alternating side; only sides that have a lift).
     if (centre?.phase === "wait") {
       const sides = ([rail.next, -rail.next] as (-1 | 1)[]).filter((side) => {
-        const q = rail.halves[side], last = q[q.length - 1];
-        return rail.transfers[side] && q.length < RAIL_CONFIG.slotsPerSide && (!last || Math.abs(last.s) >= slotPitch() - 1e-6);
+        return this.sideFree(rail, side);
       });
       const side = sides[0];
       if (side) {

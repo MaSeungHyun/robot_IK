@@ -59,6 +59,8 @@ import { withRobotStops } from "@/domain/layout/robotStops";
 import { palletBaseY, palletPedestalPose } from "@/domain/layout/robotPedestals";
 import { remapStopLinks, withStopPoints } from "@/domain/layout/stopPoints";
 import { isDepalletizer } from "@/domain/robot/robotRole";
+import { propSegments } from "@/domain/layout/propObstacles";
+import type { TemplateProp } from "@/types/sceneTemplate";
 
 /** Runtime-spawned pallets (belt holds, cycle swaps, rack stock) carry the same turn as layout pallets: model and box grid. */
 const PALLET_TURN = (PALLET_STACKING.palletYawDegrees * Math.PI) / 180, PALLET_UP = new Vector3(0, 1, 0);
@@ -369,6 +371,8 @@ export class FactorySimulator {
     random?: () => number,
     links: readonly SceneLink[] = [],
     autoConnect = true,
+    /** Template GLB props: solid ones (columns, fences, decor racks / pallets) become route obstacles (domain/layout/propObstacles). */
+    props: readonly TemplateProp[] = [],
   ) {
     this.auto = autoConnect;
     // Every pallet is turned (runtime only, layouts untouched): fork openings and the box grid follow it, so forklifts,
@@ -456,6 +460,13 @@ export class FactorySimulator {
       radius: WALL_HALF_THICKNESS,
       path: [new Vector3(a.x, 0, a.z), new Vector3(b.x, 0, b.z)],
     }));
+    // Solid template props (factory.glb columns, fences, barriers, decor racks / pallets) block routes like walls.
+    this.wallObstacles.push(...propSegments(props, objects).map(({ a, b, radius }) => ({
+      kind: "floor" as const,
+      pose: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, yaw: 0 },
+      radius,
+      path: [a, b],
+    })));
     for (const door of this.doors) this.doorFraction.set(door.id, 0);
     // Pallet distribution rails + Transfer_Forklift lifts at their ends (domain/rail/RailTransfer).
     const rails = objects.filter((o) => o.kind === "rail"), transfers = objects.filter((o) => o.kind === "transfer");
@@ -610,6 +621,8 @@ export class FactorySimulator {
   }
   private palletAsset: Group;
   private scanners: SceneEquipment[] = [];
+  /** No enabled scanner and an enabled palletizer with pickUnscanned: inbound pallets feed any belt (updated each step). */
+  private noScanLine = false;
   private scannedIds = new Set<string>();
   private feedBoxIds = new Set<string>();
   /** Inbound-pallet boxes: put on a belt by the scan-start robot / put where no scanner follows / left the line unscanned. */
@@ -672,6 +685,8 @@ export class FactorySimulator {
   }
   /** A box set down at `d` on `belt` reaches a scanner further down its belt chain. */
   private scanAfter(belt: SceneEquipment, d: number) {
+    // No-scanner layout with a 미검수 박스도 집기 palletizer: any belt counts as the scan line (inbound boxes run unscanned).
+    if (this.noScanLine) return true;
     const seen = new Set<string>();
     for (let current: SceneEquipment | undefined = belt, from = d; current && !seen.has(current.id); from = 0) {
       seen.add(current.id);
@@ -781,6 +796,15 @@ export class FactorySimulator {
     return [{ id: `${RAIL_DOCK}${id}`, kind: "dock", name: `${rail.name} 투입`, x: rail.x + lateral * s, z: rail.z + lateral * c, yaw: rail.yaw }];
   }
   private railNet: RailNetwork | null = null;
+  /** Rail or transfer id holding this pallet group right now, else null (recording hook; rail items sit on the root). */
+  railHolderOf(group: unknown): string | null {
+    const net = this.railNet;
+    if (!net) return null;
+    for (const r of net.rails)
+      if (r.centre?.item.group === group || r.halves[-1].some((s) => s.item.group === group) || r.halves[1].some((s) => s.item.group === group)) return r.object.id;
+    for (const tf of net.transfers) if (tf.item?.group === group) return tf.object.id;
+    return null;
+  }
   /** Rail dock id → nav-reachable point straight out from the close deposit stop. */
   private readonly railDockApproach = new Map<string, Vector3>();
   /** Rail id → AMR that passed the dock gate and is driving in: one pallet in flight per rail centre at a time. */
@@ -1026,8 +1050,12 @@ export class FactorySimulator {
         emptyHome: (_pallet: Group, taken: () => void) => taken(),
       };
       const depositNow = () => {
+        // Refused (no side with an empty queue and a ready lift): keep the pallet on the deck and retry.
+        if (!net.deposit(railId, { group: run.group, boxes: run.boxes })) {
+          this.railPending.push({ railId, group: run.group, run: depositNow });
+          return;
+        }
         for (const box of run.boxes) this.feedBoxIds.add(box.id);
-        net.deposit(railId, { group: run.group, boxes: run.boxes });
         if (this.railReservations.get(railId) === agent.object.id) this.railReservations.delete(railId);
         this.feedDockLeaving.push({ dock, agent });
         (this.feedDockStats[dock.name] ??= { arrivals: 0, busySec: 0 }).arrivals++;
@@ -1318,7 +1346,7 @@ export class FactorySimulator {
       rollOut: (belt, group, boxes, palletId) => {
         this.rolling.push({ belt, group, boxes, distance: -PALLET_CONVEYOR.transferOffset, fromY: group.position.y, palletId });
       },
-      rackFree: (booked, accept, forklift) => {
+      rackFree: (booked, accept, forklift, random) => {
         // Lowest free slot per rack; with a forklift: only racks it serves, nearest by route first (list order on ties).
         const free: { rack: SceneEquipment; slot: number; length: number }[] = [];
         for (const rack of this.racks) {
@@ -1326,8 +1354,9 @@ export class FactorySimulator {
           if (forklift && !this.forkliftServes(forklift.id, rack.id)) continue;
           const stored = this.rackStored.get(rack.id)!;
           const slots = RACK_CONFIG.slots.map((_, i) => i).sort((a, b) => RACK_CONFIG.slots[a].y - RACK_CONFIG.slots[b].y);
-          const slot = slots.find((s) => !stored[s] && !booked.has(`${rack.id}:${s}`) && !this.slotBookings.has(`${rack.id}:${s}`));
-          if (slot === undefined) continue;
+          const open = slots.filter((s) => !stored[s] && !booked.has(`${rack.id}:${s}`) && !this.slotBookings.has(`${rack.id}:${s}`));
+          if (!open.length) continue;
+          const slot = random ? open[Math.min(open.length - 1, Math.floor(random() * open.length))] : open[0];
           if (!forklift) return { rack, slot };
           // 0.5 m buckets: near-equal routes keep the rack list order (deterministic, same as before for symmetric layouts).
           free.push({ rack, slot, length: Math.round(this.rackRouteLength(forklift.from, rack, slot, true) / 0.5) });
@@ -1613,6 +1642,8 @@ export class FactorySimulator {
 
   advance(dt: number) {
     const settings = this.settings();
+    this.noScanLine = !this.scanners.some((sc) => settings[sc.id]?.enabled !== false) &&
+      this.robots.some((r) => !this.depalletizers.includes(r) && settings[r.object.id]?.enabled && settings[r.object.id]?.pickUnscanned === true);
     this.elapsed += dt;
     this.kpi.tick(this.elapsed, this.kpiSample);
     for (const robot of this.robots)
@@ -1769,7 +1800,7 @@ export class FactorySimulator {
         let near = Infinity;
         for (let i = 0; i < pickBoxes.length; i++) {
           const box = pickBoxes[i];
-          if ((feed && !feed.has(box.belt.id)) || ((config.pickFilter ?? "all") !== "all" && pickGrades[i] !== config.pickFilter)) continue;
+          if ((feed && !feed.has(box.belt.id)) || ((config.pickFilter ?? "all") !== "all" && pickGrades[i] !== config.pickFilter && !(config.pickUnscanned && this.unscanned(box)))) continue;
           near = Math.min(near, distance(robot.object, box.node.position));
         }
         robot.warning = near <= config.reach + 1
@@ -1822,8 +1853,11 @@ export class FactorySimulator {
           const box = nearBoxes[n], boxGrade = nearGrades[n];
           // Non-matching boxes are left on the belt and continue downstream.
           // Strict grade separation: box grade = robot filter (when set) = pallet grade. Others stay on the belt.
-          if (filter !== "all" && boxGrade !== filter) continue;
-          if (boxGrade !== grade) continue;
+          // 미검수 박스도 집기 (pickUnscanned): a box with no scanner result skips the grade checks (any pallet of this robot).
+          if (!(config.pickUnscanned && this.unscanned(box))) {
+            if (filter !== "all" && boxGrade !== filter) continue;
+            if (boxGrade !== grade) continue;
+          }
           const speed = box.speed ?? beltSpeedOf(settings[box.belt.id]);
           // Where the box will be at contact (approach + descent). A box that will have left the reach or the
           // belt (reserved boxes stop at its end and are then given up) by then is left for downstream.
@@ -2023,6 +2057,10 @@ export class FactorySimulator {
   /** Scanner result recorded on the box; boxes that passed no scanner count as normal. */
   private grade(box: Cargo): CargoGrade {
     return this.inspection.resultOf(box.node) === "fault" ? "defect" : "normal";
+  }
+  /** No scanner result yet (rack stock counts as inspected). */
+  private unscanned(box: Cargo): boolean {
+    return box.node.userData.inspected !== true && this.inspection.resultOf(box.node) === null;
   }
   private assign(
     robot: FactoryRobot,
@@ -2259,7 +2297,7 @@ export class FactorySimulator {
           : beltPoint(belt, along);
         const lift = Math.min(1, (item.distance + PALLET_CONVEYOR.transferOffset) / PALLET_CONVEYOR.transferOffset);
         item.group.position.set(p.x, item.fromY + (CONVEYOR_LAYOUT.height - item.fromY) * lift, p.z);
-        item.group.rotation.set(0, p.yaw, 0);
+        item.group.rotation.set(0, p.yaw + ((item.group.userData.rollFlip as number | undefined) ?? 0), 0);
       }
       const head = list[0];
       if (head.distance >= length - PALLET_CONVEYOR.dropBeforeEnd) {

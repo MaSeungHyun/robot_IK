@@ -60,7 +60,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
     console.log(`## ${template.id} (${template.name}) validation: ${errors.length ? errors.join(" | ") : "ok"}`);
     let seed = 12345; const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
     const buildStart = performance.now();
-    const world = new FactorySimulator(objects, boxGltf.scene, palletGltf.scene, getSettings, undefined, random, links, autoConnect);
+    const world = new FactorySimulator(objects, boxGltf.scene, palletGltf.scene, getSettings, undefined, random, links, autoConnect, process.env.NO_PROPS ? [] : (template.props ?? []));
     const buildMs = performance.now() - buildStart;
     const scene = new THREE.Scene(); scene.add(world.root);
     for (const entity of objects.filter(o => o.kind === "scanner")) {
@@ -100,6 +100,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
     }
     { const t0 = performance.now(); clock.frame(1 / 60, speed, world, Infinity); console.log(`  startup: build ${buildMs.toFixed(0)}ms firstFrame ${(performance.now() - t0).toFixed(0)}ms`); }
     const minGap = { d: Infinity, pair: "", t: 0, limit: 0 };
+    const railCap = { last: "", log: [], maxOnRail: 0 };
     // One AMR per dock: never two AMR bodies inside one dock's footprint (pallet pose + body radius) at once.
     const dockPoses = objects.filter((o) => o.kind === "dock");
     const dockShare = { n: 0, first: "" };
@@ -140,6 +141,12 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
             m.set(s.state, (m.get(s.state) ?? 0) + 1);
             phaseTime.set(s.id, m);
           }
+          // Rail capture (railStats / transferStats each second): pallets on the rail and lift phases, logged on change.
+          if (world.railStats?.length) {
+            const key = world.railStats.map((r) => `${r.id}[C${r.centre ? 1 : 0} L${r.left} R${r.right}]`).join(" ") + " " + world.transferStats.map((x) => `${x.id}:${x.phase}`).join(" ");
+            for (const r of world.railStats) railCap.maxOnRail = Math.max(railCap.maxOnRail, (r.centre ? 1 : 0) + r.left + r.right);
+            if (key !== railCap.last) { railCap.last = key; railCap.log.push(`${clock.stats.simTime.toFixed(0)}s ${key}`); }
+          }
           const hb = world.haltedBelts();
           for (const b of hb) beltHalt.set(b, (beltHalt.get(b) ?? 0) + 1);
           const h = hb.size > 0;
@@ -175,6 +182,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       if (world.heldPalletBelts.length) console.log(`    palletHold: ${world.heldPalletBelts.map((h) => `${h.beltId}:pallet=${h.pallet} d=${h.distance.toFixed(2)} atStopper=${h.atStopper} amr=${h.agent ?? "-"} fed=${h.fed} n=${h.count} d=[${h.distances.map((x) => x.toFixed(2))}] arr=[${h.arrivals.map((x) => x.toFixed(0))}]`).join(" | ")}`);
       if (world.feedDockStats && Object.keys(world.feedDockStats).length) console.log(`    feedDocks: ${Object.entries(world.feedDockStats).map(([name, s]) => `${name} 도착 ${s.arrivals} · 가동 ${Math.round((s.busySec / clock.stats.simTime) * 100)}%`).join(" | ")}`);
       if (world.railStats?.length) console.log(`    rails: ${world.railStats.map((r) => `${r.id} 수령 ${r.received} 중앙겹침 ${r.overruns} 대기 L${r.left}/R${r.right} 최대 L${r.maxLeft}/R${r.maxRight} 큐겹침 ${r.overlaps}`).join(" | ")} · lifts: ${world.transferStats.map((t) => `${t.id}:${t.phase}`).join(" ")}`);
+      if (railCap.log.length) console.log(`    railCapture: maxOnRail ${railCap.maxOnRail} changes ${railCap.log.length}${process.env.RAIL_LOG ? "\n      " + railCap.log.join("\n      ") : " last: " + railCap.log.slice(-3).join(" / ")}`);
       if (world.feedScan?.dropped) console.log(`    feedScan: ${JSON.stringify({ ...world.feedScan, inTransit: world.feedBoxIds?.size ?? 0 })}`);
       if (world.cycle) {
         const c = world.cycle.stats;
@@ -189,7 +197,10 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
           console.log(`    ${v.object.id} ${v.state} @${p.x.toFixed(2)},${p.z.toFixed(2)} h${v.vehicle.heading.toFixed(2)} held${v.vehicle.heldSeconds.toFixed(0)} cur${v.vehicle.pathCursor} path[${path}]`);
         }
         console.log(`    robots: ${world.robots.map((r) => r.object.id + ":" + (!r.busy && r.warning ? r.warning : r.status)).join(" | ")}`);
-    if (process.env.ROBOT_DEBUG) for (const r of world.robots) if (r.jobs.length) console.log(`    job ${r.object.id}@${r.object.x.toFixed(1)},${r.object.z.toFixed(1)}: n=${r.jobs.length} pick=${r.jobs[0].pickup.toArray().map((v) => v.toFixed(2))} dest=${r.jobs[0].destination.toArray().map((v) => v.toFixed(2))} avail=${r.jobs[0].available?.()} moving=${r.jobs[0].moving}`);
+    if (process.env.HEAD_DEBUG) { const h = new Map(); for (const b of world.boxes) if (b.state === "moving" && b.belt) { const c = h.get(b.belt.id); if (!c || b.distance > c.distance) h.set(b.belt.id, b); } console.log(`    heads: ${[...h].map(([id, b]) => `${id}:d=${b.distance.toFixed(1)}/${(b.belt.length ?? 0).toFixed?.(1)} g=${world.inspection.resultOf(b.node)} @${b.node.position.x.toFixed(1)},${b.node.position.z.toFixed(1)}`).join(" | ")}`); }
+    if (process.env.GATE_DEBUG) { console.log(`    gate: queue ${[...world.feedDockQueue].map(([d,q])=>d+"=["+q.map(a=>a.object.id).join(",")+"]").join(" ")} leaving ${world.feedDockLeaving.map(l=>l.dock.id+":"+l.agent.object.id+":"+l.agent.dispatch.phase).join(" ")} unload ${world.unloadLoads.map(l=>l.dock.id).join(" ")} resv ${[...world.railReservations].join(" ")} accept ${world.railNet?.rails.map(r=>r.object.id+":"+world.railNet.canAccept(r.object.id)).join(" ")} pending ${world.railPending.map(p=>p.railId).join(" ")} feed ${world.agents.filter(a=>a.dispatch.routes?.feed).map(a=>{const d=a.dispatch;return a.object.id+":gate="+d.routes.feed.dockGate?.()+",gated="+d.gated+",stage="+d.routes.feed.stage+",dockStage="+d.routes.feed.dockStage+",cur="+d.cursor+"/"+d.path.length+",moving="+d.moving+",holding="+d.holding+",turn="+d.turnTarget+",yield="+d.yielding}).join(" ")}`); }
+    if (process.env.REACH_PROBE) for (const r of world.robots) if (r.object.id === process.env.REACH_PROBE) { const near = world.boxes.filter((b) => b.belt).map((b) => ({ b, d: Math.hypot(b.node.position.x - r.object.x, b.node.position.z - r.object.z) })).sort((p, q) => p.d - q.d).slice(0, 3); console.log(`    reach ${r.object.id}@${r.object.x},${r.object.z}: ${near.map(({ b, d }) => `${b.belt.id}@${b.node.position.x.toFixed(2)},${b.node.position.z.toFixed(2)} d=${d.toFixed(2)} ${b.state}`).join(" | ")}`); }
+if (process.env.ROBOT_DEBUG) for (const r of world.robots) if (r.jobs.length) console.log(`    job ${r.object.id}@${r.object.x.toFixed(1)},${r.object.z.toFixed(1)}: n=${r.jobs.length} pick=${r.jobs[0].pickup.toArray().map((v) => v.toFixed(2))} dest=${r.jobs[0].destination.toArray().map((v) => v.toFixed(2))} avail=${r.jobs[0].available?.()} moving=${r.jobs[0].moving}`);
     if (process.env.ROBOT_DEBUG) for (const b of world.boxes) if (b.state === "reserved" || b.state === "held") console.log(`    box ${b.id} ${b.state} belt=${b.belt.id} d=${b.distance.toFixed(2)} pos=${b.node.position.x.toFixed(2)},${b.node.position.z.toFixed(2)} grade=${world.inspection.resultOf(b.node)} halted=${world.haltedBelts().has(b.belt.id)}`);
     if (process.env.ROBOT_DEBUG) { const by = {}; for (const b of world.boxes) { const k = `${b.state}@${b.belt?.id}`; by[k] ??= { n: 0, pos: "" }; by[k].n++; by[k].pos = `${b.node.position.x.toFixed(1)},${b.node.position.z.toFixed(1)} v=${b.speed ?? "-"} g=${world.inspection.resultOf(b.node)}`; } console.log(`    boxes: ${Object.entries(by).map(([k, v]) => `${k}x${v.n}[${v.pos}]`).join(" | ")}`); }
     if (process.env.ROBOT_DEBUG) console.log(`    belts: ${[...new Set(world.boxes.map((b) => b.belt?.id))].map((id) => `${id}->${world.connections.get(id)?.id ?? "END"}`).join(" ")} | ${[...world.connections].map(([k, v]) => `${k}->${v.id}`).join(" ")}`);

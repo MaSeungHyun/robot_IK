@@ -1,11 +1,47 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import { BoxGeometry, EdgesGeometry, Plane, Raycaster, Vector3, type Group } from "three";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useShuttleZoneStore } from "@/stores/useShuttleZoneStore";
 import type { ThreeEvent } from "@react-three/fiber";
-import type { Mesh } from "three";
 import { STOP_ROLE_COLOR } from "@/ui/Hud/equipment/details/_components/StopPointSetting";
 
 const ZONE_COLOR = "#02dfef";
+const FLOOR = new Plane(new Vector3(0, 1, 0), 0);
+
+/**
+ * Live cube + floor outline under the cursor while a stop point / zone is being placed. Follows the pointer every frame
+ * by intersecting the floor plane, so it keeps tracking over equipment that swallows pointer events.
+ */
+function PlacingPreview({ color, yaw }: { color: string; yaw: number }) {
+  const group = useRef<Group>(null);
+  const ray = useMemo(() => new Raycaster(), []);
+  const hit = useMemo(() => new Vector3(), []);
+  const edges = useMemo(() => new EdgesGeometry(new BoxGeometry(1.2, 0.6, 1.2)), []);
+  useFrame(({ camera, pointer }) => {
+    const g = group.current;
+    if (!g) return;
+    ray.setFromCamera(pointer, camera);
+    g.visible = !!ray.ray.intersectPlane(FLOOR, hit);
+    if (g.visible) g.position.set(hit.x, 0, hit.z);
+    g.rotation.y = yaw;
+  });
+  return (
+    <group ref={group} visible={false}>
+      <mesh position={[0, 0.3, 0]} renderOrder={3}>
+        <boxGeometry args={[1.2, 0.6, 1.2]} />
+        <meshBasicMaterial color={color} transparent opacity={0.35} depthWrite={false} />
+      </mesh>
+      <lineSegments position={[0, 0.3, 0]} geometry={edges} renderOrder={4}>
+        <lineBasicMaterial color={color} depthTest={false} />
+      </lineSegments>
+      <mesh position={[0, 0.016, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={4}>
+        <ringGeometry args={[0.9, 1.0, 4, 1, Math.PI / 4]} />
+        <meshBasicMaterial color={color} transparent opacity={0.95} depthWrite={false} depthTest={false} />
+      </mesh>
+    </group>
+  );
+}
 
 /** Edit-mode 셔틀 구역 markers (hidden in play) and the floor click catcher of 셔틀 구역 지정 mode. */
 export default function ShuttleZones() {
@@ -15,7 +51,6 @@ export default function ShuttleZones() {
   const placingFor = useShuttleZoneStore((state) => state.placingFor);
   const setPlacingFor = useShuttleZoneStore((state) => state.setPlacingFor);
   const placingRole = useShuttleZoneStore((state) => state.placingRole);
-  const preview = useRef<Mesh>(null);
   if (!editing) return null;
   const stops = objects.flatMap((o) => (settings[o.id]?.stopPoints ?? []).map((p, i) => ({ key: `${o.id}:stop:${i}`, owner: o.id, ...p })));
   const zones = objects.flatMap((o) => (settings[o.id]?.shuttleZones ?? []).map((z, i) => ({ key: `${o.id}:${i}`, owner: o.id, ...z })));
@@ -34,13 +69,6 @@ export default function ShuttleZones() {
     const current = state.settings[placingFor]?.shuttleZones ?? [];
     state.updateSettings(placingFor, { shuttleZones: [...current, { x: Math.round(event.point.x * 100) / 100, z: Math.round(event.point.z * 100) / 100 }] });
     setPlacingFor(null);
-  };
-  const track = (event: ThreeEvent<PointerEvent>) => {
-    const mesh = preview.current;
-    if (!mesh || !placingFor) return;
-    mesh.visible = true;
-    mesh.position.set(event.point.x, 0.3, event.point.z);
-    mesh.rotation.y = objects.find((o) => o.id === placingFor)?.yaw ?? 0;
   };
   const previewColor = placingRole ? STOP_ROLE_COLOR[placingRole] : ZONE_COLOR;
   return (
@@ -73,11 +101,8 @@ export default function ShuttleZones() {
       ))}
       {placingFor && (
         <>
-          <mesh ref={preview} visible={false} renderOrder={3}>
-            <boxGeometry args={[1.2, 0.6, 1.2]} />
-            <meshBasicMaterial color={previewColor} transparent opacity={0.45} depthWrite={false} />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]} onPointerDown={place} onPointerMove={track}>
+          <PlacingPreview color={previewColor} yaw={objects.find((o) => o.id === placingFor)?.yaw ?? 0} />
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]} onPointerDown={place}>
             <planeGeometry args={[2000, 2000]} />
             <meshBasicMaterial transparent opacity={0} depthWrite={false} />
           </mesh>

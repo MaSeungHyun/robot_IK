@@ -56,8 +56,8 @@
   "equipment": [
     {
       "kind": "robot",
-      "x": -21.018,
-      "z": 20.438,
+      "x": -20.9,
+      "z": 20.44,
       "yaw": 3.141592653589793,
       "settings": {
         "robotRole": "palletize",
@@ -69,7 +69,7 @@
     {
       "kind": "dock",
       "x": 13.5,
-      "z": -10,
+      "z": -17.400000000000002,
       "yaw": 0,
       "settings": {
         "dockRole": "palletSource"
@@ -77,8 +77,8 @@
     },
     {
       "kind": "amr",
-      "x": -10.1978,
-      "z": -2.2104,
+      "x": -9.9,
+      "z": -2.1,
       "yaw": 0,
       "settings": {
         "amrRole": "shuttle",
@@ -148,7 +148,7 @@
     },
     {
       "kind": "amr",
-      "x": 3.6298,
+      "x": 3.1,
       "z": -1.8604,
       "yaw": 0,
       "settings": {
@@ -159,8 +159,8 @@
     },
     {
       "kind": "amr",
-      "x": 12.6017,
-      "z": -2.2104,
+      "x": 12.3,
+      "z": -1.6,
       "yaw": 0,
       "settings": {
         "amrRole": "shuttle",
@@ -208,24 +208,6 @@
       "x": 21.1046,
       "z": 30.0879,
       "yaw": 0
-    },
-    {
-      "kind": "amr",
-      "x": -8.8627,
-      "z": -13.9,
-      "yaw": 0,
-      "settings": {
-        "amrRole": "forklift",
-        "forkliftTask": "mobileRack",
-        "stopPoints": [
-          {
-            "role": "service",
-            "x": -2.9,
-            "z": -0.3,
-            "yaw": 0
-          }
-        ]
-      }
     },
     {
       "kind": "rack",
@@ -416,7 +398,8 @@
         "width": 69,
         "depth": 138,
         "wallHeight": 12,
-        "roof": false
+        "roof": false,
+        "glbShell": true
       }
     },
     {
@@ -446,6 +429,7 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "inbound",
         "autoSpawn": true,
         "inboundUnit": "pallet"
@@ -458,6 +442,7 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "inbound",
         "autoSpawn": true,
         "inboundUnit": "pallet"
@@ -470,6 +455,7 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "inbound",
         "autoSpawn": true,
         "inboundUnit": "pallet"
@@ -482,6 +468,7 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "inbound",
         "autoSpawn": true,
         "inboundUnit": "pallet"
@@ -494,6 +481,7 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "outbound"
       }
     },
@@ -504,6 +492,7 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "outbound"
       }
     },
@@ -514,6 +503,7 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "outbound"
       }
     },
@@ -524,13 +514,14 @@
       "yaw": 3.141592653589793,
       "conveyorLength": 11.7079,
       "settings": {
+        "beltSpeed": 1,
         "conveyorRole": "outbound"
       }
     },
     {
       "kind": "pallet",
-      "x": 12.6017,
-      "z": -2.2104,
+      "x": 12.3,
+      "z": -1.6,
       "yaw": 0,
       "settings": {
         "mountedOn": "amr-11"
@@ -538,7 +529,7 @@
     },
     {
       "kind": "pallet",
-      "x": 3.6298,
+      "x": 3.1,
       "z": -1.8604,
       "yaw": 0,
       "settings": {
@@ -547,8 +538,8 @@
     },
     {
       "kind": "pallet",
-      "x": -10.1978,
-      "z": -2.2104,
+      "x": -9.9,
+      "z": -2.1,
       "yaw": 0,
       "settings": {
         "mountedOn": "amr-3"
@@ -594,8 +585,8 @@
     },
     {
       "kind": "robot",
-      "x": -10.100000000000001,
-      "z": 0.1,
+      "x": -9.8,
+      "z": -0.2,
       "yaw": -3.141592653589793,
       "settings": {
         "robotPedestal": "base"
@@ -603,10 +594,9 @@
     },
     {
       "kind": "robot",
-      "x": 3.15,
+      "x": 2.8,
       "z": -0.05,
       "yaw": 0,
-
       "settings": {
         "robotPedestal": "base",
         "robotPedestalYaw": 180
@@ -617,7 +607,6 @@
       "x": 12.07,
       "z": 0.1,
       "yaw": 0,
-
       "settings": {
         "robotPedestal": "base",
         "robotPedestalYaw": 180
@@ -760,21 +749,12 @@
     },
     {
       "kind": "rack",
-      "x": -21.3,
-      "z": 0,
-      "yaw": -3.141592653589793,
-      "settings": {
-        "rackType": "mobile"
-      }
-    },
-    {
-      "kind": "rack",
       "x": -15.6522,
       "z": -67.6645,
       "yaw": -1.5707963267948966,
       "settings": {
-        "rackType": "mobile",
-        "enabled": false
+        "enabled": false,
+        "rackType": "mobile"
       }
     },
     {
@@ -783,8 +763,8 @@
       "z": -64.4135,
       "yaw": -1.754,
       "settings": {
-        "rackType": "mobile",
-        "enabled": false
+        "enabled": false,
+        "rackType": "mobile"
       }
     },
     {
@@ -793,17 +773,8 @@
       "z": -57.3127,
       "yaw": -3.141592653589793,
       "settings": {
-        "rackType": "mobile",
-        "enabled": false
-      }
-    },
-    {
-      "kind": "dock",
-      "x": -2.2,
-      "z": -47,
-      "yaw": -3.141592653589793,
-      "settings": {
-        "dockRole": "rackDrop"
+        "enabled": false,
+        "rackType": "mobile"
       }
     },
     {
@@ -822,7 +793,15 @@
       "z": -28.2874,
       "yaw": 0,
       "settings": {
-        "amrRole": "agv"
+        "amrRole": "agv",
+        "stopPoints": [
+          {
+            "role": "rackDrop",
+            "x": -2.2,
+            "z": -47,
+            "yaw": -3.141592653589793
+          }
+        ]
       }
     },
     {
@@ -863,8 +842,8 @@
     },
     {
       "kind": "amr",
-      "x": 13.1,
-      "z": -18.4,
+      "x": 13.5,
+      "z": -12.3,
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",
@@ -872,8 +851,8 @@
         "stopPoints": [
           {
             "role": "service",
-            "x": -2.9,
-            "z": -0.3,
+            "x": 13.63,
+            "z": -6.1,
             "yaw": 0
           }
         ]
@@ -881,22 +860,20 @@
     },
     {
       "kind": "amr",
-      "x": 7.4,
-      "z": -13.9,
+      "x": -17.8,
+      "z": -11.5,
       "yaw": 0,
       "settings": {
         "amrRole": "forklift",
-        "forkliftTask": "rack"
-      }
-    },
-    {
-      "kind": "amr",
-      "x": -13.8,
-      "z": -13.2,
-      "yaw": 0,
-      "settings": {
-        "amrRole": "forklift",
-        "forkliftTask": "palletSwap"
+        "forkliftTask": "palletSwap",
+        "stopPoints": [
+          {
+            "role": "service",
+            "x": -16.52,
+            "z": 4.37,
+            "yaw": 0
+          }
+        ]
       }
     },
     {
@@ -934,73 +911,82 @@
       "settings": {
         "amrRole": "ship"
       }
+    },
+    {
+      "kind": "dock",
+      "x": -19.200000000000003,
+      "z": -1.5,
+      "yaw": 0,
+      "settings": {
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -21.01,
+      "z": 12.3,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "unload"
+      }
     }
   ],
   "links": [
     {
       "type": "feed",
-      "from": 54,
+      "from": 53,
       "to": 13
     },
     {
       "type": "feed",
-      "from": 53,
+      "from": 52,
       "to": 12
     },
     {
       "type": "feed",
-      "from": 52,
+      "from": 51,
       "to": 11
     },
     {
       "type": "feed",
-      "from": 55,
+      "from": 54,
       "to": 14
     },
     {
       "type": "emptyReturn",
       "from": 14,
-      "to": 65
-    },
-    {
-      "type": "emptyReturn",
-      "from": 13,
-      "to": 65
-    },
-    {
-      "type": "emptyReturn",
-      "from": 12,
-      "to": 66
-    },
-    {
-      "type": "emptyReturn",
-      "from": 11,
-      "to": 66
-    },
-    {
-      "type": "emptyReturn",
-      "from": 66,
-      "to": 63
-    },
-    {
-      "type": "emptyReturn",
-      "from": 65,
       "to": 64
     },
     {
       "type": "emptyReturn",
-      "from": 2,
-      "to": 18
+      "from": 13,
+      "to": 64
     },
     {
       "type": "emptyReturn",
-      "from": 9,
-      "to": 18
+      "from": 12,
+      "to": 65
     },
     {
       "type": "emptyReturn",
-      "from": 10,
-      "to": 18
+      "from": 11,
+      "to": 65
+    },
+    {
+      "type": "emptyReturn",
+      "from": 65,
+      "to": 62
+    },
+    {
+      "type": "emptyReturn",
+      "from": 64,
+      "to": 63
+    },
+    {
+      "type": "feed",
+      "from": 52,
+      "to": 80
     },
     {
       "type": "feed",
@@ -1010,41 +996,41 @@
     {
       "type": "feed",
       "from": 54,
-      "to": 82
-    },
-    {
-      "type": "feed",
-      "from": 55,
-      "to": 82
-    },
-    {
-      "type": "feed",
-      "from": 52,
       "to": 81
+    },
+    {
+      "type": "feed",
+      "from": 51,
+      "to": 80
+    },
+    {
+      "type": "collect",
+      "from": 82,
+      "to": 65
     },
     {
       "type": "collect",
       "from": 83,
-      "to": 66
+      "to": 65
     },
     {
       "type": "collect",
       "from": 84,
-      "to": 66
+      "to": 64
     },
     {
       "type": "collect",
       "from": 85,
-      "to": 65
-    },
-    {
-      "type": "collect",
-      "from": 86,
-      "to": 65
+      "to": 64
     },
     {
       "type": "distribute",
-      "from": 81,
+      "from": 80,
+      "to": 82
+    },
+    {
+      "type": "distribute",
+      "from": 80,
       "to": 83
     },
     {
@@ -1054,44 +1040,154 @@
     },
     {
       "type": "distribute",
-      "from": 82,
+      "from": 81,
       "to": 85
     },
     {
-      "type": "distribute",
-      "from": 82,
-      "to": 86
+      "type": "handoff",
+      "from": 97,
+      "to": 55
     },
     {
       "type": "handoff",
-      "from": 101,
+      "from": 98,
       "to": 56
     },
     {
       "type": "handoff",
-      "from": 102,
+      "from": 99,
       "to": 57
     },
     {
       "type": "handoff",
-      "from": 103,
+      "from": 100,
       "to": 58
     },
     {
-      "type": "handoff",
-      "from": 104,
-      "to": 59
+      "type": "store",
+      "from": 95,
+      "to": 18
+    },
+    {
+      "type": "store",
+      "from": 95,
+      "to": 28
+    },
+    {
+      "type": "store",
+      "from": 95,
+      "to": 29
+    },
+    {
+      "type": "store",
+      "from": 95,
+      "to": 30
+    },
+    {
+      "type": "store",
+      "from": 95,
+      "to": 31
+    },
+    {
+      "type": "store",
+      "from": 95,
+      "to": 32
+    },
+    {
+      "type": "store",
+      "from": 95,
+      "to": 33
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 41
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 42
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 43
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 44
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 45
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 46
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 47
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 40
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 39
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 38
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 37
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 36
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 35
+    },
+    {
+      "type": "store",
+      "from": 96,
+      "to": 34
+    },
+    {
+      "type": "emptyReturn",
+      "from": 9,
+      "to": 96
+    },
+    {
+      "type": "emptyReturn",
+      "from": 2,
+      "to": 96
+    },
+    {
+      "type": "emptyReturn",
+      "from": 10,
+      "to": 95
     }
   ],
   "props": [
     {
       "source": "factory",
-      "node": "Enviroment",
-      "excludeMaterials": ["wall", "BG_Floor"]
-    },
-    {
-      "source": "factory",
-      "node": "pallet.002"
+      "node": "Enviroment"
     },
     {
       "source": "factory",

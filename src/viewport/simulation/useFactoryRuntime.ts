@@ -17,6 +17,7 @@ import { simulationClock } from "@/domain/simulation/simulationClock";
 import { ikSolveStats } from "@/domain/robot/ik/robotIK";
 import { log } from "@/stores/useLogStore";
 import { profileEnd, profileStart } from "@/lib/profiler/frameProfiler";
+import { liveRecordFrame, startLiveRecording, stopLiveRecording } from "@/domain/recording/liveRecording";
 
 const REPORT_INTERVAL = 0.25;
 /** Log the IK solve-path counters once per this many plans (dev diagnostics, kept sparse). */
@@ -41,12 +42,20 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
   const ikLogged = useRef(0);
   const world = useMemo(
     // Links only change in edit mode, where no run is mounted; read them once per run.
-    () => new FactorySimulator(objects, box.scene, pallet.scene, getSettings, instances ?? undefined, undefined, useSceneStore.getState().links, useSceneStore.getState().autoConnect),
+    () => new FactorySimulator(objects, box.scene, pallet.scene, getSettings, instances ?? undefined, undefined, useSceneStore.getState().links, useSceneStore.getState().autoConnect, useSceneStore.getState().props),
     [objects, box.scene, pallet.scene, instances],
   );
 
   // A new world (new run / reset) starts the shared fixed-step clock from zero.
   useEffect(() => { simulationClock.reset(); }, [world]);
+
+  // Opt-in recording (?record=1 or localStorage "sf.record"="1"): window.__sfRecording() / __sfRunCapture().
+  useEffect(() => {
+    startLiveRecording(world.root, world.cargo, () => simulationClock.stats.simTime, () => world.stats, { template: "live", seed: 0 },
+      { objectKind: (id) => objects.find((o) => o.id === id)?.kind, railOf: (g) => world.railHolderOf(g),
+      stationGroup: (id) => world.pallets.find((p) => p.object.id === id)?.group });
+    return stopLiveRecording;
+  }, [world, objects]);
 
   // KPI sampling uses the fixed defaults (DEFAULT_KPI_CONFIG); publish the mounted world's report.
   useEffect(() => {
@@ -77,6 +86,7 @@ export default function useFactoryRuntime({ running, onStats, onProgress }: Simu
     // One fixed-step clock per frame: boxes/belts/AMRs and every robot advance together (robots register in Robot.tsx).
     simulationClock.frame(delta, running ? speed : 0, world);
     if (!running) return;
+    liveRecordFrame();
 
     reportElapsed.current += Math.min(delta, REPORT_INTERVAL);
 

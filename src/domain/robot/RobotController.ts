@@ -1,4 +1,4 @@
-import type { Group } from "three";
+import type { Group, Object3D, Vector3 } from "three";
 import type { JointAngleReading, RobotPhase, RobotTransferMode, Transfer } from "@/types/robot";
 import type { PlanningBudget } from "@/domain/robot/ik/planningScheduler";
 import type { KeepOutBox } from "@/domain/robot/ik/keepOut";
@@ -38,4 +38,6 @@ export interface RobotControllerOptions {
   onProgress?: (completed: number, status: string) => void;
   /** Conveyors the arm links keep out of (read on start); absent = no keep-out. */
   getKeepOut?: () => readonly KeepOutBox[];
+  /** Suction on (ATTACH, after the box is parented to the grip) / off (RELEASE); `tool` = grip world point. Recording hook. */
+  onSuction?: (on: boolean, box: Object3D, tool: Vector3) => void;
 }

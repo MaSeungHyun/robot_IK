@@ -81,9 +81,11 @@ export function withScannerBelts(objects: SceneEquipment[], getSettings: () => R
     if (current === last) return merged;
     last = current;
     merged = { ...current };
+    // A disabled scanner still runs its belt as a plain conveyor when a robot picks unscanned boxes (no-scanner line).
+    const passThrough = Object.values(current).some((s) => s?.pickUnscanned === true);
     for (const belt of extra) {
       const scannerId = belt.id.slice("scanbelt:".length), scanner = current[scannerId];
-      merged[belt.id] = { speed: 1, reach: 0, capacity: 40, spawnInterval: 8, ...(scanner?.beltSpeed ? { beltSpeed: scanner.beltSpeed } : {}), enabled: scanner?.enabled !== false, autoSpawn: scanner?.autoSpawn === true && (starts.get(scannerId) ?? false) };
+      merged[belt.id] = { speed: 1, reach: 0, capacity: 40, spawnInterval: 8, ...(scanner?.beltSpeed ? { beltSpeed: scanner.beltSpeed } : {}), enabled: scanner?.enabled !== false || passThrough, autoSpawn: scanner?.autoSpawn === true && (starts.get(scannerId) ?? false) };
     }
     return merged;
   };

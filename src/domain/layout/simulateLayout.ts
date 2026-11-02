@@ -13,12 +13,16 @@ import { SimulationClock } from "@/domain/simulation/simulationClock";
 import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import type { SceneTemplate } from "@/types/sceneTemplate";
 import type { SimMetrics } from "@/domain/layout/autoLayout";
+import { robotElevation } from "@/domain/layout/robotPedestals";
+import { SimRecorder } from "@/domain/recording/SimRecorder";
+import type { SimRecording } from "@/domain/recording/simRecording";
 
 export type SimModels = { robot: Group; box: Group; pallet: Group };
-export type SimOptions = { seconds: number; warmup: number; seed?: number };
-export type SimResult = (SimMetrics & { shipped: number; cpuMs: number; /** Pallets the forklift took out of racks through the door. */ rackUnloaded: number }) | { error: string };
+export type SimOptions = { seconds: number; warmup: number; seed?: number; /** Collect a SimRecording (suction, box parents, keyframes, pallets). */ record?: boolean; /** Legacy: mount arms at y=0 instead of on their pedestal (comparison only). */ floorMount?: boolean; /** Called after every frame (exporters sample world state here; read-only). */ onFrame?: (t: number, ctx: SimFrameContext) => void };
+export type SimFrameContext = { world: FactorySimulator; scene: Scene; controllers: SuctionRobotController[]; holders: Group[]; recorder: SimRecorder | null; objects: ReturnType<typeof useSceneStore.getState>["objects"] };
+export type SimResult = (SimMetrics & { shipped: number; cpuMs: number; /** Pallets the forklift took out of racks through the door. */ rackUnloaded: number; recording?: SimRecording }) | { error: string };
 
-export function simulateTemplate(template: SceneTemplate, models: SimModels, { seconds, warmup, seed = 12345 }: SimOptions): SimResult {
+export function simulateTemplate(template: SceneTemplate, models: SimModels, { seconds, warmup, seed = 12345, record = false, floorMount = false, onFrame }: SimOptions): SimResult {
   const store = useSceneStore.getState();
   if (!store.editing) store.edit();
   if (!useSceneStore.getState().loadTemplate(template)) return { error: useSceneStore.getState().errors.join("; ") || "loadTemplate rejected" };
@@ -31,14 +35,21 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
   const scene = new Scene();
   scene.add(world.root);
   const clock = new SimulationClock();
+  const rec = record ? new SimRecorder(scene, world.cargo, { template: template.id ?? template.name, seed, seconds },
+    { objectKind: (id) => objects.find((o) => o.id === id)?.kind, railOf: (g) => world.railHolderOf(g),
+      stationGroup: (id) => world.pallets.find((p) => p.object.id === id)?.group }) : null;
   const controllers: SuctionRobotController[] = [];
+  const holders: Group[] = [];
   for (const robot of world.robots) {
     const model = models.robot.clone(true);
     const holder = new Group();
-    holder.position.set(robot.object.x, 0, robot.object.z); holder.rotation.y = robot.object.yaw;
-    holder.add(model); scene.add(holder); scene.updateMatrixWorld(true);
+    // Same mount height as the viewer (FactoryArm): arm stands on its pedestal.
+    const elevation = floorMount ? 0 : robotElevation(robot.object, getSettings()[robot.object.id]?.robotPedestal);
+    holder.position.set(robot.object.x, elevation, robot.object.z); holder.rotation.y = robot.object.yaw;
+    holder.add(model); scene.add(holder); holders.push(holder); rec?.markArm(holder, robot.object.id); scene.updateMatrixWorld(true);
     const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: SIMULATOR_CONFIG.reach, getKeepOut: () => conveyorKeepOut(objects),
-      getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status) });
+      getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status),
+      onSuction: rec ? (on, box, tool) => rec.suction(clock.stats.simTime, robot.object.id, on, box, tool) : undefined });
     controller.start();
     controllers.push(controller);
     clock.register({
@@ -52,6 +63,8 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
   let base: { placed: number; passed: number; busy: number[] } | null = null;
   while (clock.stats.simTime < seconds - 1e-9) {
     clock.frame(1 / 60, 1, world, Infinity);
+    rec?.frame(clock.stats.simTime);
+    onFrame?.(clock.stats.simTime, { world, scene, controllers, holders, recorder: rec, objects });
     const dt = clock.stats.simTime - last; last = clock.stats.simTime;
     if (base) fullSeconds += dt * world.pallets.filter((p) => p.full).length;
     if (!base && clock.stats.simTime >= warmup) base = { placed: world.placed, passed: world.passed, busy: world.robots.map((r) => r.busySeconds) };
@@ -69,5 +82,6 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
     shipped,
     rackUnloaded,
     cpuMs: Math.round(performance.now() - began),
+    ...(rec ? { recording: rec.data } : {}),
   };
 }
