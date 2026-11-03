@@ -24,10 +24,11 @@ try {
     return Buffer.concat([h, text, rest]);
   };
   const parse = (f) => new Promise((res, rej) => { const b = strip(readFileSync(f)); new GLTFLoader().parse(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), "", res, rej); });
-  const [robot, box, pallet] = await Promise.all(["RobotArm", "box", "pallet"].map((n) => parse(`src/assets/models_original/${n}.glb`)));
+  const [robot, box, pallet, scanTunnel] = await Promise.all(["RobotArm", "box", "pallet", "ScanTunnel"].map((n) => parse(`src/assets/models_original/${n}.glb`)));
   const { SCENE_TEMPLATES } = await server.ssrLoadModule("/src/constants/sceneTemplates.ts");
   const { simulateTemplate } = await server.ssrLoadModule("/src/domain/layout/simulateLayout.ts");
   const { partKey, partDelta } = await server.ssrLoadModule("/src/domain/recording/animatedParts.ts");
+  const { KpiTracker, KPI_SCHEMA } = await server.ssrLoadModule("/src/domain/recording/kpiStream.ts");
   const ti = +arg("template", 5), template = structuredClone(SCENE_TEMPLATES[ti]);
   const warmup = +arg("warmup", 0), recordSec = +arg("seconds", 600), seconds = warmup + recordSec, chunkLen = +arg("chunk", 600), seed = +arg("seed", 12345), measure = args.includes("--measure");
   const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
@@ -69,7 +70,7 @@ try {
       suction: Object.fromEntries(robotIds.map((id) => [id, suctionOn.get(id) ?? null])), counts: counts(world),
       states: Object.fromEntries(lastState), parts: (() => { const vals = []; for (const [i, v] of readParts({ world, controllers: ctxRef.controllers })) { vals[i] = v; partLast[i] = v; partPrev[i] = v; } return Array.from(vals, (v) => v ?? null); })() };
   };
-  const newChunk = (t, ctx) => { chunk = { i: chunkIdx, t0: warmup + chunkIdx * chunkLen, t1: Math.min(seconds, warmup + (chunkIdx + 1) * chunkLen), snapshot: snapshot(t, ctx), t: [], joints: Object.fromEntries(robotIds.map((id) => [id, []])), amrs: Object.fromEntries(amrIds.map((id) => [id, []])), status: [], events: [], parts: [] }; for (const k of REC_KEYS) cursor[k] = ctx.recorder.data[k].length; };
+  const newChunk = (t, ctx) => { chunk = { i: chunkIdx, t0: warmup + chunkIdx * chunkLen, t1: Math.min(seconds, warmup + (chunkIdx + 1) * chunkLen), snapshot: snapshot(t, ctx), t: [], joints: Object.fromEntries(robotIds.map((id) => [id, []])), amrs: Object.fromEntries(amrIds.map((id) => [id, []])), status: [], events: [], parts: [], kpi: [] }; chunk.snapshot.kpi = kpiLast; for (const k of REC_KEYS) cursor[k] = ctx.recorder.data[k].length; };
   const flush = (ctx) => {
     const d = ctx.recorder.data, recording = { version: d.version, template: d.template, seed: d.seed, seconds: d.seconds };
     for (const k of REC_KEYS) { recording[k] = d[k].slice(cursor[k]); d[k].length = 0; cursor[k] = 0; }
@@ -80,7 +81,7 @@ try {
     recording.boxKeyframeEncoding = "[id,x,y,z,qx,qy,qz,qw] world; only boxes moved >= 1 cm or turned >= ~1 deg since their previous emitted pose; hold last value (snapshot seeds)";
     const file = `chunk-${String(chunk.i).padStart(3, "0")}.json`;
     const body = { meta: { runId, template: template.id, chunk: chunk.i, t0: chunk.t0, t1: chunk.t1, poseHz: 10, statusHz: 2, jointNames: JOINTS, jointUnits: "0.1 deg int", amrUnits: "x,z cm int, yaw 0.1 deg int", armMount: "pedestal", partsEncoding: "tracks.parts rows [t, i, value]; i = manifest.animatedParts[i]; snapshot.parts[i] seeds values; hold last value" },
-      snapshot: chunk.snapshot, tracks: { t: chunk.t, joints: chunk.joints, amrs: chunk.amrs, parts: chunk.parts }, status: chunk.status, events: chunk.events, recording };
+      snapshot: chunk.snapshot, tracks: { t: chunk.t, joints: chunk.joints, amrs: chunk.amrs, parts: chunk.parts, kpi: chunk.kpi }, status: chunk.status, events: chunk.events, recording };
     if (!measure) { const s = JSON.stringify(body); writeFileSync(join(outDir, file), s); chunks.push({ i: chunk.i, t0: chunk.t0, t1: chunk.t1, file, bytes: Buffer.byteLength(s) }); }
     console.log(`chunk ${chunk.i} [${chunk.t0}-${chunk.t1}] samples ${chunk.t.length} rec ${REC_KEYS.map((k) => k + "=" + recording[k].length).join(" ")} parts=${chunk.parts.length} ${chunks.at(-1)?.bytes ?? 0}B mem ${Math.round(process.memoryUsage().heapUsed / 1e6)}MB`);
     chunkIdx++; chunk = null;
@@ -91,8 +92,10 @@ try {
     if (!robotIds.length) {
       robotIds = world.robots.map((r) => r.object.id); amrIds = objects.filter((o) => o.kind === "amr").map((o) => o.id);
       equipment = objects.map((o) => { const hi = robotIds.indexOf(o.id); return { id: o.id, kind: o.kind, name: o.name, pos: [+o.x.toFixed(3), +o.z.toFixed(3)], yaw: +(o.yaw ?? 0).toFixed(4), elevation: hi >= 0 ? +holders[hi].position.y.toFixed(3) : +((o.y ?? 0).toFixed?.(3) ?? 0) }; });
-      lastTotals = counts(world);
+      lastTotals = counts(world); kpi = new KpiTracker(world);
     }
+    // KPI stream: 1 Hz from t=0 (warm-up included) so day totals / utilization cover the whole day.
+    if (t >= nextKpi - 1e-6) { nextKpi = Math.round(t) + 1; kpiLast = kpi.sample(+t.toFixed(2)); if (chunk && t >= warmup) chunk.kpi.push([kpiLast.t, kpiLast]); }
     for (let k = suctionIdx; k < recorder.data.suction.length; k++) { const [, rid, on, bid] = recorder.data.suction[k]; suctionOn.set(rid, on ? bid : null); }
     suctionIdx = recorder.data.suction.length;
     if (t >= nextAmrScan) { nextAmrScan = t + 5; amrNodes = new Map();
@@ -104,7 +107,7 @@ try {
       if (t >= nextMinute - 1e-6) { nextMinute += 60; if (Math.round(t) % 300 === 0) { const c = counts(world), [f, n] = rackOcc(); console.log(`warmup t=${Math.round(t)}s rack ${f}/${n} stored ${c.storedToRack} shipped ${c.shippedPallets} outbound ${c.outbound} placed ${c.placed} depal ${c.depalletized} wall ${Math.round((Date.now() - began) / 1000)}s`); } }
       return; }
     if (startInfo === null) { const [f, n] = rackOcc(); startInfo = { simTimeOffset: warmup, rackOccupancyAtStart: { stored: f, slots: n, ratio: +(f / Math.max(1, n)).toFixed(3) }, countsAtStart: counts(world) }; lastTotals = counts(world); nextMinute = warmup + 60; nextStatus = t; nextPose = t; }
-    if (!chunk) newChunk(t, ctx);
+    if (!chunk) { newChunk(t, ctx); if (Math.abs(kpiLast.t - t) < 1e-6) chunk.kpi.push([kpiLast.t, kpiLast]); }
     if (t >= nextStatus) { nextStatus += 0.5;
       const eq = world.equipment, row = { t: +t.toFixed(2), counts: counts(world), equipment: {} }, all = {};
       for (const r of eq.robots) all[r.id] = { state: mapRobot(r), label: r.status, count: r.count };
@@ -129,8 +132,8 @@ try {
       nextMinute += 60; if (minutes.length % 10 === 0) console.log(`t=${Math.round(t)}s placed ${c.placed} depal ${c.depalletized} stored ${c.storedToRack} shipped ${c.shippedPallets} wall ${Math.round((Date.now() - began) / 1000)}s`); }
     if (t >= chunk.t1 - 1e-9 || t >= seconds - 1e-9) flush(ctx);
   };
-  let suctionIdx = 0, startInfo = null; const amrBusySum = {};
-  const result = simulateTemplate(template, { robot: robot.scene, box: box.scene, pallet: pallet.scene }, { seconds, warmup: 0, seed, record: true, onFrame });
+  let suctionIdx = 0, startInfo = null, kpi = null, kpiLast = null, nextKpi = 0; const amrBusySum = {};
+  const result = simulateTemplate(template, { robot: robot.scene, box: box.scene, pallet: pallet.scene, scanner: args.includes("--no-scanners") ? undefined : scanTunnel.scene }, { seconds, warmup: 0, seed, record: true, onFrame });
   if ("error" in result) throw new Error(result.error);
   if (chunk) flush(ctxRef);
   if (measure) {
@@ -142,7 +145,7 @@ try {
       return `${hz}Hz n=${errs.length} mean ${(errs.reduce((s, v) => s + v, 0) / errs.length * 100).toFixed(2)}cm p95 ${(at(0.95) * 100).toFixed(2)}cm p99 ${(at(0.99) * 100).toFixed(2)}cm max ${(at(1) * 100).toFixed(2)}cm`; };
     console.log("conveyor-box interpolation error vs 10Hz truth:", err(1), "|", err(2));
   } else {
-    const last = minutes.at(-1) ?? {}, total = counts(ctxRef.world), mins = minutes.length || 1;
+    const last = minutes.at(-1) ?? {}, total = { ...counts(ctxRef.world), scanned: kpiLast.scan.scanned, defects: kpiLast.scan.defect } /* scanner sensors are disposed when the sim ends */, mins = minutes.length || 1;
     const eq = ctxRef.world.equipment;
     const aggregates = { runId, sampleMinutes: minutes.length, perMinute: minutes, totals: total,
       robots: Object.fromEntries(eq.robots.map((r) => [r.id, { cycles: r.count, utilization: +r.utilization.toFixed(1) }])),
@@ -150,11 +153,12 @@ try {
       rackOccupancy: { stored: last.rackOccupancy ?? 0, slots: last.rackSlots ?? 0 },
       alarms: ctxRef.world.cargo.misses.map((m) => ({ t: m.t, equipmentId: m.equipmentId, boxId: m.boxId ?? null, message: m.reason })) };
     writeFileSync(join(outDir, "aggregates.json"), JSON.stringify(aggregates));
-    const manifest = { version: 1, runId, template: template.id, seed, duration: recordSec, simTimeOffset: warmup, rackOccupancyAtStart: startInfo?.rackOccupancyAtStart, countsAtStart: startInfo?.countsAtStart, statusEncoding: "status[].equipment holds only entries changed since previous row (first row per chunk is full)", timeBase: "all t are absolute sim seconds; subtract simTimeOffset for playback time", sampleHz: { joints: 10, amrs: 10, status: 2, boxKeyframes: 1, parts: 10 },
+    const manifest = { version: 1, runId, template: template.id, seed, duration: recordSec, simTimeOffset: warmup, rackOccupancyAtStart: startInfo?.rackOccupancyAtStart, countsAtStart: startInfo?.countsAtStart, statusEncoding: "status[].equipment holds only entries changed since previous row (first row per chunk is full)", timeBase: "all t are absolute sim seconds; subtract simTimeOffset for playback time", sampleHz: { joints: 10, amrs: 10, status: 2, boxKeyframes: 1, parts: 10, kpi: 1 }, kpiSchema: KPI_SCHEMA, kpiEncoding: "chunk tracks.kpi rows [t, kpiSample] at 1 Hz (full sample each row, keys per kpiSchema); snapshot.kpi = latest sample at chunk start. Counts are day totals since t=0 (warm-up included)",
       animatedParts: partSpecs, animatedPartsEncoding: "chunk tracks.parts rows [t, i, value] emitted when |value - last emitted| >= threshold (quat: rotation angle rad) or when the part settles; snapshot.parts[i] = value at chunk start (null = not present yet). Values are local to the GLB node partName (m, rad; quat [x,y,z,w]); procedural parts are built by the viewer (see docs/sim-recording.md)", jointNames: JOINTS, armMount: "pedestal", chunkSeconds: chunkLen, equipment, chunks, aggregates: "aggregates.json", createdAt: new Date().toISOString() };
     writeFileSync(join(outDir, "manifest.json"), JSON.stringify(manifest, null, 1));
     console.log(`done ${runId} -> ${outDir} chunks ${chunks.length} total ${chunks.reduce((s, c) => s + c.bytes, 0)}B wall ${Math.round((Date.now() - began) / 1000)}s`);
     const byKind = {}; for (const sp of partSpecs) byKind[sp.kind] = (byKind[sp.kind] ?? 0) + 1; console.log("PARTS", JSON.stringify(byKind));
     console.log("FINAL", JSON.stringify(total));
+    console.log("KPI", JSON.stringify({ t: kpiLast.t, throughput: kpiLast.throughput, stages: kpiLast.stages, scan: { ...kpiLast.scan, byScanner: undefined }, rack: kpiLast.rack, vehicles: { ...kpiLast.vehicles, byId: undefined } }));
   }
 } finally { await server.close(); }

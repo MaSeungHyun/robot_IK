@@ -53,4 +53,43 @@ if (manifest?.animatedParts) {
   console.log(`animated parts: ${specs.length} declared ${JSON.stringify(byKind)} rows ${rows} errors ${errs.length}`, errs.slice(0, 10));
   for (const [k, r] of Object.entries(range)) console.log(`  ${k}: min ${r[0]} max ${r[1]} rows ${r[2]}`);
 }
+// KPI stream (manifest.kpiSchema + chunk tracks.kpi / snapshot.kpi): schema conformance + count invariants; skipped for older runs.
+if (manifest?.kpiSchema) {
+  const sch = manifest.kpiSchema, errs = [], E = (m) => { if (errs.length < 200) errs.push(m); };
+  const decl = sch.keys.map((k) => ({ ...k, re: new RegExp("^" + k.key.replace(/\./g, "\\.").replace(/<[^>]+>/g, "[^.]+") + "$"), hit: 0 }));
+  const flat = (o, pre = "", acc = []) => { for (const [k, v] of Object.entries(o)) { const key = pre ? `${pre}.${k}` : k; if (v && typeof v === "object" && !Array.isArray(v)) flat(v, key, acc); else acc.push([key, v]); } return acc; };
+  const typeOk = (ty, v) => ty === "int" ? Number.isInteger(v) && v >= 0 : ty === "number" ? typeof v === "number" && Number.isFinite(v) : ty === "string" ? typeof v === "string" : ty === "number|null" ? v === null || (typeof v === "number" && Number.isFinite(v)) : false;
+  const pct = (v) => v === null || (v >= -1e-6 && v <= 100 + 1e-6);
+  let rows = 0, prev = null, tPrev = -Infinity; const firstLast = {};
+  const check = (f, s) => {
+    const kv = flat(s);
+    for (const [key, v] of kv) { const d = decl.find((x) => x.re.test(key)); if (!d) { E(`${f} t=${s.t}: undeclared key ${key}`); continue; } d.hit++; if (!typeOk(d.type, v)) E(`${f} t=${s.t}: ${key}=${JSON.stringify(v)} not ${d.type}`); if (d.unit === "%" && typeof v === "number" && !pct(v)) E(`${f} t=${s.t}: ${key}=${v} outside 0-100`); if (/\/(h|min)$/.test(d.unit) && v < 0) E(`${f} t=${s.t}: ${key} negative`); }
+    const st = s.stages, c = (k) => st[k].count, sc = s.scan, tag = `${f} t=${s.t}`;
+    if (c("inbound") < c("depalletize")) E(`${tag}: inbound < depalletize`);
+    if (sc.scanners > 0) { if (c("depalletize") < sc.scanned) E(`${tag}: depal < scanned`); if (sc.scanned < c("palletize") + s.boxes.passed) E(`${tag}: scanned < placed+passed`); }
+    if (sc.pass + sc.defect !== sc.scanned) E(`${tag}: pass+defect != scanned`);
+    if (sc.scanners > 0) { const by = Object.values(sc.byScanner ?? {}); if (by.length !== sc.scanners) E(`${tag}: byScanner count`); const n = by.reduce((a, x) => a + x.scanned, 0), d = by.reduce((a, x) => a + x.defect, 0); if (n !== sc.scanned || d !== sc.defect) E(`${tag}: per-scanner sum ${n}/${d} != ${sc.scanned}/${sc.defect}`); }
+    if (c("scan") !== sc.scanned) E(`${tag}: stages.scan.count != scan.scanned`);
+    if (s.throughput.processed !== c("palletize")) E(`${tag}: processed != palletize`);
+    if (!(c("ship") <= c("outbound") && c("outbound") <= c("rackStore") && c("rackStore") <= s.pallets.full)) E(`${tag}: ship<=outbound<=rackStore<=full violated ${c("ship")}/${c("outbound")}/${c("rackStore")}/${s.pallets.full}`);
+    let boxWip = 0; for (const [k, x] of Object.entries(st)) { if (x.wip < 0) E(`${tag}: ${k}.wip < 0`); if (!pct(x.progress)) E(`${tag}: ${k}.progress`); if (["inbound", "depalletize", "scan", "palletize"].includes(k)) boxWip += x.wip; }
+    if (s.wip.boxes < 0 || s.wip.pallets < 0 || s.wip.boxes > c("inbound") || boxWip > c("inbound")) E(`${tag}: wip bounds`);
+    const r = s.rack; if (r.stored + r.reserved > r.slots) E(`${tag}: rack stored+reserved > slots`); if (r.slots && Math.abs(r.occupancy - r.stored / r.slots * 100) > 0.11) E(`${tag}: rack occupancy inconsistent`);
+    const vb = Object.values(s.vehicles.byId); if (vb.length !== s.vehicles.total || s.vehicles.busy > s.vehicles.total) E(`${tag}: vehicles counts`);
+    for (const [id, x] of Object.entries(s.robots)) if (prev?.robots?.[id] && x.cycles < prev.robots[id].cycles) E(`${tag}: robot ${id} cycles decreased`);
+    if (prev) { const pk = new Map(flat(prev)); for (const [key, v] of kv) { const d = decl.find((x) => x.re.test(key)); if (d?.type === "int" && /\.count$|^throughput\.processed$|^pallets\.full$|^boxes\.passed$|^scan\.(scanned|pass|defect)$|\.cycles$/.test(key) && pk.has(key) && v < pk.get(key)) E(`${tag}: ${key} decreased ${pk.get(key)} -> ${v}`); } }
+  };
+  for (const f of readdirSync(dir).filter((f) => /^chunk-\d+\.json$/.test(f)).sort()) {
+    const ch = JSON.parse(readFileSync(join(dir, f), "utf8")), tr = ch.tracks.kpi, sk = ch.snapshot.kpi;
+    if (!Array.isArray(tr) || !sk) { E(`${f}: missing tracks.kpi / snapshot.kpi`); continue; }
+    if (!ch.tracks.parts || !ch.tracks.joints || !ch.tracks.amrs) E(`${f}: legacy tracks missing`);
+    check(`${f} snapshot`, sk);
+    for (const [t, s] of tr) { rows++; if (t !== s.t) E(`${f}: row t ${t} != sample t`); if (t <= tPrev || t < ch.meta.t0 - 1e-6 || t > ch.meta.t1 + 1e-6) E(`${f}: row t ${t} out of order/range`); if (tPrev > -Infinity && Math.abs(t - tPrev - 1) > 0.11) E(`${f}: gap ${tPrev} -> ${t}`); tPrev = t; check(f, s); prev = s; firstLast.first ??= s; firstLast.last = s; }
+  }
+  for (const d of decl) if (!d.hit && !(d.key.startsWith("scan.byScanner") && firstLast.last?.scan.scanners === 0)) E(`declared key never present: ${d.key}`);
+  const a = firstLast.first, b = firstLast.last, win = a && b ? Object.fromEntries(Object.entries(b.stages).map(([k, x]) => [k, x.count - a.stages[k].count])) : null;
+  out.kpi = { declared: decl.length, rows, errors: errs.length, window: win, scanned: b && b.scan.scanned - a.scan.scanned, defects: b && b.scan.defect - a.scan.defect };
+  console.log(`kpi: ${decl.length} keys declared, rows ${rows}, errors ${errs.length}`, errs.slice(0, 10));
+  if (win) console.log(`  window deltas ${JSON.stringify(win)} scanned ${out.kpi.scanned} defects ${out.kpi.defects}; day totals at end ${JSON.stringify(Object.fromEntries(Object.entries(b.stages).map(([k, x]) => [k, x.count])))}`);
+}
 console.log("JSON", JSON.stringify(out));
