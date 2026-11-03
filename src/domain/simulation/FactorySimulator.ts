@@ -25,12 +25,14 @@ import { TransportQueue } from "@/domain/amr/TransportQueue";
 import { PalletController } from "@/domain/pallet/PalletController";
 import { PalletDispatchController } from "@/domain/amr/PalletDispatchController";
 import { AMRTrafficController, type TrafficBody, type TrafficPlanner } from "@/domain/amr/AMRTrafficController";
+import { BATTERY_GUARD, RESERVATION_WATCHDOG, WAIT_FOR_GRAPH } from "@/constants/deadlock";
 import type { DispatchRoutes } from "@/domain/amr/PalletDispatchController";
 import { layoutPath, routeFailureReason } from "@/domain/amr/navigation/layoutNavigation";
 import { robotArmState, vehicleState } from "@/domain/state/equipmentState";
 import { deckFeedIntervalOf, doesGeneralJobs, selfUnloadOf, stackCapacityOf, takesEmptyPallets } from "@/constants/emptyPallet";
 import { CYCLE_CONFIG } from "@/constants/cycle";
 import type { NavigationObstacle } from "@/domain/amr/navigation/layoutNavigation";
+import { clearancePose } from "@/domain/amr/navigation/layoutNavigation";
 import {
   beltConnections,
   connectedBeltIds,
@@ -198,6 +200,10 @@ function trimPath(points: Vector3[], gap: number) {
 }
 /** AMR traffic replans run in axis mode (grid-aligned legs, no any-angle diagonals). */
 const AXIS_ROUTE = { axis: true } as const;
+/** Forklift route ends within this distance (m) of a dock centre service that dock (fork reach + body); others block. */
+const FORKLIFT_DOCK_REACH = 3.5;
+/** Back-off points closer than this (m) to a foreign dock cell are rejected. */
+const DOCK_GUARD_GAP = 0.3;
 /** Nearest world axis (multiple of 90°): forklifts place pallets along world axes, so the AMR receives square to them. */
 const axisHeading = (yaw: number) => (Math.PI / 2) * Math.round(yaw / (Math.PI / 2));
 const pathHeading = (points: Vector3[]) => {
@@ -503,6 +509,12 @@ export class FactorySimulator {
     const dockRole = (o: SceneEquipment) => this.settings()[o.id]?.dockRole;
     this.docks = objects.filter((o) => o.kind === "dock" && (!dockRole(o) || dockRole(o) === "ship"));
     this.unloadDocks = objects.filter((o) => o.kind === "dock" && (dockRole(o) === "unload" || dockRole(o) === "stage"));
+    // Every dock cell (ship / unload / stage / pallet source) blocks through-traffic; layoutPath reopens the serviced one.
+    this.dockZones = objects.filter((o) => o.kind === "dock").map((o) => ({ kind: o.kind, pose: o }));
+    this.dockCells = this.dockZones;
+    this.dockInside.clear();
+    this.lastGoal.clear();
+    this.dockTransits = { amr: 0, forklift: 0 };
     this.racks = objects.filter((o) => o.kind === "rack" && !owned?.has(o.id));
     for (const rack of this.racks)
       this.rackStored.set(rack.id, RACK_CONFIG.slots.map(() => false));
@@ -1288,6 +1300,7 @@ export class FactorySimulator {
       emptyReturnTo: (amrId) => this.links.outgoing(amrId, "emptyReturn"),
       handoffTo: (amrId) => this.links.outgoing(amrId, "handoff"),
       autoConnect: this.auto,
+      dockGuard: (from, x, z) => this.foreignDockAt(from, x, z),
       plan: (from, to, loaded, extra, span) =>
         this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r })), span ?? null),
       render: (group) => this.render(group),
@@ -1395,6 +1408,15 @@ export class FactorySimulator {
     this.cargo.startPallet({ t: this.elapsed, stationId: pallet.object.id, grade: palletGrade(this.settings()[pallet.object.id]) });
   }
   private docks: SceneEquipment[] = [];
+  /** Dock cells as route obstacles for AMRs and forklifts (see layoutPath withoutServicedDocks). */
+  private dockCells: NavigationObstacle[] = [];
+  private dockZones: NavigationObstacle[] = [];
+  /** Vehicle id -> dock it is inside: entry time and longest stop there (s). */
+  private dockInside = new Map<string, { dock: number; still: number; at: { x: number; z: number }; serviced: boolean }>();
+  /** Vehicle id -> last route end seen (entry into a dock right after a route ended there is service). */
+  private lastGoal = new Map<string, { x: number; z: number }>();
+  /** Vehicles that crossed a dock cell without stopping in it (through-traffic). Sanity counter. */
+  dockTransits = { amr: 0, forklift: 0 };
   /** Depalletizing robots (robotRole "depalletize", also in `robots`): unload-dock pallet -> belt. */
   readonly depalletizers: FactoryRobot[] = [];
   private unloadDocks: SceneEquipment[] = [];
@@ -1641,6 +1663,43 @@ export class FactorySimulator {
     return halted;
   }
 
+  /**
+   * A box resting at its line-end stopper that no robot there can ever take (grade / filter mismatch with
+   * every pallet in reach, or already missed by each) would hold the stopper and halt the whole line
+   * upstream forever. Such a box is let off the end of the line (rejected, counted as passed) instead.
+   */
+  private releaseStrandedBoxes(settings: Record<string, EquipmentSettings>) {
+    let removed = false;
+    for (const box of this.boxes) {
+      if (box.state !== "moving" || settings[box.belt.id]?.conveyorRole === "ship") continue;
+      if (this.stopperBelt(box.belt.id, settings) !== box.belt.id) continue;
+      if (box.distance < beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT) continue;
+      const grade = this.grade(box);
+      const takeable = this.robots.some((robot) => {
+        const config = settings[robot.object.id];
+        if (!config?.enabled || this.depalletizers.includes(robot) || box.attempted.has(robot.object.id)) return false;
+        const feed = this.feedBelts.get(robot.object.id);
+        if ((feed && !feed.has(box.belt.id)) || distance(robot.object, box.node.position) > config.reach - 0.05) return false;
+        const anyGrade = config.pickUnscanned === true && this.unscanned(box);
+        const filter = config.pickFilter ?? "all";
+        if (!anyGrade && filter !== "all" && filter !== grade) return false;
+        return this.palletOrder.get(robot.object.id)?.some((pallet) =>
+          settings[pallet.object.id]?.enabled &&
+          (anyGrade || palletGrade(settings[pallet.object.id]) === grade) &&
+          pallet.slots.some((slot) => distance(robot.object, slot) <= config.reach)) ?? false;
+      });
+      if (takeable) continue;
+      box.state = "passed";
+      if (this.feedBoxIds.delete(box.id)) this.feedScan.unscanned++;
+      this.cargo.passBox({ t: this.elapsed, boxId: box.id, beltId: box.belt.id });
+      box.node.removeFromParent();
+      this.unrender(box.node);
+      this.passed++;
+      removed = true;
+    }
+    if (removed) this.boxes = this.boxes.filter((box) => box.state !== "passed");
+  }
+
   advance(dt: number) {
     const settings = this.settings();
     this.noScanLine = !this.scanners.some((sc) => settings[sc.id]?.enabled !== false) &&
@@ -1650,6 +1709,7 @@ export class FactorySimulator {
     for (const robot of this.robots)
       if (robot.busy && settings[robot.object.id].enabled)
         robot.busySeconds += dt;
+    this.releaseStrandedBoxes(settings);
     const halted = this.haltedBelts(settings);
     for (const belt of this.belts) {
       const config = settings[belt.object.id];
@@ -1909,6 +1969,7 @@ export class FactorySimulator {
     this.advanceForklifts(dt, settings);
     this.advanceEmptyPicks(settings);
     this.cycle?.advance(dt);
+    this.advanceGuards(dt);
     this.advancePalletHolds(dt);
     for (const shipment of this.shipments) {
       if (shipment.replaced || shipment.agent.dispatch.phase !== "dispatch")
@@ -2034,6 +2095,144 @@ export class FactorySimulator {
       this.dispatchSkip = pair - 1;
       this.dispatchRetry = SHIP_RESUME_S;
     } else this.dispatchSkip = 0;
+  }
+  /** Per vehicle: position it has stayed near and for how long (s); evade cooldown. */
+  private stillness = new Map<string, { at: Vector3; still: number; evadedAt: number }>();
+  private guardClock = 0;
+  private guardCheck = 0;
+  private stillFor(id: string, position: Vector3, dt: number) {
+    let s = this.stillness.get(id);
+    if (!s) this.stillness.set(id, (s = { at: position.clone(), still: 0, evadedAt: -Infinity }));
+    if (Math.hypot(position.x - s.at.x, position.z - s.at.z) > RESERVATION_WATCHDOG.radius) {
+      s.at.copy(position);
+      s.still = 0;
+    } else s.still += dt;
+    return s;
+  }
+  /**
+   * Releases this AMR's dock / rail bookings so the next AMR in line is served; it is requeued at the back and replans.
+   * Not while it stands at the dock with its pallet (holding: a normal wait for the rail centre / depalletizer).
+   */
+  private releaseBookings(agent: FactoryAgent) {
+    if (agent.dispatch.holding || agent.dispatch.readyToReceive) return false;
+    let released = false;
+    for (const [dock, queue] of this.feedDockQueue) {
+      const i = queue.indexOf(agent);
+      if (i < 0 || queue.length < 2 || i === queue.length - 1) continue;
+      queue.splice(i, 1);
+      queue.push(agent);
+      released = true;
+      log("warning", `${agent.object.name}: 예약 시간 초과 · 순서 양보`, dock);
+    }
+    for (const [rail, holder] of this.railReservations)
+      if (holder === agent.object.id) {
+        this.railReservations.delete(rail);
+        released = true;
+      }
+    if (released) {
+      const vehicle = this.trafficVehicles.find((v) => v.id === agent.object.id);
+      const path = vehicle && agent.dispatch.moving ? this.trafficPlan(vehicle) : null;
+      if (path) agent.dispatch.reroute(path);
+    }
+    return released;
+  }
+  /**
+   * Starvation / deadlock guards, every step:
+   * 1. Reservation watchdog: an AMR with a booking that made no progress for RESERVATION_WATCHDOG.timeout s (or whose
+   *    battery is below BATTERY_GUARD.forceBelow) gives the booking up (requeued at the back) and replans.
+   * 2. Wait-for graph over AMRs and cycle vehicles (forklifts, shuttles, AGVs): each still vehicle points at the body
+   *    holding it; a cycle (≥ 2) has its lowest-priority member (empty before loaded, then larger id) evade, then resume.
+   * 3. Low battery: an empty AMR below BATTERY_GUARD.forceBelow that is stuck charges where it stands.
+   */
+  /** (x,z) inside a dock cell that `from` is not in (a foreign dock for a move starting at `from`). */
+  private foreignDockAt(from: { x: number; z: number }, x: number, z: number) {
+    return this.dockCells.some((o) => clearancePose(x, z, "dock", o.pose) < DOCK_GUARD_GAP && clearancePose(from.x, from.z, "dock", o.pose) >= DOCK_GUARD_GAP);
+  }
+  /** Sanity counter: a vehicle that leaves a dock cell without having stopped there (>= 0.5 s) drove through it. */
+  private countDockTransits(dt: number) {
+    if (!this.dockZones.length) return;
+    const vehicles: { id: string; kind: "amr" | "forklift"; at: { x: number; z: number }; goal: { x: number; z: number } | null | undefined }[] = [
+      ...this.agents.map((a) => ({ id: a.object.id, kind: "amr" as const, at: a.dispatch.carrier.position, goal: a.dispatch.goal })),
+      ...(this.cycle?.views ?? []).filter((v) => v.kind === "forklift").map((v) => ({ id: v.id, kind: "forklift" as const, at: v.vehicle.position, goal: v.vehicle.destination })),
+    ];
+    for (const v of vehicles) {
+      // Serviced: the vehicle's route ends at this dock (before entering or while inside). Forklifts work a fork length away.
+      const reach = v.kind === "forklift" ? FORKLIFT_DOCK_REACH : 2;
+      const near = (dock: number, p: { x: number; z: number } | null | undefined) => !!p && Math.hypot(p.x - this.dockZones[dock].pose.x, p.z - this.dockZones[dock].pose.z) < reach;
+      const dock = this.dockZones.findIndex((o) => clearancePose(v.at.x, v.at.z, "dock", o.pose) <= 0);
+      const prev = this.dockInside.get(v.id), last = this.lastGoal.get(v.id);
+      if (v.goal) this.lastGoal.set(v.id, { x: v.goal.x, z: v.goal.z });
+      if (prev && prev.dock === dock) {
+        const moved = Math.hypot(v.at.x - prev.at.x, v.at.z - prev.at.z) > 0.02 * dt;
+        prev.still = moved ? 0 : prev.still + dt;
+        if (prev.still >= 0.5 || near(dock, v.goal)) prev.serviced = true;
+        prev.at = { x: v.at.x, z: v.at.z };
+        continue;
+      }
+      if (prev && !prev.serviced) {
+        this.dockTransits[v.kind]++;
+        const id = (this.dockZones[prev.dock]?.pose as { id?: string } | undefined)?.id ?? "dock";
+        log("warning", `${v.id} 도크 통과`, id);
+      }
+      if (dock < 0) this.dockInside.delete(v.id);
+      else this.dockInside.set(v.id, { dock, still: 0, at: { x: v.at.x, z: v.at.z }, serviced: (!prev && this.guardClock < 1) || near(dock, v.goal) || near(dock, last) });
+    }
+  }
+  private advanceGuards(dt: number) {
+    this.guardClock += dt;
+    const settings = this.settings();
+    const nodes = new Map<string, { position: Vector3; waiting: boolean; loaded: boolean; next: () => string | null; evade: () => boolean; still: { evadedAt: number } }>();
+    this.countDockTransits(dt);
+    for (const agent of this.agents) {
+      if (settings[agent.object.id]?.enabled === false) continue;
+      const d = agent.dispatch, position = d.carrier.position, s = this.stillFor(agent.object.id, position, dt);
+      const active = d.phase !== "idle" && !agent.charging;
+      const low = agent.battery < BATTERY_GUARD.forceBelow;
+      if (active && (s.still >= RESERVATION_WATCHDOG.timeout || (low && s.still >= WAIT_FOR_GRAPH.minWait)) && this.releaseBookings(agent)) s.still = 0;
+      if (low && !d.loaded && !d.holding && s.still >= RESERVATION_WATCHDOG.timeout && d.phase === "returning") agent.charging = true;
+      const vehicle = this.trafficVehicles.find((v) => v.id === agent.object.id);
+      nodes.set(agent.object.id, {
+        position, loaded: d.loaded, still: s,
+        waiting: active && !d.holding && s.still >= WAIT_FOR_GRAPH.minWait,
+        next: () => {
+          let best: string | null = null, gap = WAIT_FOR_GRAPH.reach;
+          for (const [id, other] of nodes) {
+            if (id === agent.object.id) continue;
+            const g = Math.hypot(other.position.x - position.x, other.position.z - position.z);
+            if (g < gap) { gap = g; best = id; }
+          }
+          return best;
+        },
+        evade: () => !!vehicle && this.traffic.evadeAside(vehicle, this.trafficVehicles, this.trafficPlan, this.trafficBodies),
+      });
+    }
+    for (const view of this.cycle?.views ?? []) {
+      const v = view.vehicle, s = this.stillFor(view.id, v.position, dt);
+      nodes.set(view.id, { position: v.position, loaded: v.loaded, still: s, waiting: !v.idle && s.still >= WAIT_FOR_GRAPH.minWait, next: () => v.waitingOn(), evade: () => v.evade() });
+    }
+    if (this.guardClock - this.guardCheck < WAIT_FOR_GRAPH.interval) return;
+    this.guardCheck = this.guardClock;
+    // Functional graph (≤ 1 edge per waiting vehicle): walk each chain; revisiting the current walk is a cycle.
+    const edge = new Map<string, string>();
+    for (const [id, node] of nodes) if (node.waiting) { const to = node.next(); if (to && nodes.get(to)?.waiting) edge.set(id, to); }
+    const done = new Set<string>();
+    for (const start of edge.keys()) {
+      const walk: string[] = [];
+      let at: string | undefined = start;
+      while (at && !done.has(at) && !walk.includes(at)) { walk.push(at); at = edge.get(at); }
+      walk.forEach((id) => done.add(id));
+      if (!at || !walk.includes(at)) continue;
+      const cycle = walk.slice(walk.indexOf(at));
+      if (cycle.length < 2) continue;
+      const order = cycle.map((id) => ({ id, node: nodes.get(id)! })).sort((a, b) => Number(a.node.loaded) - Number(b.node.loaded) || b.id.localeCompare(a.id));
+      for (const { id, node } of order) {
+        if (this.guardClock - node.still.evadedAt < WAIT_FOR_GRAPH.cooldown) continue;
+        if (!node.evade()) continue;
+        node.still.evadedAt = this.guardClock;
+        log("warning", `교착 감지: ${cycle.join(" → ")}`, `${id} 회피`);
+        break;
+      }
+    }
   }
   /** Drain while moving, trickle while idle; an idle AMR below the threshold returns home and charges there. */
   private advanceBatteries(dt: number, settings: Record<string, EquipmentSettings>) {
@@ -2949,6 +3148,7 @@ export class FactorySimulator {
     return [
       ...this.scanners.map((s) => ({ kind: s.kind, pose: s })),
       ...this.doorObstacles(),
+      ...this.dockCells,
     ];
   }
   /** A closed door fills its wall opening; an open one (fraction near 1) does not. */
@@ -3007,7 +3207,16 @@ export class FactorySimulator {
     // layoutPath is a pure function of its inputs and rackLayout / rackObstacles are fixed for the run, so a route
     // with exactly the same start, goal, load and extra obstacles is the same route. Held forklifts retry the same
     // (often unreachable, whole-grid) search every second while nothing around them moves; those become lookups.
-    const doors = this.doorObstacles();
+    // Dock cells block forklift through-traffic. A forklift services a dock from a fork length away, so a dock near
+    // either route end (FORKLIFT_DOCK_REACH) is the one it works at and stays open.
+    // Only the nearest dock to each end opens: a neighbouring dock (another vehicle's stop) still blocks.
+    const open = new Set<NavigationObstacle>();
+    for (const p of [from, to]) {
+      let best: NavigationObstacle | null = null, bestD = FORKLIFT_DOCK_REACH;
+      for (const o of this.dockCells) { const d = Math.hypot(p.x - o.pose.x, p.z - o.pose.z); if (d < bestD) { bestD = d; best = o; } }
+      if (best) open.add(best);
+    }
+    const doors = [...this.doorObstacles(), ...this.dockCells.filter((o) => !open.has(o))];
     const moving = this.cycleNav(from, to, span ?? AMR_TRAFFIC.emptyRadius);
     let key = `${span ?? "body"}|${from.x},${from.z}>${to.x},${to.z}:${loaded ? 1 : 0}`;
     for (const o of extra) {
@@ -3089,6 +3298,9 @@ export class FactorySimulator {
     const dispatch = vehicle.dispatch,
       goal = target ?? dispatch.goal;
     if (!goal) return null;
+    // A detour / side-step / evade target may not be a foreign dock: only the real destination's dock stays open.
+    const allow = target ? (dispatch.goal ? [dispatch.goal] : []) : undefined;
+    const ROUTE = { ...AXIS_ROUTE, allow };
     const position = dispatch.carrier.position,
       own = dispatch.radius;
     // Other AMRs are temporary obstacles. Shrink a disc that already touches this
@@ -3137,7 +3349,7 @@ export class FactorySimulator {
     }
     const repeat = failed && failed.sig === sig && this.trafficTick - failed.tick < ROUTE_FAIL_HOLD_STEPS && failed.loaded === dispatch.loaded
       && Math.hypot(failed.sx - p0.x, failed.sz - p0.z) < 0.05 && Math.hypot(failed.gx - goal.x, failed.gz - goal.z) < 0.05;
-    const direct = repeat ? null : layoutPath(navigation.layout, p0, goal, dispatch.loaded, obstacles, AXIS_ROUTE);
+    const direct = repeat ? null : layoutPath(navigation.layout, p0, goal, dispatch.loaded, obstacles, ROUTE);
     if (direct) this.failedRoutes.delete(vehicle.id);
     if (!direct && !repeat) this.failedRoutes.set(vehicle.id, { tick: this.trafficTick, loaded: dispatch.loaded, sig, sx: p0.x, sz: p0.z, gx: goal.x, gz: goal.z });
     // Inbound-conveyor receive pose sits inside the belt clearance: route via its straight approach lane.
@@ -3145,11 +3357,11 @@ export class FactorySimulator {
     if (direct || !lane) return direct;
     const here = dispatch.carrier.position.clone();
     if (Math.hypot(goal.x - lane.x, goal.z - lane.z) < 1.6) {
-      const path = layoutPath(navigation.layout, here, lane, dispatch.loaded, obstacles, AXIS_ROUTE);
+      const path = layoutPath(navigation.layout, here, lane, dispatch.loaded, obstacles, ROUTE);
       return path && [...path, new Vector3(goal.x, 0, goal.z)];
     }
     if (here.distanceTo(lane) < 1.6) {
-      const path = layoutPath(navigation.layout, lane, goal, dispatch.loaded, obstacles, AXIS_ROUTE);
+      const path = layoutPath(navigation.layout, lane, goal, dispatch.loaded, obstacles, ROUTE);
       return path && [here, ...path];
     }
     return null;

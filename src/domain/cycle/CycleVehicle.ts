@@ -24,6 +24,8 @@ const APPROACH_RADII = [1, 1.6, 2.4];
 const APPROACH_STEPS = 8;
 /** Traffic back-off: after `after` s blocked the lower-priority vehicle reverses (longest free distance first), then replans
  * around the blocker; `cooldown` s between back-offs, at most `tries` per move (then it just waits). */
+/** Livelock guard: held this long (s) within STUCK_RADIUS (m) of one spot, a vehicle takes a deadlock pass. */
+const STUCK_PASS = 30, STUCK_RADIUS = 1;
 const BACKOFF = { after: 2.5, distances: [1.5, 1.2, 0.8, 0.5], speed: 0.5, cooldown: 6, tries: 3, mutual: 0.5, abort: 2, retryAfter: 6 };
 /** Bodies never come closer than this (m), even in a deadlock pass: no rubbing. */
 const CONTACT = 0.03;
@@ -63,6 +65,8 @@ function run<T>(search: Generator<void, T>): T {
  */
 export type CycleVehicleOptions = {
   speed: number;
+  /** True when (x,z) lies in a dock cell the vehicle at `from` is not already in: back-off points never enter foreign docks. */
+  dockGuard?: (from: Vector3, x: number, z: number) => boolean;
   /** Local body circles (z along forward, radius), loaded variant optional. */
   circles: readonly { z: number; r: number }[];
   /** Footprint keep-out radius (centre distance to another clearance body never drops below the sum). */
@@ -136,6 +140,10 @@ export class CycleVehicle {
   get idle() {
     return this.queue.length === 0;
   }
+  /** Last point of the current route (null when not driving a path). */
+  get destination(): Vector3 | null {
+    return this.path.length ? this.path[this.path.length - 1] : null;
+  }
   get position() {
     return this.carrier.position;
   }
@@ -183,6 +191,23 @@ export class CycleVehicle {
   }
   /** Seconds left of a deadlock pass (after giveUp): the safety gap is waived, but bodies never overlap. */
   private pass = 0;
+  /**
+   * Livelock guard: held time since the vehicle last made real progress. Replans and back-offs reset `hold`, so two
+   * vehicles can keep blocking each other below giveUp forever; past STUCK_PASS s without leaving STUCK_RADIUS m, pass.
+   */
+  private stuck = 0;
+  private stuckAt = new Vector3(Infinity, 0, Infinity);
+  private stuckFor(dt: number) {
+    const p = this.carrier.position;
+    if (Math.hypot(p.x - this.stuckAt.x, p.z - this.stuckAt.z) > STUCK_RADIUS) {
+      this.stuckAt.copy(p);
+      this.stuck = 0;
+    }
+    this.stuck += dt;
+    if (this.stuck < STUCK_PASS) return false;
+    this.stuck = 0;
+    return true;
+  }
   private clearToMove(x: number, z: number, heading: number, dt: number, ignore?: readonly string[]) {
     const next = this.gapAt(x, z, heading, ignore);
     if (this.pass > 0) {
@@ -198,7 +223,7 @@ export class CycleVehicle {
     }
     this.hold += dt;
     this.heldSeconds += dt;
-    if (this.hold >= CYCLE_CONFIG.giveUp) {
+    if (this.hold >= CYCLE_CONFIG.giveUp || this.stuckFor(dt)) {
       // Mutual hold (two vehicles facing each other): pass through for a short window (counted as override).
       this.overrides++;
       this.hold = 0;
@@ -246,7 +271,7 @@ export class CycleVehicle {
       // Held short of the other body: counts toward detour / giveUp like a blocked step.
       this.hold += dt;
       this.heldSeconds += dt;
-      if (this.hold >= CYCLE_CONFIG.giveUp) {
+      if (this.hold >= CYCLE_CONFIG.giveUp || this.stuckFor(dt)) {
         this.overrides++;
         this.hold = 0;
         this.pass = CYCLE_CONFIG.passTime;
@@ -463,11 +488,22 @@ export class CycleVehicle {
    * Held too long: unless the blocker is itself held and has lower priority (empty yields to loaded, then the larger id
    * yields), reverse a short free distance along the heading, then replan around the blocker's footprint. The other proceeds.
    */
-  private backOff(action: Extract<Action, { type: "path" }>) {
+  /** Nearest other body holding this vehicle (wait-for graph edge), or null when it is not held. */
+  waitingOn() {
+    const action = this.queue[0];
+    if (this.hold <= 0 && this.stuck <= 0) return null;
+    return this.blocker(action?.type === "path" ? action.ignore : undefined)?.id ?? null;
+  }
+  /** Wait-for cycle breaker: back off now (mutual-hold priority ignored), then replan. False when there is no room. */
+  evade() {
+    const action = this.queue[0];
+    return action?.type === "path" && this.backOff(action, true);
+  }
+  private backOff(action: Extract<Action, { type: "path" }>, force = false) {
     const other = this.blocker(action.ignore);
     if (!other) return false;
     const mutual = (other.held?.() ?? 0) >= BACKOFF.mutual;
-    if (mutual) {
+    if (mutual && !force) {
       const mine = Number(this.loaded), theirs = Number(other.loaded?.() ?? false);
       const yields = mine !== theirs ? mine < theirs : this.id.localeCompare(other.id) > 0;
       // The designated yielder may have no room behind it: after a long mutual hold the other one tries as well.
@@ -477,7 +513,7 @@ export class CycleVehicle {
     const now = this.gapAt(p.x, p.z, h, action.ignore);
     for (const d of BACKOFF.distances) {
       let ok = true;
-      for (let s = 0.1; s <= d + 1e-9 && ok; s += 0.1) ok = this.gapAt(p.x - sin * s, p.z - cos * s, h, action.ignore) >= Math.min(CYCLE_CONFIG.safetyGap, now);
+      for (let s = 0.1; s <= d + 1e-9 && ok; s += 0.1) ok = this.gapAt(p.x - sin * s, p.z - cos * s, h, action.ignore) >= Math.min(CYCLE_CONFIG.safetyGap, now) && !this.options.dockGuard?.(p, p.x - sin * s, p.z - cos * s);
       if (!ok) continue;
       const to = new Vector3(p.x - sin * d, 0, p.z - cos * d);
       // Floor check (walls / equipment): a near-straight route must exist to the back-off point.

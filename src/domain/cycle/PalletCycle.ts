@@ -55,6 +55,8 @@ export type PalletCycleHost<C extends CycleCargo> = {
   rollOut?: (belt: SceneEquipment, group: Group, boxes: Group[], palletId?: string) => void;
   /** `span`: vehicle circle the route must keep clear (forklift fork swing). Omitted: the AMR body circle. */
   plan(from: Vector3, to: Vector3, loaded: boolean, extra: readonly CycleCircle[], span?: number): Vector3[] | null;
+  /** Foreign dock cell test for back-off moves (see CycleVehicleOptions.dockGuard). */
+  dockGuard?: (from: Vector3, x: number, z: number) => boolean;
   render(group: Group): void;
   unrender(group: Group): void;
   /** New empty pallet group (pallet model), rendered, not parented. */
@@ -145,6 +147,8 @@ const AGV_FETCH_TIMEOUT = 45;
 const AGV_DROP_CLEAR = 6;
 /** How far (m) an outbound AMR waits upstream of the belt hand-off, then drives forward to push the pallet on. */
 const SHIP_PUSH = 1.2;
+/** Free fixed-rack slots kept per cell: below this, every full pallet also ships one stored pallet (storage balance). */
+const RACK_RESERVE_SLOTS = 6;
 const RACK_FORKLIFT_SHIPS = false;
 type Forklift<C> = {
   object: SceneEquipment;
@@ -363,7 +367,7 @@ export class PalletCycle<C extends CycleCargo> {
       const config = settings[object.id];
       if (object.kind === "amr" && config?.amrRole === "shuttle") {
         const pallet = pallets.find((p) => settings[p.object.id]?.mountedOn === object.id);
-        const park = () => this.parked.push(new CycleVehicle(object.id, object.name, object, { speed: 0, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, plan: plan(false), bodies }));
+        const park = () => this.parked.push(new CycleVehicle(object.id, object.name, object, { speed: 0, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, plan: plan(false), bodies }));
         if (!pallet) {
           host.log("warning", `${object.name}: 올려진 팔레트가 없어 셔틀 순환에서 제외`);
           park();
@@ -386,7 +390,7 @@ export class PalletCycle<C extends CycleCargo> {
           park();
           continue;
         }
-        const vehicle = new CycleVehicle(object.id, object.name, object, { speed: CYCLE_CONFIG.shuttleSpeed, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, plan: plan(true), bodies });
+        const vehicle = new CycleVehicle(object.id, object.name, object, { speed: CYCLE_CONFIG.shuttleSpeed, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, plan: plan(true), bodies });
         pallet.managed = true;
         const belt = feeds.get(object.id);
         const feed: Feed<C> | null = belt ? { belt, timer: spawnIntervalOf(settings[belt.id] ?? {}), incoming: null, deck: null, fed: 0, emptyReturned: 0 } : null;
@@ -428,7 +432,7 @@ export class PalletCycle<C extends CycleCargo> {
           circles: [{ z: 0, r: AGV_MODEL.radius }],
           loadedCircles: [{ z: 0, r: RACK_M_MODEL.radius }],
           clearance: CYCLE_CONFIG.amrClearance,
-          plan: plan(true),
+          dockGuard: this.host.dockGuard, plan: plan(true),
           divert: true,
           bodies: agvBodies,
           fork: { group: lift, rest: lift.position.y, speed: AGV_MODEL.liftSpeed, node: lift.name || "AGV.Lift", kind: "agv" },
@@ -444,7 +448,7 @@ export class PalletCycle<C extends CycleCargo> {
           speed: CYCLE_CONFIG.forkliftSpeed,
           circles: FORK_CIRCLES,
           span: FORKLIFT_NAV_RADIUS,
-          plan: plan(false, FORKLIFT_NAV_RADIUS),
+          dockGuard: this.host.dockGuard, plan: plan(false, FORKLIFT_NAV_RADIUS),
           bodies,
           fork: { group: fork, rest: FORKLIFT_CONFIG.fork.y, speed: CYCLE_CONFIG.forkSpeed, node: "Forklift.Fork", kind: "forklift" },
         });
@@ -828,7 +832,11 @@ export class PalletCycle<C extends CycleCargo> {
    */
   private outbound(shuttle: Shuttle<C>, count: number) {
     const ratio = this.host.settings()[shuttle.pallet.object.id]?.outboundRatio ?? CYCLE_CONFIG.outboundRatio;
-    if (!shuttle.load || !(ratio > 0) || this.outboundRandom() >= ratio) return;
+    if (!shuttle.load) return;
+    const drawn = ratio > 0 && this.outboundRandom() < ratio;
+    // Storage balance: with the cell's fixed racks nearly full every further full pallet also ships one stored pallet,
+    // otherwise the racks fill up, the full pallets can no longer be stored and the whole line stops for good.
+    if (!drawn && !this.rackNearlyFull(this.cellOf(shuttle.dock.id), shuttle.vehicle.position)) return;
     // The outbound pallet is drawn (seeded) from pallets already stored in this cell's fixed racks, never the just-filled
     // or the most recently stored one; the filled pallet is stored as usual.
     const cell = this.cellOf(shuttle.dock.id);
@@ -843,6 +851,25 @@ export class PalletCycle<C extends CycleCargo> {
     this.outboundStored.push(this.storedAt.get(key)!);
     this.stats.outboundPallets++;
     this.host.log("info", `출하 지정 ${load.palletId ?? ""} (랙 ${key})`, "랙 적재 팔레트 중 무작위 출하");
+  }
+  /**
+   * Fewer than RACK_RESERVE_SLOTS free fixed-rack slots in `cell`, counting stored pallets already drawn as outbound
+   * (about to leave) as free.
+   */
+  private rackNearlyFull(cell: number, from: Vector3) {
+    const own = (rack: SceneEquipment) => this.cellOf(rack.id) === cell;
+    const leaving = this.outboundStored.filter((item) => own(item.rack) && this.stored.get(`${item.rack.id}:${item.slot}`)?.outbound === true).length;
+    // Only racks the cell's storing forklifts serve (store links) count as capacity.
+    return this.forklifts.some((f) => {
+      if (this.cellOf(f.object.id) !== cell || !this.enabled(f.object.id)) return false;
+      const booked = new Set(this.slotBookings);
+      for (let free = leaving; free < RACK_RESERVE_SLOTS; free++) {
+        const slot = this.host.rackFree(booked, own, { id: f.object.id, from });
+        if (!slot) return true;
+        booked.add(`${slot.rack.id}:${slot.slot}`);
+      }
+      return false;
+    });
   }
   /** A service forklift and a pallet source in the shuttle's cell (else a warning; the AMR waits with the empty pallet on its deck). */
   private canCollectEmpty(shuttle: Shuttle<C>) {
@@ -1655,7 +1682,13 @@ export class PalletCycle<C extends CycleCargo> {
   }
   /** Rack forklift (랙 적재): Rack_m (at the drop point) → Rack. Outbound-marked pallets are stored first, then shipped. */
   private rackJob(f: Forklift<C>) {
-    const cell = this.cellOf(f.object.id), own = (rack: SceneEquipment) => this.cellOf(rack.id) === cell;
+    // Own cell, plus cells without a rack forklift of their own: pallets drawn as outbound there were never shipped,
+    // so that cell's racks filled up and stopped the line for good.
+    const cell = this.cellOf(f.object.id);
+    const own = (rack: SceneEquipment) => {
+      const c = this.cellOf(rack.id);
+      return c === cell || !this.forklifts.some((o) => o.task === "rack" && this.enabled(o.object.id) && this.cellOf(o.object.id) === c);
+    };
     const rackM = this.racks.find((r) => r.state === "full" && r.at === "drop" && own(r.object) && r.levels.some((l, i) => l && !r.booked.has(i)));
     const slot = rackM ? this.freeSlot(own, { id: f.object.id, from: rackM.group.position }) : null;
     const canStore = !!rackM && !!slot;

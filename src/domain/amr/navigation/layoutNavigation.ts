@@ -200,13 +200,24 @@ export function obstacleClearance(x:number,z:number,obstacle:NavigationObstacle)
   return obstacle.radius!==undefined?Math.max(0,Math.hypot(x-obstacle.pose.x,z-obstacle.pose.z)-obstacle.radius):clearancePose(x,z,obstacle.kind,obstacle.pose);
 }
 export function routeFailureReason(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[],stage:string){
+  extra=withoutServicedDocks(extra,[start,goal],loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius);
   const blocked=(point:{x:number;z:number})=>!navigationClear(layout,point.x,point.z,loaded,extra.filter(o=>!o.path?.length||o.kind==="floor"));
   if(blocked(start))return `${stage}: 출발 공간이 부족합니다. 주변 장비 간격을 확인해 주세요.`;
   if(blocked(goal))return `${stage}: 도착 공간이 부족합니다. 주변 장비 간격을 확인해 주세요.`;
   if(extra.some(o=>o.path?.length&&o.kind!=="floor"))return `${stage}: 다른 AMR의 운반·복귀 경로 예약이 해제되기를 기다립니다.`;
   return `${stage}: 연결 가능한 통로가 없습니다. 장비 배치를 확인해 주세요.`;
 }
-export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[],options:{axis?:boolean;radius?:number}={}):Vector3[]|null{
+/** How close (beyond the body radius) a route end must be to a dock cell for that dock to count as the one it services. */
+export const DOCK_SERVICE_REACH=.6;
+/** Dock cells (kind "dock") block through-traffic. The docks a route starts in or is bound for (`points`) stay open. */
+export function withoutServicedDocks(extra:NavigationObstacle[],points:readonly {x:number;z:number}[],radius:number){
+  if(!extra.some(o=>o.kind==="dock"))return extra;
+  return extra.filter(o=>o.kind!=="dock"||points.some(p=>clearancePose(p.x,p.z,"dock",o.pose)<radius+DOCK_SERVICE_REACH));
+}
+/** `options.allow`: route ends whose docks stay open besides the start (default: the goal). Detours / side steps pass
+ * the vehicle's real destination so a parking point inside a foreign dock is rejected. */
+export function layoutPath(layout:FactoryLayout,start:{x:number;z:number},goal:{x:number;z:number},loaded:boolean,extra:NavigationObstacle[]=[],options:{axis?:boolean;radius?:number;allow?:readonly {x:number;z:number}[]}={}):Vector3[]|null{
+  extra=withoutServicedDocks(extra,[start,...(options.allow??[goal])],options.radius??(loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius));
   const axis=options.axis===true;
   const radius=options.radius??(loaded?AMR_TRAFFIC.loadedRadius:AMR_TRAFFIC.emptyRadius),padding=C.navigationPadding;
   // A custom radius is a vehicle circle (forklift fork swing), not an AMR pallet square.

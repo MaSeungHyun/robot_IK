@@ -120,19 +120,20 @@ export class RailNetwork {
     return this.transfers.find((t) => t.object.id === id);
   }
   /**
-   * A side can take the next pallet only when its queue is empty and its lift is ready (empty, forks up): a lift still
-   * holding a pallet (boxes left to depalletize), lowering it or waiting for the empty-pallet forklift blocks its side.
-   * Pallets never stack up on the rail; the AMR keeps its pallet on the deck and waits instead.
+   * A side (with a lift) can queue one more pallet: fewer than RAIL_CONFIG.slotsPerSide pallets on its half and the last
+   * one has rolled at least `clear` away from the centre. The lift keeps depalletizing / waiting for the empty-pallet
+   * forklift while the queue behind it fills up to slotsPerSide.
    */
-  private sideFree(rail: RailUnit, side: -1 | 1) {
-    const tf = rail.transfers[side];
-    return !!tf && tf.phase === "ready" && !tf.item && rail.halves[side].length === 0;
+  private sideFree(rail: RailUnit, side: -1 | 1, clear: number) {
+    const q = rail.halves[side], last = q[q.length - 1];
+    return !!rail.transfers[side] && q.length < RAIL_CONFIG.slotsPerSide && (!last || Math.abs(last.s) >= clear);
   }
-  /** The centre is empty and a side with a ready lift has an empty queue (else the AMR must not push). */
+  /** The centre is empty, no side pallet is still near it, and a side with a lift still has a free slot (else the AMR must not push). */
   canAccept(id: string) {
     const rail = this.rail(id);
     if (!rail || rail.centre) return false;
-    return ([-1, 1] as const).some((side) => this.sideFree(rail, side));
+    if (!([-1, 1] as const).some((side) => this.sideFree(rail, side, 0))) return false;
+    return ([-1, 1] as const).every((side) => { const q = rail.halves[side], last = q[q.length - 1]; return !last || Math.abs(last.s) >= RAIL_CONFIG.clearCentre; });
   }
   /** AMR deck → rail centre (the group is re-parented to the root, world pose kept). False = refused (the AMR waits). */
   deposit(id: string, item: RailItem): boolean {
@@ -166,7 +167,7 @@ export class RailNetwork {
     // Centre → a free half (prefer the alternating side; only sides that have a lift).
     if (centre?.phase === "wait") {
       const sides = ([rail.next, -rail.next] as (-1 | 1)[]).filter((side) => {
-        return this.sideFree(rail, side);
+        return this.sideFree(rail, side, slotPitch() - 1e-6);
       });
       const side = sides[0];
       if (side) {

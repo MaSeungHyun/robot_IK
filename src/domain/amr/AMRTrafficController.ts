@@ -19,6 +19,11 @@ type Motion = {
   /** Vehicle this one stepped aside for; it holds at the side cell until that one has passed. */
   yieldFrom: string | null;
   hold: number;
+  /**
+   * Way back while holding: the side-cell move reversed, then the route it was on before yielding. Used when no fresh
+   * plan can be found from the side cell (e.g. it lies inside a nav clearance), else the AMR would hold there forever.
+   */
+  resume?: Vector3[];
   /** Stall detection: position at the start of the progress window, time in it, replan cooldown, speed ramp (0..1). */
   anchor: Vector3;
   still: number;
@@ -563,6 +568,34 @@ export class AMRTrafficController {
     }
     return false;
   }
+  /**
+   * Wait-for cycle breaker: steps a moving AMR (loaded or not) to the nearest free side cell; release() then sends it
+   * on (fresh plan, or back along `resume` after maxHold). False when no side cell is reachable.
+   */
+  evadeAside(vehicle: Vehicle, vehicles: Vehicle[], replan: TrafficPlanner, bodies: readonly TrafficBody[]) {
+    const motion = this.motions.get(vehicle.id), d = vehicle.dispatch;
+    if (!motion || !d.moving || motion.yieldFrom) return false;
+    const position = d.carrier.position;
+    const peer: Peer = { id: BODY_YIELD, position: position.clone(), radius: d.radius, corridor: [position.clone()] };
+    let tries = 0;
+    for (const ring of TRAFFIC_RESOLUTION.rings)
+      for (let k = 0; k < TRAFFIC_RESOLUTION.angles; k++) {
+        const angle = (k / TRAFFIC_RESOLUTION.angles) * Math.PI * 2;
+        const point = new Vector3(position.x + ring * Math.cos(angle), 0, position.z + ring * Math.sin(angle));
+        if (!this.clearOfOthers(point, vehicle, peer, vehicles, bodies)) continue;
+        if (++tries > TRAFFIC_RESOLUTION.attempts) return false;
+        const path = replan(vehicle, point);
+        if (!path || path.length < 2) continue;
+        motion.resume = [...path].reverse().concat(d.remaining().slice(1).map((p) => p.clone()));
+        d.reroute(path);
+        motion.yieldFrom = BODY_YIELD;
+        motion.hold = 0;
+        motion.wait = 0;
+        motion.retry = TRAFFIC_RESOLUTION.retry;
+        return true;
+      }
+    return false;
+  }
   private coopReady(id: string) {
     return this.clock - (this.coopAt.get(id) ?? -Infinity) >= AMR_COOPERATION.cooldown;
   }
@@ -733,6 +766,9 @@ export class AMRTrafficController {
     );
   }
   private commitYield(loser: Vehicle, peer: Peer, path: Vector3[], reverse: boolean) {
+    const held = this.motions.get(loser.id)!;
+    const before = held.yieldFrom && held.resume ? held.resume : loser.dispatch.remaining();
+    held.resume = [...path].reverse().concat(before.slice(1).map((p) => p.clone()));
     if (reverse) loser.dispatch.reverse(path);
     else loser.dispatch.reroute(path);
     const motion = this.motions.get(loser.id)!;
@@ -849,7 +885,8 @@ export class AMRTrafficController {
     // Yielded to a forklift (no known route): give it a moment to pass first.
     if (motion.yieldFrom === BODY_YIELD && motion.hold < TRAFFIC_RESOLUTION.bodyHold) return;
     const winner = vehicles.find((other) => other.id === motion.yieldFrom);
-    const path = replan(vehicle);
+    // No plan from the side cell: once held past maxHold, drive back the way it came and continue the old route.
+    const path = replan(vehicle) ?? (motion.hold > TRAFFIC_RESOLUTION.maxHold && motion.resume && motion.resume.length >= 2 ? motion.resume : null);
     if (!path) return;
     const passed =
       !winner ||
@@ -864,6 +901,7 @@ export class AMRTrafficController {
     if (!passed) return;
     dispatch.reroute(path);
     motion.yieldFrom = null;
+    motion.resume = undefined;
     motion.hold = 0;
     motion.wait = 0;
   }
