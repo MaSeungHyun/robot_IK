@@ -60,3 +60,15 @@ A new device type only implements `getAnimatedParts()` (and is added to the regi
 Not covered: rail_condition.glb has no moving nodes (pallets on rails are in `pallets`); AMR.glb roller tops and scanners have no animated nodes in the app.
 
 `node scripts/validate-recording.mjs <runDir>` also checks part declarations, value shapes, row order and duplicates when `animatedParts` is present.
+
+## KPI stream (chunk exporter, added 2026-11-03)
+
+Computed inside the sim by `KpiTracker` (`src/domain/recording/kpiStream.ts`), sampled at 1 Hz from sim t=0 (warm-up included), so every count is a **day total** and utilizations are over the whole elapsed day.
+
+- `manifest.kpiSchema`: `{ version, sampleHz: 1, encoding, placeholders, stages, keys[] }`. `keys[]` = `{ key, unit, type (int|number|string|number|null), meaning }`; dotted paths, `<stage>|<scannerId>|<deviceId>|<vehicleId>|<robotId>` segments are map keys. `stages[]` describes each stage's unit, count, wip and progress reference.
+- `manifest.sampleHz.kpi = 1`, `manifest.kpiEncoding`.
+- Chunk `tracks.kpi`: rows `[t, sample]` (t absolute sim s, one per second, full sample each row). `snapshot.kpi`: latest sample at chunk start.
+- Sample groups: `throughput` (processed = palletized boxes, perHour rolling 3600 s, perMinute rolling 60 s, avgPerHour), `stages.<stage>.{count,wip,progress}` for inbound, depalletize, scan, palletize, rackStore, outbound, ship; `wip`, `pallets.full`, `boxes.passed`, `scan` (total + `byScanner`), `rack`, `vehicles`, `devices.<id>.{kind,state,utilization}`, `robots.<id>.{cycles,cycleTimeLast,cycleTimeAvg,busyPerCycle,utilization}`.
+- Invariants (checked by `scripts/validate-recording.mjs`): counts monotonic; inbound >= depalletize >= scanned >= palletize + passed (with scanners); pass + defect = scanned; per-scanner sums = totals; ship <= outbound <= rackStore <= pallets.full; wip >= 0; rack stored + reserved <= slots; % values in 0..100; every sample key declared and every declared key present.
+
+Scanners: headless runs now register scan-tunnel sensors (`simulateLayout` + `ScanTunnel.glb`, same geometry as `Scanner.tsx`), so scan counts are real. This lowers throughput ~15% vs older headless runs (matches the app). `record-run.mjs --no-scanners` restores the legacy behaviour (scan KPIs 0, `scan.scanners = 0`).

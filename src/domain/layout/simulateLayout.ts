@@ -4,7 +4,7 @@
  * per robot on a SimulationClock, and measures steady-state metrics after a warm-up.
  * Runs in Node (vite ssrLoadModule) and in a Web Worker (no DOM, no React). Each JS context has its own store.
  */
-import { Group, Scene } from "three";
+import { Group, Scene, Vector3 } from "three";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { FactorySimulator } from "@/domain/simulation/FactorySimulator";
 import { SuctionRobotController } from "@/domain/robot/SuctionRobotController";
@@ -16,8 +16,10 @@ import type { SimMetrics } from "@/domain/layout/autoLayout";
 import { robotElevation } from "@/domain/layout/robotPedestals";
 import { SimRecorder } from "@/domain/recording/SimRecorder";
 import type { SimRecording } from "@/domain/recording/simRecording";
+import { createScannerModel } from "@/objects/scanner/scannerModel";
 
-export type SimModels = { robot: Group; box: Group; pallet: Group };
+/** `scanner` (ScanTunnel.glb scene, optional): registers every scanner with the inspection like the viewer's Scanner.tsx, so scans run headless. */
+export type SimModels = { robot: Group; box: Group; pallet: Group; scanner?: Group };
 export type SimOptions = { seconds: number; warmup: number; seed?: number; /** Collect a SimRecording (suction, box parents, keyframes, pallets). */ record?: boolean; /** Legacy: mount arms at y=0 instead of on their pedestal (comparison only). */ floorMount?: boolean; /** Called after every frame (exporters sample world state here; read-only). */ onFrame?: (t: number, ctx: SimFrameContext) => void };
 export type SimFrameContext = { world: FactorySimulator; scene: Scene; controllers: SuctionRobotController[]; holders: Group[]; recorder: SimRecorder | null; objects: ReturnType<typeof useSceneStore.getState>["objects"] };
 export type SimResult = (SimMetrics & { shipped: number; cpuMs: number; /** Pallets the forklift took out of racks through the door. */ rackUnloaded: number; recording?: SimRecording }) | { error: string };
@@ -34,6 +36,12 @@ export function simulateTemplate(template: SceneTemplate, models: SimModels, { s
   const world = new FactorySimulator(objects, models.box, models.pallet, getSettings, undefined, random, links, autoConnect);
   const scene = new Scene();
   scene.add(world.root);
+  if (models.scanner) for (const o of objects) if (o.kind === "scanner") {
+    // Same sensor as Scanner.tsx: model scan point rotated by yaw, normal along the scanner heading.
+    const sm = createScannerModel(models.scanner), point = sm.localPoint.clone().applyAxisAngle(new Vector3(0, 1, 0), o.yaw);
+    point.x += o.x; point.z += o.z;
+    world.inspection.register(o.id, { point, normal: new Vector3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), halfWidth: sm.halfWidth, floor: 0 });
+  }
   const clock = new SimulationClock();
   const rec = record ? new SimRecorder(scene, world.cargo, { template: template.id ?? template.name, seed, seconds },
     { objectKind: (id) => objects.find((o) => o.id === id)?.kind, railOf: (g) => world.railHolderOf(g),
