@@ -13,7 +13,7 @@ import type { FloorSize } from "@/types/layout";
 import FloorRoom from "@/objects/room/FloorRoom";
 import { FACTORY_ROOM } from "@/constants/factoryRoom";
 import type { EquipmentKind } from "@/types/layout";
-import { snapBelt } from "@/domain/conveyor/conveyorLayout";
+import { snapLine } from "@/domain/conveyor/conveyorSnap";
 import PlacementGhost from "@/viewport/editor/PlacementGhost";
 import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
@@ -101,8 +101,8 @@ export default function PlacementFloor() {
         const width = (state.pending === "door" ? state.pendingPreset?.doorWidth : undefined) ?? DOOR_CONFIG.width;
         return { ...object, ...snapDoorToWall(object, width, state.objects) };
       }
-      return kind === "conveyor"
-        ? snapBelt(object, state.objects)
+      return kind === "conveyor" || kind === "scanner"
+        ? snapLine(object, state.objects)
         : object;
     };
     const pointAt = (event: MouseEvent) => {

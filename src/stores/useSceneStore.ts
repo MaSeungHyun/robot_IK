@@ -6,11 +6,12 @@ import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,Conve
 import { DEFAULT_LAYOUT,ROBOT_REACH_MAX,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG } from "../constants/simulatorLayout";
 import { useSimulationStore } from "./useSimulationStore";
 import { validateScene } from "@/domain/amr/navigation/sceneValidation";
-import { beltConnections,connectedBeltIds,extendBelt,snapBelt } from "@/domain/conveyor/conveyorLayout";
+import { beltConnections,connectedBeltIds,extendBelt } from "@/domain/conveyor/conveyorLayout";
 import { scannerExtension,scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate, TemplateCamera, TemplateLighting, TemplateProp } from "@/types/sceneTemplate";
 import { placementDefaults } from "@/constants/equipmentDefaults";
+import { snapLine } from "@/domain/conveyor/conveyorSnap";
 import { DEFAULT_BELT_SPEED, migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
 import { log } from "@/stores/useLogStore";
 import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
@@ -153,7 +154,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       if(Object.entries(pose).every(([key,value])=>Math.abs(object[key as keyof EquipmentPose]-value)<1e-8))return object;
       changed=true;const moved={...object,...pose};
       if(object.kind==="robot"){const m=robotMountAt(moved.x,moved.z,false);return {...snapFloor(moved),elevation:m.elevation||undefined};}// [pedestal] lift onto / drop off a robot pedestal
-      return object.kind==="conveyor"?snapBelt(moved,state.objects):object.kind==="door"?snapDoor(moved,state.settings[object.id],state.objects):snapFloor(moved);
+      return object.kind==="conveyor"||object.kind==="scanner"?snapLine(moved,state.objects):object.kind==="door"?snapDoor(moved,state.settings[object.id],state.objects):snapFloor(moved);
     });
     if(changed)set({...history(state),...applyPalletMounts({objects,settings:state.settings},changes.map(c=>c.id)),errors:[]});
   },setPending:(pending,preset=null)=>{const next=pending?preset:null;if(get().pending!==pending||get().pendingPreset!==next)set({pending,pendingPreset:next});},setTool:tool=>{if(get().tool!==tool)set({tool});},
@@ -163,7 +164,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
       const config=settingsFor(kind,{...placementDefaults(kind,state.pending===kind?state.pendingPreset:null),...(state.pending===kind?state.pendingPreset:null)});
-      let object=kind==="conveyor"?snapBelt(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
+      let object=kind==="conveyor"||kind==="scanner"?snapLine(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
       // [pedestal] a robot added over robot_base / robot_arm_place sits on its top face (base: XZ centre).
       if(kind==="robot"&&pose.elevation===undefined){const m=robotMountAt(object.x,object.z,true);object={...object,x:m.x,z:m.z,...(m.elevation?{elevation:m.elevation}:{})};}
       const scene=applyPalletMounts({objects:[...state.objects,object],settings:{...state.settings,[id]:config}},[id]);
@@ -210,13 +211,13 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(scanner?scannerOutletTaken(source,state.objects):beltConnections(state.objects).next.has(id))return;
     const pose=scanner?scannerExtension(source,turn):extendBelt(source,turn);
     const nextId=`conveyor-${state.nextId}`,object={...pose,id:nextId,kind:"conveyor" as const,name:`컨베이어 ${state.nextId}`};
-    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:scanner?settingsFor("conveyor",{autoSpawn:false,beltSpeed:DEFAULT_BELT_SPEED}):{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
+    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:scanner?settingsFor("conveyor",placementDefaults("conveyor")):{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
   },
   updatePose:(id,pose)=>{
     if(!get().editing)return;
     const object=get().objects.find(object=>object.id===id);
     if(!object||Object.entries(pose).every(([key,value])=>Math.abs(object[key as keyof EquipmentPose]-value)<1e-8))return;
-    const changed={...object,...pose},next=object.kind==="conveyor"?snapBelt(changed,get().objects):object.kind==="door"?snapDoor(changed,get().settings[id],get().objects):snapFloor(changed);
+    const changed={...object,...pose},next=object.kind==="conveyor"||object.kind==="scanner"?snapLine(changed,get().objects):object.kind==="door"?snapDoor(changed,get().settings[id],get().objects):snapFloor(changed);
     set(state=>({...history(state),...applyPalletMounts({objects:state.objects.map(object=>object.id===id?next:object),settings:state.settings},[id]),errors:[]}));
   },
   updateFloor:(id,size)=>{
