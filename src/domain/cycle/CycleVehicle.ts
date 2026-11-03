@@ -1,6 +1,7 @@
 import { Group, Vector3 } from "three";
 import { CYCLE_CONFIG } from "@/constants/cycle";
 import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
+import { animatedPart, type AnimatedPart } from "@/domain/recording/animatedParts";
 
 /** Floor route planner (null = no route); the vehicle falls back to a straight line. */
 export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean, avoid?: readonly { x: number; z: number; r: number }[]) => Vector3[] | null;
@@ -71,7 +72,8 @@ export type CycleVehicleOptions = {
   loadedCircles?: readonly { z: number; r: number }[];
   plan: CyclePlanner;
   bodies: () => readonly CycleBody[];
-  fork?: { group: Group; rest: number; speed: number };
+  /** node / kind: GLB node the fork group drives and the device kind, for the animated-parts recording. */
+  fork?: { group: Group; rest: number; speed: number; node?: string; kind?: string };
   /** When held, turn out to the side and search another route. Without it, the vehicle reverses and replans. */
   divert?: boolean;
 };
@@ -143,6 +145,11 @@ export class CycleVehicle {
   /** Fork / lift height above its rest position. */
   get lift() {
     return this.fork ? this.fork.position.y - this.forkRest : 0;
+  }
+  /** Animated parts (recording): fork / lift node local y (the fork group is that node or drives it). */
+  getAnimatedParts(): AnimatedPart[] {
+    const f = this.options.fork;
+    return this.fork && f?.node ? [animatedPart(this.id, f.kind ?? "vehicle", f.node, "posY", this.fork.position.y, this.forkRest)] : [];
   }
   readonly body: CycleBody;
   private scratch: { x: number; z: number; r: number }[] = [];

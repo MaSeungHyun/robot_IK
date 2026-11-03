@@ -9,6 +9,7 @@ import { createRobotIK, ikSolveStats, type IKPose, type LineLock } from "@/domai
 import type { PlanningBudget } from "@/domain/robot/ik/planningScheduler";
 import { poseRobotHome, setJointAngle } from "@/domain/robot/ik/joints";
 import { isPickupInRange, isWristAboveBox, setCargoWorldPose } from "@/domain/robot/ik/picking";
+import { animatedPart, type AnimatedPart } from "@/domain/recording/animatedParts";
 
 const createRuntime = () => ({
   index: 0, phase: "HOME" as RobotPhase, elapsed: 0, duration: 0,
@@ -133,6 +134,15 @@ export class SuctionRobotController implements RobotController {
     this.manualAngle = { name, degrees };
   }
 
+  private partRest = new Map<string, number[]>();
+  /** Animated parts (recording): each joint node's local quaternion (rest = pose at first read). */
+  getAnimatedParts(): AnimatedPart[] {
+    return [this.ik.baseControl, ...this.ik.controls].map((c) => {
+      const q = c.node.quaternion.toArray() as number[], name = c.node.name;
+      if (!this.partRest.has(name)) this.partRest.set(name, q);
+      return animatedPart(this.id, "robot", name, "quat", q, this.partRest.get(name)!);
+    });
+  }
   getJointAngles(): JointAngleReading[] {
     const currentIK = this.ik;
     const allControls = [currentIK.baseControl, ...currentIK.controls];

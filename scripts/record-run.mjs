@@ -1,4 +1,4 @@
-// Chunked monitoring recording exporter (arms on pedestals, SimRecorder v1 + 10 Hz tracks).
+// Chunked monitoring recording exporter (arms on pedestals, SimRecorder v1 + 10 Hz tracks + animated parts).
 // node scripts/record-run.mjs [--template=5] [--seconds=600] [--chunk=600] [--seed=12345] [--run=ID] [--out=DIR] [--measure]
 import { createServer } from "vite";
 import { readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
@@ -27,6 +27,7 @@ try {
   const [robot, box, pallet] = await Promise.all(["RobotArm", "box", "pallet"].map((n) => parse(`src/assets/models_original/${n}.glb`)));
   const { SCENE_TEMPLATES } = await server.ssrLoadModule("/src/constants/sceneTemplates.ts");
   const { simulateTemplate } = await server.ssrLoadModule("/src/domain/layout/simulateLayout.ts");
+  const { partKey, partDelta } = await server.ssrLoadModule("/src/domain/recording/animatedParts.ts");
   const ti = +arg("template", 5), template = structuredClone(SCENE_TEMPLATES[ti]);
   const warmup = +arg("warmup", 0), recordSec = +arg("seconds", 600), seconds = warmup + recordSec, chunkLen = +arg("chunk", 600), seed = +arg("seed", 12345), measure = args.includes("--measure");
   const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
@@ -42,6 +43,16 @@ try {
   let ctxRef = null, amrNodes = new Map(), nextAmrScan = 0, nextPose = 0, nextStatus = 0, nextMinute = 60, chunkIdx = 0, chunk = null;
   const prevEq = new Map(), chunks = [], minutes = [], events = [], lastState = new Map(), suctionOn = new Map(), cursor = {};
   let lastTotals = null, amrIds = [], robotIds = [], equipment = [], lastMinute = null, truth = new Map();
+  // Animated parts: manifest part list (index = i), last emitted / previous sampled value per part.
+  const partSpecs = [], partIdx = new Map(), partLast = [], partPrev = [];
+  const readParts = (ctx) => { const list = [...(ctx.world.getAnimatedParts?.() ?? []), ...ctx.controllers.flatMap((c) => c.getAnimatedParts?.() ?? [])];
+    return list.map((pt) => { const k = partKey(pt); let i = partIdx.get(k);
+      if (i === undefined) { i = partSpecs.length; partIdx.set(k, i); const { value, ...spec } = pt; partSpecs.push({ i, ...spec }); }
+      return [i, pt.value]; }); };
+  const sampleParts = (t, ctx) => { for (const [i, v] of readParts(ctx)) { const sp = partSpecs[i], last = partLast[i], prev = partPrev[i];
+    // Emit on change >= threshold, plus once when a part settles (unchanged since the previous sample) off its last emitted value.
+    if (last === undefined || partDelta(sp.channel, v, last) >= sp.threshold || (partDelta(sp.channel, v, last) > 0 && prev !== undefined && partDelta(sp.channel, v, prev) === 0)) { chunk.parts.push([+t.toFixed(2), i, v]); partLast[i] = v; }
+    partPrev[i] = v; } };
   const REC_KEYS = ["suction", "contacts", "boxParents", "boxKeyframes", "pallets", "palletParents"];
   const counts = (w) => { const s = w.stats, c = w.cycle?.stats ?? {}; return { inbound: w.cargo.totals.inbound, scanned: (w.inspection.snapshots ?? []).reduce((n, x) => n + x.scanned, 0), defects: (w.inspection.snapshots ?? []).reduce((n, x) => n + x.faults, 0), placed: w.placed, passed: w.passed, depalletized: w.depalletized ?? 0, palletsShipped: s.completedPallets ?? 0, outbound: c.outboundPallets ?? 0, storedToRack: c.storedToRack ?? 0, shippedPallets: c.shippedPallets ?? 0, carrierTrips: c.carrierTrips ?? 0, forkliftStored: w.forkliftStored ?? 0, wip: s.live }; };
   const snapshot = (t, { world, recorder }) => {
@@ -56,9 +67,9 @@ try {
     return { t: +t.toFixed(3), boxes, boxFields: ["id", "parentKind", "parentId", "x", "y", "z", "qx", "qy", "qz", "qw", "lx", "ly", "lz", "lqx", "lqy", "lqz", "lqw"], boxLocal: "x,y,z,lx,ly,lz in cm; q* world quaternion; l* only for parentKind pallet: relative to pallet pos/yaw (world = pos + rotY(yaw)*l, qWorld = qYaw*lq)", pallets, palletFields: ["id", "state", "grade", "boxes", "pos", "yaw", "carrierKey"],
       racks: (eq.racks ?? []).map((r) => ({ id: r.id, slots: r.slots.map((s) => s.state === "empty" ? 0 : s.state === "reserved" ? [2, s.palletId ?? null] : [1, s.palletId ?? null, s.grade ?? null, s.boxes ?? null]) })),
       suction: Object.fromEntries(robotIds.map((id) => [id, suctionOn.get(id) ?? null])), counts: counts(world),
-      states: Object.fromEntries(lastState) };
+      states: Object.fromEntries(lastState), parts: (() => { const vals = []; for (const [i, v] of readParts({ world, controllers: ctxRef.controllers })) { vals[i] = v; partLast[i] = v; partPrev[i] = v; } return Array.from(vals, (v) => v ?? null); })() };
   };
-  const newChunk = (t, ctx) => { chunk = { i: chunkIdx, t0: warmup + chunkIdx * chunkLen, t1: Math.min(seconds, warmup + (chunkIdx + 1) * chunkLen), snapshot: snapshot(t, ctx), t: [], joints: Object.fromEntries(robotIds.map((id) => [id, []])), amrs: Object.fromEntries(amrIds.map((id) => [id, []])), status: [], events: [] }; for (const k of REC_KEYS) cursor[k] = ctx.recorder.data[k].length; };
+  const newChunk = (t, ctx) => { chunk = { i: chunkIdx, t0: warmup + chunkIdx * chunkLen, t1: Math.min(seconds, warmup + (chunkIdx + 1) * chunkLen), snapshot: snapshot(t, ctx), t: [], joints: Object.fromEntries(robotIds.map((id) => [id, []])), amrs: Object.fromEntries(amrIds.map((id) => [id, []])), status: [], events: [], parts: [] }; for (const k of REC_KEYS) cursor[k] = ctx.recorder.data[k].length; };
   const flush = (ctx) => {
     const d = ctx.recorder.data, recording = { version: d.version, template: d.template, seed: d.seed, seconds: d.seconds };
     for (const k of REC_KEYS) { recording[k] = d[k].slice(cursor[k]); d[k].length = 0; cursor[k] = 0; }
@@ -68,10 +79,10 @@ try {
     recording.boxKeyframes = recording.boxKeyframes.map((k) => ({ t: k.t, boxes: k.boxes.filter((b) => { const h = held.get(b[0]); if (h && Math.hypot(h[0] - b[1], h[1] - b[2], h[2] - b[3]) < 0.01 && !turned(h, b)) return false; held.set(b[0], [b[1], b[2], b[3], b[4], b[5], b[6], b[7]]); return true; }) }));
     recording.boxKeyframeEncoding = "[id,x,y,z,qx,qy,qz,qw] world; only boxes moved >= 1 cm or turned >= ~1 deg since their previous emitted pose; hold last value (snapshot seeds)";
     const file = `chunk-${String(chunk.i).padStart(3, "0")}.json`;
-    const body = { meta: { runId, template: template.id, chunk: chunk.i, t0: chunk.t0, t1: chunk.t1, poseHz: 10, statusHz: 2, jointNames: JOINTS, jointUnits: "0.1 deg int", amrUnits: "x,z cm int, yaw 0.1 deg int", armMount: "pedestal" },
-      snapshot: chunk.snapshot, tracks: { t: chunk.t, joints: chunk.joints, amrs: chunk.amrs }, status: chunk.status, events: chunk.events, recording };
+    const body = { meta: { runId, template: template.id, chunk: chunk.i, t0: chunk.t0, t1: chunk.t1, poseHz: 10, statusHz: 2, jointNames: JOINTS, jointUnits: "0.1 deg int", amrUnits: "x,z cm int, yaw 0.1 deg int", armMount: "pedestal", partsEncoding: "tracks.parts rows [t, i, value]; i = manifest.animatedParts[i]; snapshot.parts[i] seeds values; hold last value" },
+      snapshot: chunk.snapshot, tracks: { t: chunk.t, joints: chunk.joints, amrs: chunk.amrs, parts: chunk.parts }, status: chunk.status, events: chunk.events, recording };
     if (!measure) { const s = JSON.stringify(body); writeFileSync(join(outDir, file), s); chunks.push({ i: chunk.i, t0: chunk.t0, t1: chunk.t1, file, bytes: Buffer.byteLength(s) }); }
-    console.log(`chunk ${chunk.i} [${chunk.t0}-${chunk.t1}] samples ${chunk.t.length} rec ${REC_KEYS.map((k) => k + "=" + recording[k].length).join(" ")} ${chunks.at(-1)?.bytes ?? 0}B mem ${Math.round(process.memoryUsage().heapUsed / 1e6)}MB`);
+    console.log(`chunk ${chunk.i} [${chunk.t0}-${chunk.t1}] samples ${chunk.t.length} rec ${REC_KEYS.map((k) => k + "=" + recording[k].length).join(" ")} parts=${chunk.parts.length} ${chunks.at(-1)?.bytes ?? 0}B mem ${Math.round(process.memoryUsage().heapUsed / 1e6)}MB`);
     chunkIdx++; chunk = null;
   };
   const began = Date.now();
@@ -104,6 +115,7 @@ try {
     }
     if (t >= nextPose - 1e-6) { nextPose = Math.round(t * 10 + 1) / 10;
       chunk.t.push(+t.toFixed(2));
+      sampleParts(t, ctx);
       controllers.forEach((c, i) => { const m = new Map(c.getJointAngles().map((j) => [j.name, j.degrees])); chunk.joints[robotIds[i]].push(JOINTS.map((n) => r1(m.get(n) ?? 0))); });
       for (const id of amrIds) { const o = amrNodes.get(id); if (!o) { chunk.amrs[id].push(null); continue; } o.getWorldPosition(p); chunk.amrs[id].push([cm(p.x), cm(p.z), d10(yawOf(o))]); }
       if (measure) for (const [id, b] of recorder.boxes) if (b.parent) { const k = recorder.parentOf.get(id) ?? ""; b.getWorldPosition(p); let a = truth.get(id); if (!a) truth.set(id, (a = [])); a.push([t, p.x, p.y, p.z, k.startsWith("conveyor")]); }
@@ -138,9 +150,11 @@ try {
       rackOccupancy: { stored: last.rackOccupancy ?? 0, slots: last.rackSlots ?? 0 },
       alarms: ctxRef.world.cargo.misses.map((m) => ({ t: m.t, equipmentId: m.equipmentId, boxId: m.boxId ?? null, message: m.reason })) };
     writeFileSync(join(outDir, "aggregates.json"), JSON.stringify(aggregates));
-    const manifest = { version: 1, runId, template: template.id, seed, duration: recordSec, simTimeOffset: warmup, rackOccupancyAtStart: startInfo?.rackOccupancyAtStart, countsAtStart: startInfo?.countsAtStart, statusEncoding: "status[].equipment holds only entries changed since previous row (first row per chunk is full)", timeBase: "all t are absolute sim seconds; subtract simTimeOffset for playback time", sampleHz: { joints: 10, amrs: 10, status: 2, boxKeyframes: 1 }, jointNames: JOINTS, armMount: "pedestal", chunkSeconds: chunkLen, equipment, chunks, aggregates: "aggregates.json", createdAt: new Date().toISOString() };
+    const manifest = { version: 1, runId, template: template.id, seed, duration: recordSec, simTimeOffset: warmup, rackOccupancyAtStart: startInfo?.rackOccupancyAtStart, countsAtStart: startInfo?.countsAtStart, statusEncoding: "status[].equipment holds only entries changed since previous row (first row per chunk is full)", timeBase: "all t are absolute sim seconds; subtract simTimeOffset for playback time", sampleHz: { joints: 10, amrs: 10, status: 2, boxKeyframes: 1, parts: 10 },
+      animatedParts: partSpecs, animatedPartsEncoding: "chunk tracks.parts rows [t, i, value] emitted when |value - last emitted| >= threshold (quat: rotation angle rad) or when the part settles; snapshot.parts[i] = value at chunk start (null = not present yet). Values are local to the GLB node partName (m, rad; quat [x,y,z,w]); procedural parts are built by the viewer (see docs/sim-recording.md)", jointNames: JOINTS, armMount: "pedestal", chunkSeconds: chunkLen, equipment, chunks, aggregates: "aggregates.json", createdAt: new Date().toISOString() };
     writeFileSync(join(outDir, "manifest.json"), JSON.stringify(manifest, null, 1));
     console.log(`done ${runId} -> ${outDir} chunks ${chunks.length} total ${chunks.reduce((s, c) => s + c.bytes, 0)}B wall ${Math.round((Date.now() - began) / 1000)}s`);
+    const byKind = {}; for (const sp of partSpecs) byKind[sp.kind] = (byKind[sp.kind] ?? 0) + 1; console.log("PARTS", JSON.stringify(byKind));
     console.log("FINAL", JSON.stringify(total));
   }
 } finally { await server.close(); }

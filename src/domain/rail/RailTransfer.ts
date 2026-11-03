@@ -2,6 +2,7 @@ import { Group, Vector3 } from "three";
 import { RAIL_CONFIG, TRANSFER_CONFIG } from "@/constants/railTransfer";
 import { STREAM_CONFIG } from "@/constants/simulation";
 import type { SceneEquipment } from "@/types/layout";
+import { animatedPart, type AnimatedPart } from "@/domain/recording/animatedParts";
 
 /**
  * Pallet distribution rail (rail_condition) + Transfer_Forklift lifts at its ends.
@@ -78,6 +79,9 @@ function rampRide(lateral: number, deckY: number) {
   const fore = rampSurface(lateral - half, deckY), aft = rampSurface(lateral + half, deckY);
   return { y: (fore + aft) / 2, pitch: Math.atan2(aft - fore, half * 2) };
 }
+
+/** Transfer_Forklift.glb: authored local y of the fork node (see TRANSFER_CONFIG.downY). */
+const TRANSFER_FORK_REST_Y = 1.27529;
 
 export class RailNetwork {
   readonly rails: RailUnit[];
@@ -278,6 +282,20 @@ export class RailNetwork {
       tf.item.group.position.copy(p);
       tf.item.group.rotation.set(0, tf.rail.object.yaw, 0);
     }
+  }
+  /**
+   * Animated parts (recording): Transfer_Forklift_fork local y (authored rest y 1.27529 - down * downY) and the two
+   * procedural stoppers (children of the carriage group, which moves by the same dy as the fork): local y, entry one drops while receiving.
+   */
+  getAnimatedParts(): AnimatedPart[] {
+    const s = TRANSFER_CONFIG.stopper, p = TRANSFER_CONFIG.point, gap = STREAM_CONFIG.palletWidth / 2 + s.width / 2 + 0.02, out: AnimatedPart[] = [];
+    for (const tf of this.transfers) {
+      const id = tf.object.id, entryIndex = tf.side < 0 ? 1 : 0;
+      out.push(animatedPart(id, "transfer", TRANSFER_CONFIG.forkNode, "posY", TRANSFER_FORK_REST_Y - tf.down * TRANSFER_CONFIG.downY, TRANSFER_FORK_REST_Y));
+      [-1, 1].forEach((dir, i) => out.push(animatedPart(id, "transfer", dir < 0 ? "stopper-x" : "stopper+x", "posY", p.y - s.height / 2 + (i === entryIndex ? tf.entry : 1) * s.height, p.y + s.height / 2,
+        { procedural: true, parent: "carriage", restPos: [p.x + dir * gap, p.y + s.height / 2, p.z] })));
+    }
+    return out;
   }
   /** Fork / stopper pose for rendering. */
   view(id: string) {

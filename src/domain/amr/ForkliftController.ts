@@ -1,6 +1,8 @@
 import { Group, Vector3 } from "three";
 import { SIMULATOR_CONFIG } from "@/constants/simulatorLayout";
 import { FORKLIFT_APPROACH, FORKLIFT_CIRCLES, FORKLIFT_CONFIG, forkLiftFor, forkliftAxisDistance, forkliftStop } from "@/constants/forklift";
+import { animatedPart, type AnimatedPart } from "@/domain/recording/animatedParts";
+import { FORKLIFT_MODEL } from "@/constants/modelPoints.generated";
 
 /**
  * Forklift (Forklift.glb), driven like a real forklift by `Forklift_point` (the fork-hole contact
@@ -134,6 +136,10 @@ export class ForkliftController {
   stored = 0;
   recoveries = 0;
   private readonly plan: ForkliftPlanner;
+  /** Animated parts (recording): the model's `Forklift.Fork` node follows the fork group's local y (ForkliftModel). */
+  getAnimatedParts(): AnimatedPart[] {
+    return [animatedPart(String(this.carrier.userData.sceneId ?? ""), "forklift", FORKLIFT_MODEL.forkNode, "posY", this.fork.position.y, FORKLIFT_CONFIG.fork.y)];
+  }
   constructor(pose: { x: number; z: number; yaw: number }, plan: ForkliftPlanner) {
     this.plan = plan;
     this.home = new Vector3(pose.x, 0, pose.z);

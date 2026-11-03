@@ -61,6 +61,7 @@ import { remapStopLinks, withStopPoints } from "@/domain/layout/stopPoints";
 import { isDepalletizer } from "@/domain/robot/robotRole";
 import { propSegments } from "@/domain/layout/propObstacles";
 import type { TemplateProp } from "@/types/sceneTemplate";
+import { animatedPart, type AnimatedPart } from "@/domain/recording/animatedParts";
 
 /** Runtime-spawned pallets (belt holds, cycle swaps, rack stock) carry the same turn as layout pallets: model and box grid. */
 const PALLET_TURN = (PALLET_STACKING.palletYawDegrees * Math.PI) / 180, PALLET_UP = new Vector3(0, 1, 0);
@@ -3269,6 +3270,25 @@ export class FactorySimulator {
   /** Door opening for display (0 closed … 1 open). */
   doorOpening(id: string) {
     return this.doorFraction.get(id) ?? 0;
+  }
+  /**
+   * Animated-parts registry (recording): every device's moving sub-parts in GLB-node local space. Delegates to each
+   * controller / domain object (forklifts, cycle vehicles, rail transfers) and adds doors (curtain opening) and belts (surface speed).
+   */
+  getAnimatedParts(): AnimatedPart[] {
+    const settings = this.settings(), halted = this.haltedBelts(settings), out: AnimatedPart[] = [];
+    for (const agent of this.forkliftAgents) out.push(...agent.controller.getAnimatedParts());
+    for (const view of this.cycle?.views ?? []) out.push(...view.vehicle.getAnimatedParts());
+    out.push(...(this.railNet?.getAnimatedParts() ?? []));
+    for (const door of this.doors) {
+      const manual = settings[door.id]?.doorOpen === true ? 1 : 0;
+      out.push(animatedPart(door.id, "door", "curtain", "fraction", Math.max(manual, this.doorFraction.get(door.id) ?? 0), manual, { procedural: true }));
+    }
+    for (const belt of this.belts) {
+      const config = settings[belt.object.id];
+      out.push(animatedPart(belt.object.id, "conveyor", "belt", "speed", !config || config.enabled === false || halted.has(belt.object.id) ? 0 : beltSpeedOf(config), 0, { procedural: true }));
+    }
+    return out;
   }
   private doorWaypoints(door: SceneEquipment) {
     const sx = Math.sin(door.yaw), cz = Math.cos(door.yaw);

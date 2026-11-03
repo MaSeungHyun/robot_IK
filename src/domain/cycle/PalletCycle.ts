@@ -431,7 +431,7 @@ export class PalletCycle<C extends CycleCargo> {
           plan: plan(true),
           divert: true,
           bodies: agvBodies,
-          fork: { group: lift, rest: lift.position.y, speed: AGV_MODEL.liftSpeed },
+          fork: { group: lift, rest: lift.position.y, speed: AGV_MODEL.liftSpeed, node: lift.name || "AGV.Lift", kind: "agv" },
         });
         // The lift plate (AGV.Lift) is the vehicle's "fork" group, reparented onto the carrier.
         vehicle.carrier.add(root);
@@ -446,7 +446,7 @@ export class PalletCycle<C extends CycleCargo> {
           span: FORKLIFT_NAV_RADIUS,
           plan: plan(false, FORKLIFT_NAV_RADIUS),
           bodies,
-          fork: { group: fork, rest: FORKLIFT_CONFIG.fork.y, speed: CYCLE_CONFIG.forkSpeed },
+          fork: { group: fork, rest: FORKLIFT_CONFIG.fork.y, speed: CYCLE_CONFIG.forkSpeed, node: "Forklift.Fork", kind: "forklift" },
         });
         const forklift: Forklift<C> = { object, vehicle, task: normalizeForkliftTask(config)!, state: "idle", job: null, home: new Vector3(object.x, 0, object.z), homeYaw: object.yaw, carrying: null, lastJob: null, done: 0, carrier: null };
         if (forklift.task === "unload") this.setupCarrier(forklift, pallets, docks, deliverTo);

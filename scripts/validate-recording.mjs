@@ -1,6 +1,6 @@
-// Validate a chunked recording: on-pallet box world pos vs parent pallet pose + rotated local.
+// Validate a chunked recording: on-pallet box world pos vs parent pallet pose + rotated local; animated parts (if present).
 // node scripts/validate-recording.mjs <runDir>
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 const dir = process.argv[2], rot = (l, yaw) => [l[0] * Math.cos(yaw) + l[2] * Math.sin(yaw), l[1], -l[0] * Math.sin(yaw) + l[2] * Math.cos(yaw)];
 const err = (w, p, yaw, l) => { const r = rot(l, yaw); return Math.hypot(p[0] + r[0] - w[0], p[1] + r[1] - w[1], p[2] + r[2] - w[2]); };
@@ -28,5 +28,29 @@ for (const f of readdirSync(dir).filter((f) => /^chunk-\d+\.json$/.test(f)).sort
   console.log(`  pallet attaches ${attaches} unchecked ${pending.size} (no pallet pose: ${attNoPose}) worst ${JSON.stringify(worst)}`);
   if (process.env.VDEBUG) { const by = {}; for (const b of bad) by[b[2]] = (by[b[2]] ?? 0) + 1; console.log(by, JSON.stringify(bad.slice(0, 8))); }
   out[f].attach = stat("  attach (first keyframe after)", attE); out[f].keyframes = stat("  keyframes (all on-pallet samples)", keyE);
+}
+// Animated parts (manifest.animatedParts + chunk tracks.parts / snapshot.parts); skipped for older runs.
+const mf = join(dir, "manifest.json"), manifest = existsSync(mf) ? JSON.parse(readFileSync(mf, "utf8")) : null;
+if (manifest?.animatedParts) {
+  const specs = manifest.animatedParts, dim = (sp) => sp.channel === "quat" ? 4 : 1, errs = [], byKind = {}, range = {};
+  specs.forEach((sp, i) => { if (sp.i !== i) errs.push(`spec index ${i}`); if (!sp.deviceId || !sp.partName || !sp.channel || !sp.unit || !(sp.threshold > 0)) errs.push(`spec ${i} incomplete`); byKind[sp.kind] = (byKind[sp.kind] ?? 0) + 1; });
+  const okVal = (sp, v) => dim(sp) === 4 ? Array.isArray(v) && v.length === 4 && Math.abs(Math.hypot(...v) - 1) < 2e-3 : typeof v === "number" && Number.isFinite(v);
+  let rows = 0;
+  for (const f of readdirSync(dir).filter((f) => /^chunk-\d+\.json$/.test(f)).sort()) {
+    const c = JSON.parse(readFileSync(join(dir, f), "utf8")), sv = c.snapshot.parts, tr = c.tracks.parts;
+    if (!Array.isArray(sv) || !Array.isArray(tr)) { errs.push(`${f}: missing snapshot.parts / tracks.parts`); continue; }
+    if (!c.tracks.amrs || !c.tracks.joints) errs.push(`${f}: legacy tracks missing`);
+    sv.forEach((v, i) => { if (v !== null && !okVal(specs[i], v)) errs.push(`${f}: snapshot part ${i} bad value`); });
+    const last = sv.slice(); let tPrev = -Infinity;
+    for (const [t, i, v] of tr) { rows++; const sp = specs[i];
+      if (!sp) { errs.push(`${f}: row part ${i} undeclared`); continue; }
+      if (t < tPrev || t < c.meta.t0 - 1e-6 || t > c.meta.t1 + 1e-6) errs.push(`${f}: row t ${t} out of order/range`); tPrev = t;
+      if (!okVal(sp, v)) errs.push(`${f}: part ${i} bad value ${JSON.stringify(v)}`);
+      if (JSON.stringify(last[i]) === JSON.stringify(v)) errs.push(`${f}: part ${i} duplicate value at ${t}`); last[i] = v;
+      if (dim(sp) === 1) { const k = `${sp.kind}:${sp.partName}:${sp.channel}`, r = range[k] ?? (range[k] = [Infinity, -Infinity, 0]); r[0] = Math.min(r[0], v); r[1] = Math.max(r[1], v); r[2]++; } }
+  }
+  out.parts = { specs: specs.length, byKind, rows, errors: errs.length, range };
+  console.log(`animated parts: ${specs.length} declared ${JSON.stringify(byKind)} rows ${rows} errors ${errs.length}`, errs.slice(0, 10));
+  for (const [k, r] of Object.entries(range)) console.log(`  ${k}: min ${r[0]} max ${r[1]} rows ${r[2]}`);
 }
 console.log("JSON", JSON.stringify(out));

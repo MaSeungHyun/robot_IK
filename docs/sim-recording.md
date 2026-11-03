@@ -31,3 +31,32 @@ within v1; readers of the first v1 cut ignore them.
 - `pallets` emits `move` whenever a pallet pose changes (? 5 mm / 0.005 rad), at most 2 Hz, forced on 1 Hz keyframe ticks and at box attaches. Inbound pallets are streamed with state `inbound`.
 - Chunk snapshot `boxes` rows: `[id, parentKind, parentId, x, y, z, qx, qy, qz, qw, lx, ly, lz, lqx, lqy, lqz, lqw]` (positions cm, l* only for pallet parents).
 - `node scripts/validate-recording.mjs <runDir>` checks on-pallet boxes against pallet pose + rotated local.
+
+## Animated parts (chunk exporter, added 2026-11-03)
+
+Generic channel for every moving sub-part of every device. Interface: `AnimatedPartSource.getAnimatedParts()` in
+`src/domain/recording/animatedParts.ts`; registry: `FactorySimulator.getAnimatedParts()` (delegates to
+`ForkliftController`, `CycleVehicle`, `RailNetwork`, plus doors and belts) and `SuctionRobotController.getAnimatedParts()`.
+A new device type only implements `getAnimatedParts()` (and is added to the registry); `scripts/record-run.mjs` records whatever it returns.
+
+- `manifest.animatedParts[i]`: `{ i, deviceId, kind, partName, channel, unit, rest, threshold, procedural?, parent?, restPos? }`.
+  `partName` is the GLB node name as authored (GLTFLoader strips "." : `Forklift.Fork` loads as `ForkliftFork`, `AGV.Lift` as `AGVLift`; match alphanumerics).
+  `channel`: `posX|posY|posZ|rotX|rotY|rotZ` (node local, m / rad), `quat` (node local `[x,y,z,w]`), `fraction` (0..1), `speed` (m/s).
+- chunk `snapshot.parts[i]`: value of part i at chunk start (null = not present yet). chunk `tracks.parts`: rows `[t, i, value]`, sampled at
+  10 Hz and emitted when the change since the last emitted value is >= `threshold` (pos 1 mm, rot/quat 0.1 deg, fraction 0.005, speed 0.001)
+  or when the part settles; hold the last value between rows. `t` is absolute sim time like everything else.
+- Old fields (`tracks.amrs`, `tracks.joints`, `recording.*`) are unchanged.
+
+| kind | partName | channel | meaning |
+|---|---|---|---|
+| forklift | `Forklift.Fork` | posY | fork node local y (rest = FORKLIFT_CONFIG.fork.y); rack forklifts and cycle forklifts |
+| agv | `AGV.Lift` | posY | lift plate local y under the carrier |
+| transfer | `Transfer_Forklift_fork` | posY | fork node local y = 1.27529 - down * 0.731 |
+| transfer | `stopper-x`, `stopper+x` | posY | procedural stopper boxes (0.08 x 0.12 x 1.0 m) under a `carriage` group that moves by (fork posY - 1.27529); `restPos` = local position; entry stopper drops while a pallet rolls on |
+| door | `curtain` | fraction | roll-up opening 0..1 (max of the door's manual setting and forklift-driven opening); curtain scale.y = (1 - 0.5 * fraction) |
+| conveyor | `belt` | speed | belt surface speed (0 when disabled or the line is halted at its stopper); integrate to scroll rollers / textures |
+| robot | `hand00`..`hand04` | quat | joint node local quaternion (same motion as `tracks.joints`, rest = pose at first sample) |
+
+Not covered: rail_condition.glb has no moving nodes (pallets on rails are in `pallets`); AMR.glb roller tops and scanners have no animated nodes in the app.
+
+`node scripts/validate-recording.mjs <runDir>` also checks part declarations, value shapes, row order and duplicates when `animatedParts` is present.
