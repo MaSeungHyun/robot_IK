@@ -2,6 +2,8 @@ import { RAIL_MODEL as RAIL } from "@/constants/modelPoints.generated";
 
 // Straight belts are rail.glb as authored (see modelPoints.generated.ts); no rescaling.
 const width = RAIL.max[0] - RAIL.min[0];
+/** Native belt length (m) of rail_in_out.glb, the 입하/출하 rail (never stretched; see glbConveyors.railInOutLength). */
+export const RAIL_IN_OUT_LENGTH = 11.7079;
 export const CONVEYOR_LAYOUT = {
   /** Straight segment length = rail.glb belt length. */
   length: RAIL.beltZ[1] - RAIL.beltZ[0],

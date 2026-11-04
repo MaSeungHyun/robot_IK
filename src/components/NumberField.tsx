@@ -27,6 +27,8 @@ type Props = {
 };
 
 const DRAFT = /^\d*\.?\d*$/;
+/** Signed draft for fields whose min is negative (e.g. angles -180~180): a leading "-" is allowed while typing. */
+const SIGNED_DRAFT = /^-?\d*\.?\d*$/;
 const format = (value: number, decimals: number, fixed = false) =>
   fixed ? value.toFixed(decimals) : String(Number(value.toFixed(decimals)));
 
@@ -62,8 +64,10 @@ export default function NumberField({
     const valid =
       text !== "" &&
       text !== "." &&
+      text !== "-" &&
+      text !== "-." &&
       Number.isFinite(next) &&
-      next >= 0 &&
+      (min < 0 || next >= 0) &&
       (exclusiveMin ? next > min : next >= min) &&
       next <= max &&
       (!integer || Number.isInteger(next));
@@ -93,7 +97,7 @@ export default function NumberField({
           className={cn(inputClassName, unit && "pr-10")}
           onChange={(event) => {
             const text = event.currentTarget.value;
-            if (DRAFT.test(text) && (!integer || !text.includes(".")))
+            if ((min < 0 ? SIGNED_DRAFT : DRAFT).test(text) && (!integer || !text.includes(".")))
               setDraft(text);
           }}
           onBlur={commit}

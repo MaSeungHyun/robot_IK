@@ -9,9 +9,9 @@ import { SCANNER_FLOW_YAW } from "@/constants/conveyorLayoutConfig";
  * withScannerBelts then link them (the spline flow continues).
  */
 /** Max distance (m) between the two ends for a snap. */
-export const LINE_SNAP_RADIUS = 0.5;
-/** Max heading difference (rad) between the two ends for a snap (30°). */
-export const LINE_SNAP_ANGLE = Math.PI / 6;
+export const LINE_SNAP_RADIUS = 1.5;
+/** Max heading difference (rad) between the two ends for a snap (60°). */
+export const LINE_SNAP_ANGLE = Math.PI / 3;
 /** Two ends closer than this (and aligned) are already joined. */
 const JOINED = 0.05;
 
@@ -22,7 +22,8 @@ const isLine = (o: SceneEquipment) => (o.kind === "conveyor" || o.kind === "scan
 function localPorts(o: SceneEquipment): { input: Port; output: Port } | null {
   if (o.kind === "conveyor") return { input: beltLocalPoint(o, 0), output: beltLocalPoint(o, beltLength(o)) };
   if (o.kind === "scanner")
-    return { input: { x: 0, z: T.beltZ[1], yaw: SCANNER_FLOW_YAW }, output: { x: 0, z: T.beltZ[0], yaw: SCANNER_FLOW_YAW } };
+    // Mesh faces (not the shorter belt span) so a snapped rail meets the visible tunnel end; still inside the 1 m scanbelt join radius.
+    return { input: { x: 0, z: T.max[2], yaw: SCANNER_FLOW_YAW }, output: { x: 0, z: T.min[2], yaw: SCANNER_FLOW_YAW } };
   return null;
 }
 const toWorld = (o: EquipmentPose, p: Port): Port => {

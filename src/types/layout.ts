@@ -84,6 +84,8 @@ export type EquipmentSettings={outboundRatio?:number;speed:number;reach:number;c
   /** Conveyor only: 자동 생성 — the belt start spawns boxes (or loaded pallets in pallet-inbound mode). Newly placed conveyors
    * get false (cargo only enters through the flow); absent = legacy scenes, treated as on. */
   autoSpawn?:boolean;
+  /** Conveyor line-end stopper (default true): on = boxes stop at the line end, off = they run off (passed). */
+  stopper?:boolean;
   /** Pallet-inbound conveyor only: 셔틀 구역 — floor points where the receiving AMR takes the pallet when no unload stage
    * takes it directly (instead of its own home). Several allowed; the nearest free one is used. */
   shuttleZones?:{x:number;z:number}[];

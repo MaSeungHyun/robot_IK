@@ -8,7 +8,7 @@ export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean, avoid?:
 
 /** A body other vehicles keep clear of: floor circles (world xz) with radii. */
 /** `clearance`: centre-to-centre keep-out radius (AMR footprint); two bodies with clearance stay ??the sum apart. */
-export type CycleBody = { id: string; circles: () => readonly { x: number; z: number; r: number }[]; clearance?: number; center?: () => { x: number; z: number }; held?: () => number; loaded?: () => boolean };
+export type CycleBody = { id: string; circles: () => readonly { x: number; z: number; r: number }[]; clearance?: number; center?: () => { x: number; z: number }; held?: () => number; loaded?: () => boolean; still?: () => boolean; ahead?: () => readonly { x: number; z: number; d: number }[]; reach?: () => number; rank?: () => readonly number[] };
 
 type Action =
   | { type: "path"; to: Vector3; loaded: boolean; ignore?: readonly string[]; via?: readonly Vector3[] }
@@ -26,6 +26,10 @@ const APPROACH_STEPS = 8;
  * around the blocker; `cooldown` s between back-offs, at most `tries` per move (then it just waits). */
 /** Livelock guard: held this long (s) within STUCK_RADIUS (m) of one spot, a vehicle takes a deadlock pass. */
 const STUCK_PASS = 30, STUCK_RADIUS = 1;
+/** Held this long (s) by a stationary body (lifting / placing forklift, parked vehicle): replan around it as a static obstacle. */
+const STATIC_DETOUR = 1;
+/** Mutual hold this long (s): the lower-priority vehicle parks for YIELD_LOCK.time s (static to the other, which plans around it). */
+const YIELD_LOCK = { after: 2, time: 8, retry: 3 };
 const BACKOFF = { after: 2.5, distances: [1.5, 1.2, 0.8, 0.5], speed: 0.5, cooldown: 6, tries: 3, mutual: 0.5, abort: 2, retryAfter: 6 };
 /** Bodies never come closer than this (m), even in a deadlock pass: no rubbing. */
 const CONTACT = 0.03;
@@ -80,7 +84,16 @@ export type CycleVehicleOptions = {
   fork?: { group: Group; rest: number; speed: number; node?: string; kind?: string };
   /** When held, turn out to the side and search another route. Without it, the vehicle reverses and replans. */
   divert?: boolean;
+  /**
+   * Path look-ahead with right of way (forklifts, ship AMRs): the next RESERVE.ahead m of the route are published; a
+   * vehicle that would meet a higher-priority one's published route waits RESERVE.buffer m short of the meeting point
+   * instead of driving up nose-to-nose (priority: loaded, then earlier route reservation, then id).
+   */
+  reserve?: boolean;
 };
+/** Route look-ahead reservation (see CycleVehicleOptions.reserve). */
+const RESERVE = { ahead: 8, step: 0.5, buffer: 1.5, heldSkip: 0.5, every: 0.3, near: 12, patience: 5, cool: 4 };
+let reserveSeq = 0;
 export class CycleVehicle {
   readonly carrier = new Group();
   /** Forklift fork / AGV lift plate (child of the carrier), or null. */
@@ -118,7 +131,7 @@ export class CycleVehicle {
     this.id = id;
     this.name = name;
     this.options = options;
-    this.body = { id, circles: () => this.circlesAt(this.carrier.position.x, this.carrier.position.z, this.carrier.rotation.y), clearance: options.clearance, center: () => this.carrier.position, held: () => this.hold, loaded: () => this.loaded };
+    this.body = { id, circles: () => this.circlesAt(this.carrier.position.x, this.carrier.position.z, this.carrier.rotation.y), clearance: options.clearance, center: () => this.carrier.position, held: () => this.hold, loaded: () => this.loaded, still: () => this.stationary || this.yieldLock > 0, ...(options.reserve ? { ahead: () => this.aheadPoints(), reach: () => this.reachRadius(), rank: () => this.rank() } : {}) };
     this.carrier.position.set(pose.x, 0, pose.z);
     this.carrier.rotation.y = pose.yaw;
     this.carrier.userData.sceneId = id;
@@ -134,6 +147,11 @@ export class CycleVehicle {
     return this.cursor;
   }
   /** Seconds this vehicle has been held by another body in its current move. */
+  /** Not driving: idle, or a fork / lift / wait / turn-free step (e.g. a forklift lifting at a rack). Others plan around it. */
+  get stationary() {
+    const t = this.queue[0]?.type;
+    return !t || t === "fork" || t === "until" || t === "call";
+  }
   get held() {
     return this.hold;
   }
@@ -236,10 +254,108 @@ export class CycleVehicle {
   /** Route speed (m/s) now; braking for whatever is ahead. Ramped, with a resume margin so it does not stutter. */
   private velocity = 0;
   private stopped = false;
+  /** Route points (with distance along it) of the next RESERVE.ahead m, current pose first; empty when not driving a path. */
+  private aheadCache?: { key: string; pts: { x: number; z: number; d: number }[] };
+  private aheadPoints() {
+    const p0c = this.carrier.position, key = `${this.cursor}|${this.path.length}|${p0c.x.toFixed(2)}|${p0c.z.toFixed(2)}|${this.queue[0]?.type}`;
+    if (this.aheadCache?.key === key) return this.aheadCache.pts;
+    const pts = this.aheadPointsRaw();
+    this.aheadCache = { key, pts };
+    return pts;
+  }
+  private aheadPointsRaw() {
+    const head = this.queue[0];
+    if (head?.type !== "path" || this.path.length < 2) return [];
+    const p0 = this.carrier.position, out = [{ x: p0.x, z: p0.z, d: 0 }];
+    let x = p0.x, z = p0.z, travelled = 0;
+    for (let i = this.cursor; i < this.path.length && travelled < RESERVE.ahead; i++) {
+      const p = this.path[i], length = Math.hypot(p.x - x, p.z - z);
+      if (length < 1e-4) continue;
+      for (let s = RESERVE.step; s < length + 1e-6 && travelled + s <= RESERVE.ahead; s += RESERVE.step)
+        out.push({ x: x + ((p.x - x) / length) * Math.min(s, length), z: z + ((p.z - z) / length) * Math.min(s, length), d: travelled + s });
+      travelled += length;
+      x = p.x;
+      z = p.z;
+    }
+    return out;
+  }
+  /** Radius about the origin that covers the body circles (carried load included). */
+  private reachRadius() {
+    const p = this.carrier.position;
+    return Math.max(0, ...this.circlesAt(p.x, p.z, this.carrier.rotation.y).map((c) => Math.hypot(c.x - p.x, c.z - p.z) + c.r));
+  }
+  /** Right of way, compared element by element (larger wins): loaded, earlier route reservation. */
+  private rank() {
+    return [Number(this.loaded), -this.reservedSeq] as const;
+  }
+  /** Free distance along my route before I would meet a higher-priority vehicle's published route (Infinity if none). */
+  private reserveTimer = 0;
+  private reserveLast = Infinity;
+  /** Debug: who I am yielding to; reservations are dropped for RESERVE.cool s after a wait longer than RESERVE.patience s. */
+  yieldTo?: string;
+  private yieldFor = 0;
+  private reserveOff = 0;
+  private reserveFree(ignore: readonly string[] | undefined, dt: number) {
+    if (!this.options.reserve) return Infinity;
+    if (this.reserveOff > 0) {
+      this.reserveOff -= dt;
+      this.yieldTo = undefined;
+      return Infinity;
+    }
+    // Waited too long on a route (stale, cyclic, or never driven): drop reservations for a while; guards + replans handle it.
+    if (this.yieldTo && (this.yieldFor += dt) > RESERVE.patience) {
+      this.reserveOff = RESERVE.cool;
+      this.yieldTo = undefined;
+      this.yieldFor = 0;
+      return (this.reserveLast = Infinity);
+    }
+    if ((this.reserveTimer -= dt) > 0) return this.reserveLast;
+    this.reserveTimer = RESERVE.every;
+    const prev = this.yieldTo;
+    this.reserveLast = this.reserveScan(ignore);
+    if (this.yieldTo !== prev) this.yieldFor = 0;
+    return this.reserveLast;
+  }
+  private reserveScan(ignore?: readonly string[]) {
+    this.yieldTo = undefined;
+    const mine = this.aheadPoints();
+    if (mine.length < 2) return Infinity;
+    const myRank = this.rank(), myReach = this.reachRadius();
+    const wins = (o: readonly number[]) => {
+      for (let i = 0; i < Math.max(o.length, myRank.length); i++) if ((o[i] ?? 0) !== (myRank[i] ?? 0)) return (o[i] ?? 0) > (myRank[i] ?? 0);
+      return false;
+    };
+    let free = Infinity;
+    for (const other of this.options.bodies()) {
+      if (other.id === this.id || ignore?.includes(other.id) || !other.ahead || !other.rank || other.still?.() || (other.held?.() ?? 0) > RESERVE.heldSkip) continue;
+      // (A held vehicle is not taking its route now: yielding to it only chained waits; the step guards cover it.)
+      const oc = other.center?.();
+      if (oc && Math.hypot(oc.x - mine[0].x, oc.z - mine[0].z) > RESERVE.near) continue;
+      const rank = other.rank();
+      if (!wins(rank) && !(rank.every((v, i) => v === myRank[i]) && other.id < this.id)) continue;
+      const theirs = other.ahead();
+      if (theirs.length < 2) continue;
+      const limit = myReach + (other.reach?.() ?? 1) + CYCLE_CONFIG.safetyGap;
+      // Already overlapping where I stand: the step guard / back-off handle it (do not freeze in place on top of it).
+      if (theirs.some((t) => Math.hypot(t.x - mine[0].x, t.z - mine[0].z) < limit)) continue;
+      for (const m of mine) {
+        if (m.d >= free) break;
+        if (theirs.some((t) => Math.abs(t.x - m.x) < limit && Math.abs(t.z - m.z) < limit && Math.hypot(t.x - m.x, t.z - m.z) < limit)) {
+          free = m.d;
+          this.yieldTo = other.id;
+          break;
+        }
+      }
+    }
+    return free === Infinity ? Infinity : Math.max(0, free - RESERVE.buffer);
+  }
   private lookAhead(max: number, dt: number, ignore?: readonly string[]) {
     const { brakeDecel, accel, lookMargin, resumeMargin, safetyGap } = CYCLE_CONFIG;
     // Deadlock pass: the step-by-step guard alone (keeps it from overlapping).
     if (this.pass > 0) return (this.velocity = max);
+    // Right of way: hold short of a higher-priority vehicle's route ahead (counts as held, so the existing back-off /
+    // detour / giveUp fallbacks still apply).
+    const yieldRoom = this.reserveFree(ignore, dt);
     const position = this.carrier.position;
     const now = this.gapAt(position.x, position.z, this.carrier.rotation.y, ignore);
     // Free distance along the route before a pose that comes inside the safety gap (closing in only).
@@ -262,7 +378,7 @@ export class CycleVehicle {
       z = p.z;
     }
     // Hysteresis: once stopped, restart only with resumeMargin of room beyond the stop margin.
-    const room = free - lookMargin - (this.stopped ? resumeMargin : 0);
+    const room = Math.min(free - lookMargin - (this.stopped ? resumeMargin : 0), yieldRoom - (this.stopped ? resumeMargin : 0));
     const target = room <= 0 ? 0 : Math.min(max, Math.sqrt(2 * brakeDecel * room));
     this.velocity = target > this.velocity ? Math.min(target, this.velocity + accel * dt) : target;
     if (this.velocity < 0.05 && target < 0.05) {
@@ -283,6 +399,10 @@ export class CycleVehicle {
     return Math.max(this.velocity, 0.05);
   }
 
+  /** Destinations of the queued route moves (where this vehicle is going to stop). */
+  get targets() {
+    return this.queue.flatMap((a) => (a.type === "path" || a.type === "straight" ? [a.to] : []));
+  }
   /** Queues actions (fluent). */
   /** `via`: fixed waypoints (e.g. an AGV 경로) driven in order instead of a planned route; traffic still holds it, no detours. */
   goTo(to: Vector3, loaded = this.loaded, ignore?: readonly string[], via?: readonly Vector3[]) {
@@ -441,7 +561,27 @@ export class CycleVehicle {
         } else if (this.hold >= BACKOFF.after && this.backCooldown <= 0 && (this.backTries < BACKOFF.tries || this.hold >= BACKOFF.retryAfter) && this.backOff(action)) return false;
         // Blocked: replan around the other vehicles (as obstacles) instead of pushing through them. The search runs
         // over the next steps within the shared planning budget; meanwhile the vehicle keeps its (held) route.
-        if (!this.options.divert && this.hold >= CYCLE_CONFIG.holdTimeout && this.hold - dt < CYCLE_CONFIG.holdTimeout) {
+        // Mutual hold, close in: the lower-priority one parks (reads as still), so the other replans around it.
+        if (this.yieldLock > 0) {
+          this.yieldLock -= dt;
+          if (this.yieldLock <= 0) {
+            this.started = false;
+            this.replanAfterBack = true;
+          }
+          return false;
+        }
+        const holder = this.hold >= YIELD_LOCK.after ? this.blocker(action.ignore) : null;
+        if (holder && (holder.held?.() ?? 0) >= YIELD_LOCK.after && !holder.still?.() && !this.outranks(holder)) {
+          this.yieldLock = YIELD_LOCK.time;
+          this.yieldLocks++;
+          this.hold = 0;
+          this.velocity = 0;
+          return false;
+        }
+        this.staticTry -= dt;
+        const staticBlock = !this.detour && this.hold >= STATIC_DETOUR && this.staticTry <= 0 && !!this.blocker(action.ignore)?.still?.();
+        if (staticBlock) this.staticTry = YIELD_LOCK.retry;
+        if (!this.options.divert && (staticBlock || (this.hold >= CYCLE_CONFIG.holdTimeout && this.hold - dt < CYCLE_CONFIG.holdTimeout))) {
           this.replans++;
           this.detour = this.detourSearch(action);
         }
@@ -471,6 +611,15 @@ export class CycleVehicle {
         return left;
       }
     }
+  }
+  private yieldLock = 0;
+  private staticTry = 0;
+  yieldLocks = 0;
+  /** Right of way over `other`: loaded first, then the earlier route reservation, then the lower id. */
+  private outranks(other: CycleBody) {
+    const mine = this.rank(), theirs = other.rank?.() ?? [Number(other.loaded?.() ?? false), 0];
+    for (let i = 0; i < mine.length; i++) if (mine[i] !== (theirs[i] ?? 0)) return mine[i] > (theirs[i] ?? 0);
+    return this.id < other.id;
   }
   /** Nearest other body within reach of this vehicle (the one holding it). */
   private blocker(ignore?: readonly string[]) {
@@ -507,7 +656,7 @@ export class CycleVehicle {
       const mine = Number(this.loaded), theirs = Number(other.loaded?.() ?? false);
       const yields = mine !== theirs ? mine < theirs : this.id.localeCompare(other.id) > 0;
       // The designated yielder may have no room behind it: after a long mutual hold the other one tries as well.
-      if (!yields && this.hold < BACKOFF.after * 4) return false;
+      if (!yields && this.hold < BACKOFF.after * 2) return false;
     }
     const p = this.carrier.position, h = this.carrier.rotation.y, sin = Math.sin(h), cos = Math.cos(h);
     const now = this.gapAt(p.x, p.z, h, action.ignore);
@@ -534,7 +683,13 @@ export class CycleVehicle {
     }
     return false;
   }
+  private reservedFor: Action | null = null;
+  private reservedSeq = 0;
   private plan(action: Extract<Action, { type: "path" }>) {
+    if (this.reservedFor !== action) {
+      this.reservedFor = action;
+      this.reservedSeq = ++reserveSeq;
+    }
     const from = this.carrier.position.clone();
     if (action.via) {
       this.setPath([from, ...action.via, action.to.clone()]);
@@ -614,7 +769,9 @@ export class CycleVehicle {
         // The planner inflates every circle by the vehicle circle. A forklift capsule is narrower, so hand back
         // the difference and the surface gap stays the safety gap. A clearance body is inflated by both radii.
         const planner = this.options.span ?? AMR_TRAFFIC.emptyRadius;
-        const slack = this.options.clearance ? 0 : Math.max(0, planner - Math.max(...this.options.circles.map((o) => o.r)));
+        // Two clearance bodies (AMR-AMR) keep the centre keep-out; against a bare capsule (forklift) only the real
+        // footprints + safety gap count, so an AMR is not held off a whole planner radius (gapAt still guards contact).
+        const slack = this.options.clearance && other.clearance ? 0 : Math.max(0, planner - Math.max(...this.options.circles.map((o) => o.r)));
         const list = other.circles().map((c) => ({ x: c.x, z: c.z, r: Math.max(0, c.r + CYCLE_CONFIG.safetyGap - slack) }));
         if (this.options.clearance && other.clearance && other.center) {
           const c = other.center();
@@ -628,7 +785,9 @@ export class CycleVehicle {
         const room = Math.min(...own.map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - 1e-3));
         return { ...c, r: Math.max(0, Math.min(c.r, room)) };
       })
-      .filter((c) => Math.hypot(c.x - to.x, c.z - to.z) > c.r + 0.5 && Math.hypot(c.x - from.x, c.z - from.z) < 20);
+      // A body next to the goal is shrunk to leave the goal free instead of dropped (dropping it planned straight through it).
+      .map((c) => ({ ...c, r: Math.min(c.r, Math.hypot(c.x - to.x, c.z - to.z) - 0.5) }))
+      .filter((c) => c.r > 0.05 && Math.hypot(c.x - from.x, c.z - from.z) < 20);
   }
   /**
    * Traffic detour around the other vehicles (as obstacles). A generator that yields after every grid search, so the

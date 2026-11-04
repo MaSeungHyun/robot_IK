@@ -82,6 +82,7 @@ export const isShipAmrId = (id: string) => id.startsWith(SHIP_AMR_ID_PREFIX);
 
 export const SHIP_AMR_STATES = {
   idle: "대기",
+  toHandoff: "인계 지점으로 이동",
   wait: "팔레트 수령 대기",
   push: "출하 컨베이어로 이동",
   return: "대기 위치로 복귀",

@@ -20,6 +20,7 @@ import ShuttleZoneSetting from "@/ui/Hud/equipment/conveyor/ShuttleZoneSetting";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
 import { robotServesBelt } from "@/domain/amr/navigation/sceneValidation";
+import { lineHeadId } from "@/domain/conveyor/scannerBelt";
 
 const metric = (value: number | undefined, unit: string) => (
   <SmoothValue value={value} format={(v) => formatFixed(v, unit)} intervalMs={MOCK_TELEMETRY_CONFIG.intervalMs} className="tabular-nums" />
@@ -29,11 +30,15 @@ const TURN_LABELS: Record<ConveyorTurn, string> = { straight: "직선", left: "�
 
 export default function ConveyorDetails({ object }: EquipmentDetailProps) {
   const objects = useSceneStore((state) => state.objects);
-  const enabled = useSceneStore((state) => state.settings[object.id]?.enabled);
-  const autoSpawn = useSceneStore((state) => state.settings[object.id]?.autoSpawn);
-  const selfUnload = useSceneStore((state) => state.settings[object.id]?.selfUnload);
-  const inbound = useSceneStore((state) => state.settings[object.id]?.conveyorRole === "inbound");
-  const palletUnit = useSceneStore((state) => state.settings[object.id]?.conveyorRole === "inbound");
+  const connections = useMemo(() => beltConnections(objects), [objects]);
+  // Settings belong to the line head (no incoming belt); edits apply to every connected conveyor.
+  // Line head across scanner tunnels too, so every piece of the line shows (and edits) the same values.
+  const headId = useMemo(() => lineHeadId(objects, object.id), [objects, object.id]);
+  const enabled = useSceneStore((state) => state.settings[headId]?.enabled);
+  const autoSpawn = useSceneStore((state) => state.settings[headId]?.autoSpawn);
+  const selfUnload = useSceneStore((state) => state.settings[headId]?.selfUnload);
+  const inbound = useSceneStore((state) => state.settings[headId]?.conveyorRole === "inbound");
+  const palletUnit = useSceneStore((state) => state.settings[headId]?.conveyorRole === "inbound");
   const settings = useSceneStore((state) => state.settings);
   const links = useSceneStore((state) => state.links);
   // Receiving AMR for pallet infeed: a shuttle AMR with a pallet on its deck, linked (🔗 공급) or parked near the belt end.
@@ -52,12 +57,11 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
   // Every inbound flow must pass a robot: warn when the scene has none.
   const noRobot = useMemo(() => inbound && !objects.some((o) => o.kind === "robot"), [inbound, objects]);
   // Box outbound: a robot within reach depalletizes onto it; prompt to place one.
-  const shipNoRobot = useMemo(() => settings[object.id]?.conveyorRole === "ship" && !robotServesBelt(object, objects, settings), [object, objects, settings]);
+  const shipNoRobot = useMemo(() => settings[headId]?.conveyorRole === "ship" && !robotServesBelt(object, objects, settings), [object, objects, settings]);
   const running = useSimulationStore((state) => state.running);
   const telemetry = useEquipmentTelemetry(object.id);
 
-  const connections = useMemo(() => beltConnections(objects), [objects]);
-  const incoming = connections.incoming.has(object.id);
+  const incoming = connections.incoming.has(headId);
   const previousId = Array.from(connections.next).find(([, next]) => next.id === object.id)?.[0];
   const previous = objects.find((candidate) => candidate.id === previousId);
   const next = connections.next.get(object.id);
@@ -81,9 +85,10 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
       ]} />
     } settings={
       <DetailSection title="컨베이어 설정">
-        <EquipmentNumberSetting id={object.id} field="beltSpeed" label="연결 컨베이어 속도" unit="m/s" {...SPEED_LIMITS.beltSpeed} />
+        <p className="text-xs text-slate-500">연결된 라인 전체에 적용 · 시작 구간 {objects.find((o) => o.id === headId)?.name ?? object.name} 기준</p>
+        <EquipmentNumberSetting id={headId} field="beltSpeed" label="연결 컨베이어 속도" unit="m/s" {...SPEED_LIMITS.beltSpeed} />
         <EquipmentChoiceSetting
-          id={object.id}
+          id={headId}
           field="conveyorRole"
           label="용도"
           fallback="box"
@@ -99,31 +104,32 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
         {shipNoRobot && <p style={{ color: "#f59e0b" }}>⚠ 박스 출하 컨베이어에는 로봇이 필요합니다. 로봇이 팔레트에서 박스를 내려 올리도록 컨베이어 옆(도달 거리 안)에 로봇을 배치하세요.</p>}
         {noRobot && <p style={{ color: "#f59e0b" }}>⚠ 입하 흐름에 로봇이 없습니다. 입하 박스·팔레트는 반드시 로봇을 거쳐야 합니다. 로봇을 배치하고 연결하세요.</p>}
         {inbound && (
-          <p className="text-xs text-slate-500">입하는 적재 팔레트 단위로만 들어옵니다 (스캐너는 박스 단위 검사라 팔레트를 로봇이 풀어 올림).{" "}{palletUnit ? "적재 팔레트가 투입 간격마다 생성되어 컨베이어 끝(스토퍼)까지 이동합니다. AMR이 받는 위치에서 롤러로 넘겨받고, 다음 AMR은 앞 AMR이 작업을 마치고 받는 위치를 벗어난 뒤에 출발해 같은 각도로 정렬합니다. 받을 AMR이 없으면 스토퍼에서 컨베이어와 생성이 멈추고 뒤 팔레트도 간격을 두고 정지합니다. 받은 팔레트는 스캐너 라인 시작 로봇으로 운반되어 반드시 스캐너를 거칩니다." : ""}</p>
+          <p className="text-xs text-slate-500">적재 팔레트가 투입 간격마다 들어와 스토퍼에서 AMR이 롤러로 넘겨받습니다. 받을 AMR이 없으면 스토퍼에서 대기합니다.</p>
         )}
         {inbound && palletUnit && (
           <p style={{ color: receiver ? undefined : "#f59e0b" }}>
             {receiver ? `받는 AMR: ${receiver.name} (셔틀)` : amrCount ? `받는 AMR: 🔗 연결 AMR 우선, 없으면 가장 가까운 빈 AMR (${amrCount}대 대상)` : "⚠ 받을 AMR이 없습니다. 팔레트는 스토퍼에서 대기합니다. AMR을 🔗 공급으로 연결하거나 배치하세요."}
           </p>
         )}
-        {inbound && palletUnit && <ShuttleZoneSetting id={object.id} />}
+        {inbound && palletUnit && <ShuttleZoneSetting id={headId} />}
         {incoming ? <p>앞 구간에서 넘어오는 박스를 이송합니다.</p> : (
           <>
-            <EquipmentToggleSetting id={object.id} field="autoSpawn" label="자동 생성" fallback />
+            <EquipmentToggleSetting id={headId} field="autoSpawn" label="자동 생성" fallback />
             {autoSpawn !== false && (
-              <EquipmentNumberSetting id={object.id} field="spawnInterval" label={inbound && palletUnit ? "팔레트 투입 간격" : "투입량"} unit={inbound && palletUnit ? "초" : "개/h"} {...SPEED_LIMITS.spawnInterval} />
+              <EquipmentNumberSetting id={headId} field="spawnInterval" label={inbound && palletUnit ? "팔레트 투입 간격" : "투입량"} unit={inbound && palletUnit ? "초" : "개/h"} {...SPEED_LIMITS.spawnInterval} />
             )}
             {!palletUnit && (
               <>
-                <EquipmentToggleSetting id={object.id} field="selfUnload" label="AMR 자가 하역 (스캐너로 이어진 구간)" fallback />
+                <EquipmentToggleSetting id={headId} field="selfUnload" label="AMR 자가 하역 (스캐너로 이어진 구간)" fallback />
                 {selfUnload !== false && (
-                  <EquipmentNumberSetting id={object.id} field="deckFeedInterval" label="자가 하역 박스 간격" unit="초" min={0.2} max={30} />
+                  <EquipmentNumberSetting id={headId} field="deckFeedInterval" label="자가 하역 박스 간격" unit="초" min={0.2} max={30} />
                 )}
               </>
             )}
           </>
         )}
-        <EquipmentEnabledSetting id={object.id} />
+        <EquipmentToggleSetting id={headId} field="stopper" label="스토퍼 (라인 끝 정지)" fallback />
+        <EquipmentEnabledSetting id={headId} />
       </DetailSection>
     }>
 

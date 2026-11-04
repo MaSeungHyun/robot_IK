@@ -16,8 +16,11 @@
     {
       "kind": "scanner",
       "x": 0,
-      "z": -3.5864,
-      "yaw": 0
+      "z": -15.8772,
+      "yaw": 3.141592653589793,
+      "settings": {
+        "autoSpawn": true
+      }
     },
     {
       "kind": "robot",

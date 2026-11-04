@@ -13,6 +13,7 @@ import { RACK_CONFIG, rackHeading, rackSlotSides } from "@/constants/rack";
 import { AMR_PALLET_TURN, PALLET_STACKING, STREAM_CONFIG } from "@/constants/simulation";
 import { createAgvModel, createRackMobileModel, createRollerTopModel } from "@/lib/three/cycleModels";
 import { palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
+import { OutboundJobRegistry, type HandoffPoint } from "@/domain/cycle/outboundJobs";
 import { ROBOT_STOP_PREFIX } from "@/domain/layout/robotStops";
 import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
 import { autoSpawns, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
@@ -135,7 +136,7 @@ type RackM<C> = {
 };
 type Agv = { object: SceneEquipment; vehicle: CycleVehicle; lift: Group; state: AgvState; home: Vector3; homeYaw: number; trips: number; path: Vector3[] };
 /** Outbound AMR parked upstream of an outbound belt. The rack forklift sets a pallet on its roller deck; it drives up and pushes the pallet onto the belt. */
-type ShipAmr = { id: string; vehicle: CycleVehicle; belt: SceneEquipment; home: Vector3; pose: Vector3; yaw: number; busy: boolean; trips: number };
+type ShipAmr = { id: string; vehicle: CycleVehicle; belt: SceneEquipment; home: Vector3; pose: Vector3; yaw: number; busy: boolean; trips: number; job: string | null; toHandoff: boolean; delivering: string | null };
 /** Empty-pallet source stack; `busy` = the forklift reserving it (one at a time). */
 type Source = { dock: SceneEquipment; top: Group; stack: Group[]; busy?: Forklift<unknown> | null };
 /** Forklifts no longer take stored pallets out (Rack → outbound stage); kept switchable for old flows. */
@@ -150,6 +151,27 @@ const SHIP_PUSH = 1.2;
 /** Free fixed-rack slots kept per cell: below this, every full pallet also ships one stored pallet (storage balance). */
 const RACK_RESERVE_SLOTS = 6;
 const RACK_FORKLIFT_SHIPS = false;
+/** Extra aisle-ward offsets (m) tried for the outbound AMR P&D pose on each rack face. */
+/** Extra room (m) kept between the AMR P&D deck and parked bodies, so the AMR can still turn into the pose. */
+const HANDOFF_PARK_MARGIN = 1.0;
+/** Max route searches per handoff pose search, and the wait (s) before a failed one is tried again for the same forklift. */
+const SHIP_HANDOFF_PLAN_BUDGET = 40;
+const SHIP_HANDOFF_RETRY = 2;
+/** Free-form AMR P&D search around the forklift pickup stop: ring radii (m), angles per ring, route checks. */
+const SHIP_HANDOFF_RADII = [3, 4.5, 6, 7.5];
+const SHIP_HANDOFF_ANGLES = 12;
+const SHIP_HANDOFF_ROUTE_TRIES = 16;
+/** Extra forklift approach length (m) an AMR parked at the P&D pose may cause. */
+const SHIP_HANDOFF_DETOUR = 3;
+/** Distance (m) the loaded AMR must have left its P&D pose before the forklift moves on. */
+const SHIP_HANDOFF_LEAVE = 4;
+/** Forklift reverse (m) after loading the AMR, clearing its way out. */
+const SHIP_HANDOFF_RETREAT = 2.5;
+/** Open-space probe around a P&D pose: radius (m) and minimum free directions of 8. */
+const SHIP_HANDOFF_OPEN = 2.5;
+const SHIP_HANDOFF_OPEN_MIN = 6;
+/** Sim seconds a forklift defers an outbound pick for want of a reachable AMR P&D pose before using the belt wait pose. */
+const SHIP_HANDOFF_PATIENCE = 180;
 type Forklift<C> = {
   object: SceneEquipment;
   vehicle: CycleVehicle;
@@ -160,6 +182,10 @@ type Forklift<C> = {
   homeYaw: number;
   carrying: Load<C> | null;
   lastJob: ForkliftJobKind | null;
+  /** Sim time since which outbound picks were deferred (no reachable AMR P&D pose). */
+  shipDeferSince?: number;
+  /** Sim time of the last failed handoff pose search (throttle). */
+  shipPlanFailAt?: number;
   done: number;
   /** Carrier forklifts: the pallet held on the forks, its loading station pose and target unload dock. */
   carrier: { pallet: PalletController; heading: number; dock: SceneEquipment | null } | null;
@@ -267,6 +293,10 @@ export class PalletCycle<C extends CycleCargo> {
   }
   private slotBookings = new Set<string>();
   private shipClaims = new Set<string>();
+  /** Outbound jobs (출하 작업) with per-state timestamps; query / subscribe for monitoring. */
+  readonly outboundJobs = new OutboundJobRegistry();
+  /** Open outbound job per rack slot key (rackId:slot). */
+  private jobByKey = new Map<string, string>();
   /** Boxes (cargo) of pallets stored in the big rack by this cycle, by "rack:slot". */
   private stored = new Map<string, Load<C>>();
   /** Rack slot of every stored pallet (key rackId:slot) and the most recently stored key (never drawn as outbound). */
@@ -450,6 +480,7 @@ export class PalletCycle<C extends CycleCargo> {
           span: FORKLIFT_NAV_RADIUS,
           dockGuard: this.host.dockGuard, plan: plan(false, FORKLIFT_NAV_RADIUS),
           bodies,
+          reserve: true,
           fork: { group: fork, rest: FORKLIFT_CONFIG.fork.y, speed: CYCLE_CONFIG.forkSpeed, node: "Forklift.Fork", kind: "forklift" },
         });
         const forklift: Forklift<C> = { object, vehicle, task: normalizeForkliftTask(config)!, state: "idle", job: null, home: new Vector3(object.x, 0, object.z), homeYaw: object.yaw, carrying: null, lastJob: null, done: 0, carrier: null };
@@ -501,11 +532,13 @@ export class PalletCycle<C extends CycleCargo> {
         speed: CYCLE_CONFIG.shuttleSpeed,
         circles: AMR_CIRCLES,
         clearance: CYCLE_CONFIG.amrClearance,
+        dockGuard: this.host.dockGuard,
+        reserve: true,
         plan,
         bodies,
       });
       vehicle.carrier.add(createRollerTopModel());
-      this.shipAmrs.push({ id, vehicle, belt, home, pose, yaw, busy: false, trips: 0 });
+      this.shipAmrs.push({ id, vehicle, belt, home, pose, yaw, busy: false, trips: 0, job: null, toHandoff: false, delivering: null });
       this.bodies.push(vehicle.body);
     }
   }
@@ -831,7 +864,14 @@ export class PalletCycle<C extends CycleCargo> {
    * after 적재. The shuttle still goes to the service dock.
    */
   private outbound(shuttle: Shuttle<C>, count: number) {
-    const ratio = this.host.settings()[shuttle.pallet.object.id]?.outboundRatio ?? CYCLE_CONFIG.outboundRatio;
+    const settings = this.host.settings();
+    const cell = this.cellOf(shuttle.dock.id);
+    // Ratio: pallet station setting, else the highest rack-level setting among the cell's racks, else the default.
+    const rackRatio = (rackId: string) => settings[rackId]?.outboundRatio;
+    const cellRackRatios = [...new Set([...this.storedAt.values()].map((s) => s.rack.id))]
+      .filter((id) => this.cellOf(id) === cell).map(rackRatio).filter((r): r is number => typeof r === "number");
+    const ratio = settings[shuttle.pallet.object.id]?.outboundRatio
+      ?? (cellRackRatios.length ? Math.max(...cellRackRatios) : CYCLE_CONFIG.outboundRatio);
     if (!shuttle.load) return;
     const drawn = ratio > 0 && this.outboundRandom() < ratio;
     // Storage balance: with the cell's fixed racks nearly full every further full pallet also ships one stored pallet,
@@ -839,9 +879,9 @@ export class PalletCycle<C extends CycleCargo> {
     if (!drawn && !this.rackNearlyFull(this.cellOf(shuttle.dock.id), shuttle.vehicle.position)) return;
     // The outbound pallet is drawn (seeded) from pallets already stored in this cell's fixed racks, never the just-filled
     // or the most recently stored one; the filled pallet is stored as usual.
-    const cell = this.cellOf(shuttle.dock.id);
     const candidates = [...this.stored].filter(([key, load]) => !load.outbound && key !== this.lastStoredKey && !this.shipClaims.has(key)
-      && this.storedAt.has(key) && this.cellOf(this.storedAt.get(key)!.rack.id) === cell);
+      && this.storedAt.has(key) && this.cellOf(this.storedAt.get(key)!.rack.id) === cell
+      && rackRatio(this.storedAt.get(key)!.rack.id) !== 0);
     if (!candidates.length) {
       this.host.log("info", `출하 추첨 · 랙에 적재된 팔레트가 없어 건너뜀 (박스 ${count})`);
       return;
@@ -849,6 +889,7 @@ export class PalletCycle<C extends CycleCargo> {
     const [key, load] = candidates[Math.min(candidates.length - 1, Math.floor(this.outboundRandom() * candidates.length))];
     load.outbound = true;
     this.outboundStored.push(this.storedAt.get(key)!);
+    this.jobFor(key, load.palletId);
     this.stats.outboundPallets++;
     this.host.log("info", `출하 지정 ${load.palletId ?? ""} (랙 ${key})`, "랙 적재 팔레트 중 무작위 출하");
   }
@@ -1180,6 +1221,7 @@ export class PalletCycle<C extends CycleCargo> {
       return;
     }
     if (f.job || !f.vehicle.idle || !this.enabled(f.object.id)) return;
+    if (this.makeWayForAmr(f)) return;
     if (isServiceTask(f.task)) {
       this.serviceJob(f);
       if (!f.job) this.yieldOrPark(f);
@@ -1200,6 +1242,32 @@ export class PalletCycle<C extends CycleCargo> {
    * Idle service forklift: steps aside when it stands in a moving forklift's way (its home is on the shared AMR-side
    * approach); drives home only once no other service forklift of the cell is working (service jobs end in place).
    */
+  /**
+   * Idle forklift standing in a held AMR's way (AMR held >= yieldAfter, forklift near the AMR's line to its
+   * destination): steps aside, perpendicular to that line, away from it. Never onto a foreign dock.
+   */
+  private makeWayForAmr(f: Forklift<C>) {
+    const here = f.vehicle.position;
+    const amrs = [...this.shuttles, ...this.shipAmrs, ...this.agvs].map((a) => a.vehicle);
+    for (const v of amrs) {
+      const to = v.destination;
+      if (v.idle || !to || v.held < CYCLE_CONFIG.yieldAfter || v.position.distanceTo(here) > CYCLE_CONFIG.yieldRange) continue;
+      const p = v.position, dx = to.x - p.x, dz = to.z - p.z, len = Math.hypot(dx, dz);
+      if (len < 0.5) continue;
+      const ux = dx / len, uz = dz / len, along = (here.x - p.x) * ux + (here.z - p.z) * uz;
+      const off = (here.x - p.x) * -uz + (here.z - p.z) * ux;
+      if (along < -1 || along > len + 1 || Math.abs(off) > CYCLE_CONFIG.amrClearance + FORKLIFT_CONFIG.footprint.radius + 1) continue;
+      const pref = Math.sign(off) || 1;
+      for (const side of [pref, -pref]) {
+        const aside = new Vector3(here.x - uz * side * CYCLE_CONFIG.yieldStep, 0, here.z + ux * side * CYCLE_CONFIG.yieldStep);
+        if (this.host.dockGuard?.(here, aside.x, aside.z)) continue;
+        this.setForklift(f, "returning");
+        f.vehicle.goTo(aside, false).then(() => this.setForklift(f, "idle"));
+        return true;
+      }
+    }
+    return false;
+  }
   private yieldOrPark(f: Forklift<C>) {
     const cell = this.cellOf(f.object.id), here = f.vehicle.position;
     const others = this.forklifts.filter((o) => o !== f && isServiceTask(o.task) && this.cellOf(o.object.id) === cell);
@@ -1673,7 +1741,124 @@ export class PalletCycle<C extends CycleCargo> {
     const key = `${rack.id}:${slot}`;
     this.storedAt.set(key, { rack, slot });
     this.lastStoredKey = key;
-    if (load.outbound) this.outboundStored.push({ rack, slot });
+    if (load.outbound) {
+      this.outboundStored.push({ rack, slot });
+      this.jobFor(key, load.palletId);
+    }
+  }
+  /** Open outbound job for a stored pallet (rackId:slot), created on first use. */
+  private jobFor(key: string, palletId?: string) {
+    const open = this.jobByKey.get(key);
+    if (open) return open;
+    const at = this.storedAt.get(key);
+    const job = this.outboundJobs.create(this.now(), { palletId: palletId ?? null, sourceRackId: at?.rack.id ?? key.slice(0, key.lastIndexOf(":")), sourceSlot: at?.slot ?? Number(key.slice(key.lastIndexOf(":") + 1)) });
+    this.jobByKey.set(key, job.id);
+    return job.id;
+  }
+  /** Job left the rack slot: later pallets stored in that slot get a new job. */
+  private jobStep(key: string, id: string, to: Parameters<OutboundJobRegistry["transition"]>[2], patch?: Parameters<OutboundJobRegistry["transition"]>[3]) {
+    this.outboundJobs.transition(this.now(), id, to, patch);
+    if (to === "forkliftDelivering" && this.jobByKey.get(key) === id) this.jobByKey.delete(key);
+  }
+  /**
+   * P&D point for a rack-to-AMR handoff: straight out from the forklift's rack-side stop, far enough for the forklift to
+   * turn round and set the pallet down facing away from the rack. The AMR faces so the pallet's fork openings point at the
+   * rack. Rejected (null) when it lies on a dock or the AMR has no route there and on to its belt.
+   */
+  /** Why the last rack-side handoff pose was rejected (monitoring / debugging). */
+  lastHandoffReject: string | null = null;
+  private reject(reason: string) {
+    this.lastHandoffReject = reason;
+    return null;
+  }
+  /**
+   * Free-form AMR P&D pose around the forklift's rack-side pickup stop (no fixed "behind the rack" spot): rings of
+   * candidate deck positions x 4 deck headings. Rejected: docks, parked bodies (with turning room), the forklift's own
+   * stop/body, forklift loading stands that are blocked; the survivors are ranked by forklift carry distance + AMR
+   * travel + AMR turn, and the best few are route-checked (AMR in, AMR out loaded, forklift stop -> loading stand).
+   */
+  private handoffPoint(amr: ShipAmr, rack: SceneEquipment, slot: number, side: { point: Vector3; heading: number }, back: number, forklift?: string, forkFrom?: Vector3) {
+    const half = STREAM_CONFIG.palletDepth / 2;
+    const turn = (PALLET_STACKING.palletYawDegrees * Math.PI) / 180;
+    const from = forkliftStop(side.point, side.heading, back + FORK_BACK).setY(0);
+    const moving = new Set([...this.forklifts.map((o) => o.object.id), ...this.shipAmrs.map((o) => o.id), ...this.shuttles.map((o) => o.object.id)]);
+    const parked = [
+      ...this.trafficBodies.filter((b) => !moving.has(b.id)).flatMap((b) => b.circles()),
+      ...this.agvs.map((g) => ({ x: g.home.x, z: g.home.z, r: AGV_MODEL.radius })),
+    ];
+    const fork = forklift ? this.trafficBodies.filter((b) => b.id === forklift).flatMap((b) => b.circles()) : [];
+    // The forklift's pickup stop and its current body are kept clear (it waits there for the AMR).
+    // Other forklifts' queued stops too: an AMR parked on another forklift's store / pick stop froze both (t785u).
+    const busyStops = this.forklifts.filter((o) => o.object.id !== forklift).flatMap((o) => o.vehicle.targets.map((p) => ({ x: p.x, z: p.z, r: FORKLIFT_NAV_RADIUS })));
+    const keep = [...fork, { x: from.x, z: from.z, r: FORKLIFT_NAV_RADIUS }, ...busyStops];
+    const hits = (cs: { x: number; z: number; r: number }[], obs: { x: number; z: number; r: number }[], margin: number) =>
+      cs.some((d) => obs.some((o) => Math.hypot(o.x - d.x, o.z - d.z) < o.r + d.r + margin));
+    const angle = (a: number) => Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
+    const ap = amr.vehicle.position, ay = amr.vehicle.carrier.rotation.y;
+    const out: { point: Vector3; yaw: number; stand: Vector3; score: number }[] = [];
+    for (const r of SHIP_HANDOFF_RADII) for (let k = 0; k < SHIP_HANDOFF_ANGLES; k++) {
+      const a = side.heading + Math.PI + (k * 2 * Math.PI) / SHIP_HANDOFF_ANGLES;
+      const point = new Vector3(from.x + Math.sin(a) * r, 0, from.z + Math.cos(a) * r);
+      if (this.host.dockGuard?.(point, point.x, point.z)) continue;
+      const arrive = Math.atan2(point.x - ap.x, point.z - ap.z);
+      for (let q = 0; q < 4; q++) {
+        const yaw = side.heading + (q * Math.PI) / 2;
+        const sin = Math.sin(yaw), cos = Math.cos(yaw);
+        const deck = AMR_CIRCLES.map((c) => ({ x: point.x + sin * c.z, z: point.z + cos * c.z, r: c.r }));
+        if (hits(deck, parked, CYCLE_CONFIG.safetyGap + HANDOFF_PARK_MARGIN) || hits(deck, keep, CYCLE_CONFIG.safetyGap + 0.5)) continue;
+        // Forklift loads along the pallet (AMR +-90deg rule): nearer free end.
+        const along = alongPallet(yaw + turn, yaw + turn);
+        for (const h of [along, along + Math.PI]) {
+          const stand = forkliftStop(point, h, half + FORK_BACK).setY(0);
+          if (this.host.dockGuard?.(stand, stand.x, stand.z)) continue;
+          if (hits([{ x: stand.x, z: stand.z, r: FORKLIFT_NAV_RADIUS }], parked, CYCLE_CONFIG.safetyGap)) continue;
+          const score = stand.distanceTo(from) + 0.5 * point.distanceTo(ap) + 1.5 * (angle(yaw - arrive) + angle(arrive - ay));
+          out.push({ point, yaw, stand, score });
+        }
+      }
+    }
+    out.sort((p, q) => p.score - q.score);
+    if (!out.length) return this.reject("noCandidate");
+    // A* budget per search: it re-runs while a job waits for a pose (many candidates x ~13 routes stalled the frame).
+    let budget = SHIP_HANDOFF_PLAN_BUDGET;
+    const plan = (...args: Parameters<NonNullable<typeof this.host.plan>>) => (budget-- > 0 ? this.host.plan(...args) : null);
+    for (const c of out.slice(0, SHIP_HANDOFF_ROUTE_TRIES)) {
+      if (budget <= 0) return this.reject("budget");
+      if (!plan(ap, c.point, false, fork)) { this.reject("routeIn"); continue; }
+      // Open space round the deck: short free legs out in 8 directions (an aisle-pinched pose deadlocked AMR + forklift).
+      let open = 0;
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4, p = new Vector3(c.point.x + Math.sin(a) * SHIP_HANDOFF_OPEN, 0, c.point.z + Math.cos(a) * SHIP_HANDOFF_OPEN);
+        if (this.host.dockGuard?.(p, p.x, p.z) || hits([{ x: p.x, z: p.z, r: 0.4 }], parked, 0)) continue;
+        const r = plan(c.point, p, false, []);
+        if (r && r.reduce((sum, q, i) => sum + (i ? q.distanceTo(r[i - 1]) : q.distanceTo(c.point)), 0) < SHIP_HANDOFF_OPEN * 1.3) open++;
+      }
+      if (open < SHIP_HANDOFF_OPEN_MIN) { this.reject("cramped"); continue; }
+      // Out, loaded, around the forklift still standing at its loading stand.
+      // The forklift stands / reverses in the corridor stand -> rack stop (and behind its stand), so the AMR's way out
+      // must not lead through it (a pocket whose only exit was the forklift's lane deadlocked both).
+      const lane: CycleCircle[] = [];
+      const away = c.stand.clone().sub(c.point).setY(0).normalize();
+      const tail = c.stand.clone().addScaledVector(away, SHIP_HANDOFF_RETREAT + 1);
+      for (const [p, q] of [[c.stand, from], [c.stand, tail]] as const) for (let i = 0; i <= 4; i++) {
+        const x = p.x + ((q.x - p.x) * i) / 4, z = p.z + ((q.z - p.z) * i) / 4;
+        lane.push({ x, z, r: FORKLIFT_NAV_RADIUS });
+      }
+      if (!plan(c.point, amr.home, true, lane)) { this.reject("routeOut"); continue; }
+      if (!plan(from, c.stand, true, [], FORKLIFT_NAV_RADIUS)) { this.reject("forkRoute"); continue; }
+      // The AMR parks there before the forklift has the pallet: its deck must not cut the forklift off from the rack.
+      const sin = Math.sin(c.yaw), cos = Math.cos(c.yaw);
+      const deck = AMR_CIRCLES.map((o) => ({ x: c.point.x + sin * o.z, z: c.point.z + cos * o.z, r: o.r + CYCLE_CONFIG.safetyGap }));
+      // ...nor force a long way round (a reachable-but-detoured approach cost minutes).
+      if (forkFrom) {
+        const len = (r: Vector3[] | null) => (r ? r.reduce((sum, p, i) => sum + (i ? p.distanceTo(r[i - 1]) : p.distanceTo(forkFrom)), 0) : Infinity);
+        const clear = len(plan(forkFrom, from, false, [], FORKLIFT_NAV_RADIUS));
+        const around = len(plan(forkFrom, from, false, deck, FORKLIFT_NAV_RADIUS));
+        if (around > clear + SHIP_HANDOFF_DETOUR) { this.reject("forkBlocked"); continue; }
+      }
+      return { point: c.point, yaw: c.yaw, id: `PD:${rack.id}:${slot}` };
+    }
+    return null;
   }
   /** Oldest stored outbound pallet of this cell that is still on the rack. */
   private nextOutbound(own: (rack: SceneEquipment) => boolean) {
@@ -1697,6 +1882,9 @@ export class PalletCycle<C extends CycleCargo> {
     const marked = this.nextOutbound(own);
     const shipper = !stage && marked
       ? this.shipAmrs.find((a) => !a.busy && this.cellOf(a.belt.id) === cell && !this.busyDocks.has(a.belt.id) && !this.host.outboundBusy?.(a.belt))
+        // Next ready pallet queues on an AMR that already holds its pallet (handed off, driving to the belt): the forklift
+        // picks it now and the AMR comes for it right after its push (one queued job per AMR).
+        ?? this.shipAmrs.find((a) => a.busy && a.vehicle.loaded && !!a.delivering && a.job === a.delivering && this.cellOf(a.belt.id) === cell)
       : undefined;
     const canShip = (!!oldest && this.stored.has(`${oldest.rack.id}:${oldest.slot}`) && !!stage) || (!!marked && (!!stage || !!shipper));
     if (!canStore && !canShip) return;
@@ -1706,8 +1894,44 @@ export class PalletCycle<C extends CycleCargo> {
       return;
     }
     const target = oldest ?? marked!;
-    if (stage) this.shipJob(f, target.rack, target.slot, stage);
-    else this.shipOnAmr(f, target.rack, target.slot, shipper!);
+    if (stage) {
+      this.shipJob(f, target.rack, target.slot, stage);
+      return;
+    }
+    // Outbound AMR flow: the AMR must reach a rack-side P&D pose. With none usable right now (AMR boxed in, poses
+    // blocked), the forklift waits / stores instead of carrying the pallet to the belt itself; only after a long
+    // dead spell (SHIP_HANDOFF_PATIENCE) does it fall back to the belt wait pose so outbound can never stall for good.
+    // Throttled: a failed pose search is not repeated every frame while the job waits.
+    const patient = f.shipDeferSince === undefined || this.now() - f.shipDeferSince < SHIP_HANDOFF_PATIENCE;
+    if (patient && f.shipPlanFailAt !== undefined && this.now() - f.shipPlanFailAt < SHIP_HANDOFF_RETRY) {
+      f.shipDeferSince ??= this.now();
+      if (canStore) this.storeJob(f, rackM!, slot!.rack, slot!.slot);
+      return;
+    }
+    const plan = this.shipPlan(f, target.rack, target.slot, shipper!);
+    f.shipPlanFailAt = plan.pd ? undefined : this.now();
+    if (!plan.pd) {
+      f.shipDeferSince ??= this.now();
+      if (this.now() - f.shipDeferSince < SHIP_HANDOFF_PATIENCE) {
+        if (canStore) this.storeJob(f, rackM!, slot!.rack, slot!.slot);
+        return;
+      }
+    }
+    f.shipDeferSince = undefined;
+    this.shipOnAmr(f, target.rack, target.slot, shipper!, plan);
+  }
+  /** Rack side + AMR P&D pose for an outbound pick: the forklift's preferred side first, then the other faces, each with
+   *  the pose pushed further into the aisle. */
+  private shipPlan(f: Forklift<C>, rack: SceneEquipment, slot: number, amr: ShipAmr) {
+    const { x } = RACK_CONFIG.slots[slot];
+    const back = RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2;
+    const preferred = this.rackSide(f, rack, slot, back, []);
+    const sides = [preferred, ...rackSlotSides(rack, slot).filter((o) => o.heading !== preferred.heading || o.point.distanceTo(preferred.point) > 0.01)];
+    for (const side of sides) {
+      const pd = this.handoffPoint(amr, rack, slot, side, back, f.object.id, f.vehicle.position.clone().setY(0));
+      if (pd) return { side, pd };
+    }
+    return { side: preferred, pd: null };
   }
   private storeJob(f: Forklift<C>, rackM: RackM<C>, rack: SceneEquipment, slot: number) {
     // Top level first.
@@ -1746,6 +1970,9 @@ export class PalletCycle<C extends CycleCargo> {
     const key = `${rack.id}:${slot}`;
     this.shipClaims.add(key);
     this.busyDocks.add(stage.id);
+    const jobId = this.jobFor(key, this.stored.get(key)?.palletId);
+    this.jobStep(key, jobId, "assigned", { forkliftId: f.object.id, shipConveyorId: stage.id, handoff: { id: stage.id, kind: "stage", x: stage.x, z: stage.z, yaw: stage.yaw } });
+    this.jobStep(key, jobId, "forkliftPicking");
     f.job = "ship";
     this.setForklift(f, "toPick");
     const { x } = RACK_CONFIG.slots[slot];
@@ -1758,6 +1985,7 @@ export class PalletCycle<C extends CycleCargo> {
       this.shipClaims.delete(key);
       return load && group ? { ...load, group } : null;
     }, [], RACK_CONFIG.liftClearance + 0.02, true);
+    f.vehicle.then(() => this.jobStep(key, jobId, "forkliftDelivering"));
     const point = new Vector3(stage.x, 0, stage.z);
     this.place(f, point, stage.yaw, STREAM_CONFIG.palletDepth / 2, (load) => {
       this.attachTo(this.host.root, load.group);
@@ -1767,6 +1995,7 @@ export class PalletCycle<C extends CycleCargo> {
       const sorted = [...load.boxes].sort((a, b) => b.node.getWorldPosition(new Vector3()).y - a.node.getWorldPosition(new Vector3()).y);
       this.host.unload(stage, load.group, sorted, load.palletId, false, () => {
         this.stats.shippedPallets++;
+        this.jobStep(key, jobId, "completed");
         if (load.palletId) this.host.cargo.shipPallet({ t: this.now(), palletId: load.palletId, dockId: stage.id });
       });
     }, [], () => {
@@ -1775,8 +2004,12 @@ export class PalletCycle<C extends CycleCargo> {
     this.returnIfIdle(f);
     this.finish(f);
   }
-  /** Stored outbound pallet onto the belt's outbound AMR. The AMR drives up and the roller pushes the pallet onto the belt. */
-  private shipOnAmr(f: Forklift<C>, rack: SceneEquipment, slot: number, amr: ShipAmr) {
+  /**
+   * Stored outbound pallet → the belt's outbound AMR. The AMR is sent at once to a P&D point near the rack (so it is
+   * usually there before the forklift has the pallet out), takes the pallet on its roller deck, drives to its belt and
+   * pushes it on. Without a usable P&D point the forklift brings the pallet to the AMR's belt wait pose (old flow).
+   */
+  private shipOnAmr(f: Forklift<C>, rack: SceneEquipment, slot: number, amr: ShipAmr, plan: { side: { point: Vector3; heading: number }; pd: ReturnType<PalletCycle<C>["handoffPoint"]> }) {
     const key = `${rack.id}:${slot}`;
     this.shipClaims.add(key);
     this.busyDocks.add(amr.belt.id);
@@ -1785,7 +2018,23 @@ export class PalletCycle<C extends CycleCargo> {
     this.setForklift(f, "toPick");
     const { x } = RACK_CONFIG.slots[slot];
     const back = RACK_CONFIG.front - x + STREAM_CONFIG.palletDepth / 2;
-    const side = this.rackSide(f, rack, slot, back, []);
+    const { side, pd } = plan;
+    const deckAt = pd ? pd.point : amr.home, deckYaw = pd ? pd.yaw : amr.yaw;
+    const handoff: HandoffPoint = pd
+      ? { id: pd.id, kind: "rackPd", x: pd.point.x, z: pd.point.z, yaw: pd.yaw }
+      : { id: `${amr.belt.id}:wait`, kind: "beltWait", x: amr.home.x, z: amr.home.z, yaw: amr.yaw };
+    const jobId = this.jobFor(key, this.stored.get(key)?.palletId);
+    amr.job = jobId;
+    this.jobStep(key, jobId, "assigned", { forkliftId: f.object.id, amrId: amr.id, handoff, shipConveyorId: amr.belt.id });
+    let arrived = !pd;
+    if (pd) {
+      amr.vehicle.then(() => { amr.toHandoff = true; }).goTo(pd.point, false).turn(pd.yaw).then(() => {
+        amr.toHandoff = false;
+        arrived = true;
+        this.outboundJobs.amrArrived(this.now(), jobId);
+      });
+    } else this.outboundJobs.amrArrived(this.now(), jobId);
+    this.jobStep(key, jobId, "forkliftPicking");
     this.pick(f, side.point, side.heading, back, () => {
       const load = this.stored.get(key);
       const group = this.host.rackTake(rack, slot);
@@ -1793,13 +2042,21 @@ export class PalletCycle<C extends CycleCargo> {
       this.shipClaims.delete(key);
       return load && group ? { ...load, group } : null;
     }, [], RACK_CONFIG.liftClearance + 0.02, true);
-    const deck = amr.home.clone().setY(ROLLER_DECK);
+    f.vehicle.then(() => this.jobStep(key, jobId, "forkliftDelivering"));
+    // Holds at the rack-side stop until the AMR is parked at the P&D point (normally already there).
+    f.vehicle.until(() => arrived);
+    const deck = deckAt.clone().setY(ROLLER_DECK);
     // The pallet rides square to the AMR (group yaw = AMR yaw) because the belt carries it that way, so its fork openings
     // (internal turn) face the AMR's sides: insert along them (nearer end), not along the AMR (that snapped it 90deg).
     const turn = (PALLET_STACKING.palletYawDegrees * Math.PI) / 180, half = STREAM_CONFIG.palletDepth / 2;
-    const along = alongPallet(amr.yaw + turn, amr.yaw + turn), from = forkliftStop(side.point, side.heading, back + FORK_BACK);
+    const along = alongPallet(deckYaw + turn, deckYaw + turn), from = forkliftStop(side.point, side.heading, back + FORK_BACK);
+    // Nearer insert end that the forklift can reach (a P&D point loads from along the aisle, either side).
     const heading = [along, along + Math.PI]
-      .map((h) => ({ h, d: forkliftStop(deck, h, half + FORK_BACK).distanceTo(from) }))
+      .map((h) => {
+        const stand = forkliftStop(deck, h, half + FORK_BACK).setY(0);
+        const reach = !pd || !!this.host.plan(from, stand, true, [], FORKLIFT_NAV_RADIUS);
+        return { h, d: stand.distanceTo(from) + (reach ? 0 : 1e6) };
+      })
       .sort((a, b) => a.d - b.d)[0].h;
     this.place(f, deck, heading, half, (load) => {
       // Keep the carried yaw (0 or 180deg relative to the AMR, pallets are symmetric); the belt keeps the same flip.
@@ -1811,7 +2068,14 @@ export class PalletCycle<C extends CycleCargo> {
       });
       load.group.userData.rollFlip = rel;
       amr.vehicle.loaded = true;
-      amr.vehicle.straight(amr.pose, { speed: 0.6 }).then(() => {
+      amr.delivering = jobId;
+      this.jobStep(key, jobId, "handedOff");
+      amr.vehicle.then(() => this.jobStep(key, jobId, "amrDelivering"));
+      // From the P&D point: drive to the belt wait pose and face the belt first.
+      // It may pass close by the forklift that just loaded it (that one stands still, then yields to the AMR).
+      if (pd) amr.vehicle.goTo(amr.home, true, [f.object.id]).turn(amr.yaw);
+      // A queued job's push waits for room on the belt (checked at assignment for a free AMR).
+      amr.vehicle.until(() => !this.host.outboundBusy?.(amr.belt)).straight(amr.pose, { speed: 0.6 }).then(() => {
         this.attachTo(this.host.root, load.group);
         load.group.position.set(amr.pose.x, ROLLER_DECK, amr.pose.z);
         load.group.rotation.set(0, amr.yaw + rel, 0);
@@ -1820,8 +2084,27 @@ export class PalletCycle<C extends CycleCargo> {
         amr.trips++;
         amr.vehicle.loaded = false;
         this.busyDocks.delete(amr.belt.id);
-      }).straight(amr.home, { backward: true, speed: 0.6 }).then(() => { amr.busy = false; });
+        this.jobStep(key, jobId, "completed");
+      }).straight(amr.home, { backward: true, speed: 0.6 }).then(() => {
+        if (amr.delivering === jobId) amr.delivering = null;
+        // A job queued meanwhile keeps the AMR busy (its handoff move follows in the queue).
+        if (amr.job === jobId) {
+          amr.busy = false;
+          amr.job = null;
+        }
+      });
     }, [amr.id]);
+    // Stand still at the loading stand until the loaded AMR has pulled away from the P&D pose (it plans around a
+    // standing forklift; both moving in a narrow aisle held each other for good).
+    if (pd) {
+      // Back straight out along the loading approach first, so the AMR has the space to turn and leave.
+      f.vehicle.straight(forkliftStop(deck, heading, half + FORK_BACK + SHIP_HANDOFF_RETREAT).setY(0), { backward: true, speed: 0.6 });
+      let since = -1;
+      f.vehicle.until(() => {
+        if (since < 0) since = this.now();
+        return amr.vehicle.position.distanceTo(deckAt) > SHIP_HANDOFF_LEAVE || this.now() - since > 30;
+      });
+    }
     this.returnIfIdle(f);
     this.finish(f);
   }
@@ -1919,7 +2202,7 @@ export class PalletCycle<C extends CycleCargo> {
       ...this.forklifts.map((f) => ({ id: f.object.id, name: f.object.name, state: forkState(f.state), status: `[${FORKLIFT_TASK_STATES[f.state]}]${f.job ? ` ${FORKLIFT_JOBS[f.job]}` : ""}`, target: null, completed: f.done, battery: 100 })),
       ...this.shipAmrs.map((a) => {
         const phase = this.shipPhase(a);
-        const row: Row = phase === "idle" ? "idle" : phase === "wait" ? "waiting" : phase === "push" ? "dispatch" : "returning";
+        const row: Row = phase === "idle" ? "idle" : phase === "wait" ? "waiting" : phase === "push" || phase === "toHandoff" ? "dispatch" : "returning";
         return { id: a.id, name: a.vehicle.name, state: row, status: `[${SHIP_AMR_STATES[phase]}] ${a.belt.name}`, target: a.belt.name, completed: a.trips, battery: 100 };
       }),
     ];
@@ -1927,6 +2210,7 @@ export class PalletCycle<C extends CycleCargo> {
   /** Outbound AMR: waiting at home, holding for the forklift, pushing onto the belt, or backing home. */
   private shipPhase(a: ShipAmr): ShipAmrState {
     if (!a.busy) return "idle";
+    if (a.toHandoff) return "toHandoff";
     if (a.vehicle.loaded) return "push";
     if (!a.vehicle.idle) return "return";
     return "wait";

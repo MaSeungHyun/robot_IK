@@ -16,6 +16,7 @@ import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
 import { LINKABLE_KINDS } from "@/types/links";
 import DropInGroup from "@/viewport/editor/DropInGroup";
+import { snapLine } from "@/domain/conveyor/conveyorSnap";
 import { palletBaseY, palletPedestalPose, robotElevation } from "@/domain/layout/robotPedestals";
 
 export default function EditableEquipment({
@@ -130,6 +131,16 @@ export default function EditableEquipment({
           showZ={tool === "translate"}
           size={0.75}
           onObjectChange={() => {
+            // Live line snap: a conveyor/scanner end jumps onto a nearby free end while dragging (release keeps it).
+            if (entity.kind === "conveyor" || entity.kind === "scanner") {
+              const s = useSceneStore.getState(), current = s.objects.find((o) => o.id === entity.id);
+              if (current) {
+                const snapped = snapLine({ ...current, x: object.position.x, z: object.position.z, yaw: object.rotation.y }, s.objects);
+                object.position.x = snapped.x;
+                object.position.z = snapped.z;
+                object.rotation.y = snapped.yaw;
+              }
+            }
             if (entity.kind === "robot") useLivePoseStore.getState().set(entity.id, object.position.x, object.position.z);
           }}
           onMouseUp={() => {

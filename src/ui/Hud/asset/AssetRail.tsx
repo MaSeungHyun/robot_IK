@@ -22,7 +22,7 @@ type Item = "templates" | "log" | EquipmentKind;
 const railButton =
   "flex size-10 shrink-0 items-center justify-center rounded-md text-text-secondary outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-brand-primary";
 const flyout =
-  "absolute top-2 left-full ml-2 max-h-[calc(100%-1rem)] overflow-y-auto scrollbar-thin rounded-md border border-brand-primary/20 bg-bg-primary/95 p-3 shadow-2xl backdrop-blur-md";
+  "simulation-panel absolute top-2 left-full ml-2 max-h-[calc(100%-1rem)] overflow-y-auto [scrollbar-gutter:stable] scrollbar-thin rounded-md border border-brand-primary/20 bg-bg-primary/95 py-3 pl-3 pr-1.5 shadow-2xl backdrop-blur-md";
 
 /**
  * Editor-only icon rail: Templates first, then asset categories. Each opens a flyout grid;
@@ -251,7 +251,8 @@ function AssetFlyout({
       <div className="grid grid-cols-2 gap-2">
         {items.map((preset) => {
           const key = thumbnailKey(kind, preset),
-            image = key ? thumbnails[key] : undefined;
+            image = preset.image ?? (key ? thumbnails[key] : undefined),
+            placeKind = preset.kind ?? kind;
           return (
             <button
               key={preset.id}
@@ -260,18 +261,18 @@ function AssetFlyout({
               // Floor/wall is drawn by dragging on the ground after picking it, not dropped.
               draggable={kind !== "floor"}
               onDragStart={(event) => {
-                setPending(kind, preset.settings ?? null);
+                setPending(placeKind, preset.settings ?? null);
                 if (dragImage.current)
                   event.dataTransfer.setDragImage(dragImage.current, 0, 0);
                 event.dataTransfer.setData(
                   "application/x-factory-equipment",
-                  kind,
+                  placeKind,
                 );
                 event.dataTransfer.effectAllowed = "copy";
               }}
               onDragEnd={() => setPending(null)}
               // The category stays open after placing (only the rail button or Esc closes it).
-              onClick={() => setPending(kind, preset.settings ?? null)}
+              onClick={() => setPending(placeKind, preset.settings ?? null)}
               className={cn(
                 "flex cursor-grab flex-col gap-1.5 overflow-hidden rounded-md border border-white/10 bg-white/5 p-1.5 text-left transition hover:border-sky-400/60 hover:bg-sky-400/10 active:cursor-grabbing",
                 preset.tone === "defect" && "border-l-2 border-l-fault",

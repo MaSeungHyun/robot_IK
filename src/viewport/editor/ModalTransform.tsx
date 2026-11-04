@@ -9,6 +9,7 @@ import { AXIS_COLOR } from "@/viewport/editor/axisColors";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { editableGroups, lastPointer } from "@/viewport/editor/editableRegistry";
 import { useLivePoseStore } from "@/stores/useLivePoseStore";
+import { snapLine } from "@/domain/conveyor/conveyorSnap";
 
 const ROTATION_STEP = Math.PI / 12; // same as the rotate gizmo's rotationSnap
 const snap = (value: number, step: number) => Math.round(value / step) * step;
@@ -94,6 +95,14 @@ export default function ModalTransform() {
     };
     const { origin } = session;
     const robot = useSceneStore.getState().objects.find((object) => object.id === session.id)?.kind === "robot";
+    // Live line snap for conveyors/scanners while moving/rotating (same snapLine as the confirm).
+    const lineSnap = () => {
+      const s = useSceneStore.getState(), current = s.objects.find((o) => o.id === session.id);
+      if (!current || (current.kind !== "conveyor" && current.kind !== "scanner")) return;
+      const snapped = snapLine({ ...current, x: group.position.x, z: group.position.z, yaw: group.rotation.y }, s.objects);
+      group.position.set(snapped.x, group.position.y, snapped.z);
+      group.rotation.y = snapped.yaw;
+    };
     const start = lastPointer.inside ? ground(lastPointer.x, lastPointer.y) : null;
     // Move keeps the grab offset (a pasted copy jumps under the cursor); rotate measures from the center.
     const offset = start && !session.created ? { x: origin.x - start.x, z: origin.z - start.z } : { x: 0, z: 0 };
@@ -111,6 +120,10 @@ export default function ModalTransform() {
     let pointer = lastPointerStart ? { clientX: lastPointerStart.x, clientY: lastPointerStart.y, shiftKey: false } : null;
 
     const apply = (event: PointerEvent | { clientX: number; clientY: number; shiftKey: boolean }) => {
+      applyRaw(event);
+      lineSnap();
+    };
+    const applyRaw = (event: PointerEvent | { clientX: number; clientY: number; shiftKey: boolean }) => {
         pointer = { clientX: event.clientX, clientY: event.clientY, shiftKey: event.shiftKey };
       const axis = useModalTransformStore.getState().axis;
       if (session.mode === "move" && axis) {

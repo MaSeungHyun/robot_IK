@@ -81,6 +81,7 @@ export default function PalletDetails({ object }: EquipmentDetailProps) {
               { value: "defect", label: "불량품 적재" },
             ]}
           />
+          <EquipmentNumberSetting id={object.id} field="outboundRatio" label="출고 확률" unit="%" min={0} max={100} />
           {carrier && <p className="text-xs">AMR에서 떼려면 팔레트를 0.8 m 밖으로 옮기세요.</p>}
           <EquipmentEnabledSetting id={object.id} />
         </DetailSection>

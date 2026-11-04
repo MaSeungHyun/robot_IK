@@ -1651,6 +1651,8 @@ export class FactorySimulator {
     for (const box of this.boxes) {
       if (box.state !== "moving" && box.state !== "reserved") continue;
       if (this.stopperBelt(box.belt.id, settings) !== box.belt.id) continue;
+      // Stopper off (설정 '스토퍼'): the box runs off the end, the line keeps moving.
+      if (settings[box.belt.id]?.stopper === false) continue;
       if (box.distance >= beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT)
         blocked.add(box.belt.id);
     }
@@ -1671,9 +1673,13 @@ export class FactorySimulator {
   private releaseStrandedBoxes(settings: Record<string, EquipmentSettings>) {
     let removed = false;
     for (const box of this.boxes) {
-      if (box.state !== "moving" || settings[box.belt.id]?.conveyorRole === "ship") continue;
+      if (box.state !== "moving" || settings[box.belt.id]?.conveyorRole === "ship" || settings[box.belt.id]?.stopper === false) continue;
       if (this.stopperBelt(box.belt.id, settings) !== box.belt.id) continue;
       if (box.distance < beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT) continue;
+      // No robot works this line end at all (e.g. a freshly extended piece): the stopper simply holds the box.
+      const served = this.robots.some((robot) => settings[robot.object.id]?.enabled && !this.depalletizers.includes(robot)
+        && distance(robot.object, box.node.position) <= settings[robot.object.id].reach);
+      if (!served) continue;
       const grade = this.grade(box);
       const takeable = this.robots.some((robot) => {
         const config = settings[robot.object.id];
@@ -1803,8 +1809,11 @@ export class FactorySimulator {
       const shipped = box.state === "moving" && settings[box.belt.id]?.conveyorRole === "ship" &&
         !this.connections.get(box.belt.id) && box.distance >= beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT - 1e-3;
       if (shipped) this.shippedBoxes++;
+      // Stopper off: an unclaimed box reaching the open line end leaves it (counted as passed).
+      const runOff = !shipped && box.state === "moving" && settings[box.belt.id]?.stopper === false &&
+        this.stopperBelt(box.belt.id, settings) === box.belt.id && box.distance >= beltLength(box.belt) - BOX_SIZES[0].z / 2 - CONVEYOR_STOPPER_CONTACT - 1e-3;
       // Legacy safety net (should not trigger with the end stopper).
-      if (shipped || (box.distance > beltLength(box.belt) + 1 && box.state === "moving")) {
+      if (shipped || runOff || (box.distance > beltLength(box.belt) + 1 && box.state === "moving")) {
         box.state = "passed";
         if (this.feedBoxIds.delete(box.id)) this.feedScan.unscanned++;
         this.cargo.passBox({ t: this.elapsed, boxId: box.id, beltId: box.belt.id });

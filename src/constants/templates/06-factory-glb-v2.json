@@ -589,7 +589,8 @@
       "z": -0.2,
       "yaw": -3.141592653589793,
       "settings": {
-        "robotPedestal": "base"
+        "robotPedestal": "base",
+        "pickFilter": "all"
       }
     },
     {
@@ -599,7 +600,8 @@
       "yaw": 0,
       "settings": {
         "robotPedestal": "base",
-        "robotPedestalYaw": 180
+        "robotPedestalYaw": 180,
+        "pickFilter": "all"
       }
     },
     {
@@ -609,7 +611,8 @@
       "yaw": 0,
       "settings": {
         "robotPedestal": "base",
-        "robotPedestalYaw": 180
+        "robotPedestalYaw": 180,
+        "pickFilter": "all"
       }
     },
     {

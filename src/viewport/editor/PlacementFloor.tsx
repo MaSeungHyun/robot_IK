@@ -23,6 +23,7 @@ import { snapDoorToWall } from "@/domain/room/roomWalls";
 import { mountCarrierAt } from "@/domain/layout/palletMount";
 import { AMR_DECK } from "@/constants/cycle";
 import { robotMountAt } from "@/domain/layout/robotPedestals";
+import { RAIL_IN_OUT_LENGTH } from "@/constants/conveyorLayoutConfig";
 
 const KINDS: readonly EquipmentKind[] = [
   "robot",
@@ -33,6 +34,8 @@ const KINDS: readonly EquipmentKind[] = [
   "rack",
   "scanner",
   "door",
+  "rail",
+  "transfer",
 ];
 const snap = (value: number) => Math.round(value / C.snap) * C.snap;
 // Intersect the mathematical ground plane rather than a bounded mesh.
@@ -101,8 +104,11 @@ export default function PlacementFloor() {
         const width = (state.pending === "door" ? state.pendingPreset?.doorWidth : undefined) ?? DOOR_CONFIG.width;
         return { ...object, ...snapDoorToWall(object, width, state.objects) };
       }
+      // 입하/출하 rails are rail_in_out.glb at native length: snap with the same length add() gives them.
+      const role = state.pending === "conveyor" ? state.pendingPreset?.conveyorRole : undefined;
+      const sized = kind === "conveyor" && (role === "inbound" || role === "outbound" || role === "ship") ? { ...object, conveyorLength: RAIL_IN_OUT_LENGTH } : object;
       return kind === "conveyor" || kind === "scanner"
-        ? snapLine(object, state.objects)
+        ? snapLine(sized, state.objects)
         : object;
     };
     const pointAt = (event: MouseEvent) => {

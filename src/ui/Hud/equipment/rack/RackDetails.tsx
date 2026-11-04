@@ -3,6 +3,7 @@ import Badge from "@/components/Badge";
 import EquipmentDetailLayout from "@/ui/Hud/equipment/details/_components/EquipmentDetailLayout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
 import EquipmentChoiceSetting from "@/ui/Hud/equipment/details/_components/EquipmentChoiceSetting";
+import EquipmentNumberSetting from "@/ui/Hud/equipment/details/_components/EquipmentNumberSetting";
 import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/EquipmentEnabledSetting";
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
@@ -49,6 +50,9 @@ export default function RackDetails({ object }: EquipmentDetailProps) {
               { value: "off", label: "사용 안 함 (입고 없음)" },
             ]}
           />
+        )}
+        {!mobile && (
+          <EquipmentNumberSetting id={object.id} field="outboundRatio" label="출고 확률" unit="%" min={0} max={100} />
         )}
         <EquipmentChoiceSetting
           id={object.id}

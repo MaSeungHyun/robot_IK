@@ -34,8 +34,13 @@ export function beltConnections(objects: SceneEquipment[]) {
   return {next,incoming};
 }
 export function extendBelt(belt: BeltPose, turn: ConveyorTurn): BeltPose {
-  const end = beltPoint(belt,beltLength(belt));
-  return { x:end.x+Math.sin(end.yaw)*C.length/2, z:end.z+Math.cos(end.yaw)*C.length/2, yaw:end.yaw, conveyorTurn:turn };
+  return extendFrom(beltPoint(belt,beltLength(belt)), turn);
+}
+/** Pose of a new `turn` piece whose start lands exactly on `end` (same heading). */
+export function extendFrom(end: EquipmentPose, turn: ConveyorTurn): BeltPose {
+  // The new piece's own start (straight: -length/2, turn: -radius on local z) lands exactly on this end.
+  const local = beltLocalPoint({ conveyorTurn: turn } as BeltShape, 0), yaw = end.yaw - local.yaw, c = Math.cos(yaw), s = Math.sin(yaw);
+  return { x:end.x-local.x*c-local.z*s, z:end.z+local.x*s-local.z*c, yaw, conveyorTurn:turn };
 }
 /** Straight-belt body (not a turn or spline path). */
 export function isStraightBelt(belt: BeltShape) {

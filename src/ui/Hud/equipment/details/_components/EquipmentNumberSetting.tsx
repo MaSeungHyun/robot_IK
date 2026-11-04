@@ -9,9 +9,10 @@ import {
   toBoxesPerHour,
 } from "@/domain/simulation/equipmentSpeeds";
 import type { EquipmentSettings } from "@/types/layout";
+import { CYCLE_CONFIG } from "@/constants/cycle";
 import { deckFeedIntervalOf, stackCapacityOf } from "@/constants/emptyPallet";
 
-type Field = "speed" | "reach" | "capacity" | "spawnInterval" | "beltSpeed" | "amrSpeed" | "stackCapacity" | "deckFeedInterval" | "robotPedestalYaw";
+type Field = "speed" | "reach" | "capacity" | "spawnInterval" | "beltSpeed" | "amrSpeed" | "stackCapacity" | "deckFeedInterval" | "robotPedestalYaw" | "outboundRatio";
 import { NUMBER_INFO } from "@/ui/Hud/equipment/details/_components/settingInfo";
 
 type Props = {
@@ -36,6 +37,7 @@ function read(field: Field, config: EquipmentSettings) {
   if (field === "stackCapacity") return stackCapacityOf(config);
   if (field === "deckFeedInterval") return deckFeedIntervalOf(config);
   if (field === "robotPedestalYaw") return config.robotPedestalYaw ?? 0;
+  if (field === "outboundRatio") return Math.round((config.outboundRatio ?? CYCLE_CONFIG.outboundRatio) * 1000) / 10;
   return config[field];
 }
 
@@ -43,6 +45,7 @@ function write(field: Field, value: number, config: EquipmentSettings): Partial<
   if (field === "beltSpeed") return speedPatch(field, value, config);
   if (field === "spawnInterval") return speedPatch(field, fromBoxesPerHour(value), config);
   if (field === "amrSpeed") return speedPatch(field, value, config);
+  if (field === "outboundRatio") return { outboundRatio: Math.min(1, Math.max(0, value / 100)) };
   return { [field]: value };
 }
 

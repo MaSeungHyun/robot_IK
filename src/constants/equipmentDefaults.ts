@@ -12,9 +12,11 @@ export const ROLE_BELT_SPEED = 1;
 export function placementDefaults(kind: EquipmentKind, preset?: Partial<EquipmentSettings> | null): Partial<EquipmentSettings> {
   if (kind === "conveyor") {
     const role = preset?.conveyorRole;
-    return { autoSpawn: false, beltSpeed: role === "inbound" || role === "outbound" || role === "ship" ? ROLE_BELT_SPEED : PICK_BELT_SPEED };
+    return { autoSpawn: false, stopper: true, beltSpeed: role === "inbound" || role === "outbound" || role === "ship" ? ROLE_BELT_SPEED : PICK_BELT_SPEED };
   }
   // Template 06 doors are all open (8/8).
   if (kind === "door") return { doorOpen: true };
+  // New robots pick every grade (전체) and also unscanned boxes; asset presets override pickFilter.
+  if (kind === "robot") return { pickFilter: "all", pickUnscanned: true };
   return {};
 }

@@ -4,9 +4,13 @@ import robotImage from "@/assets/images/robot.png";
 import amrImage from "@/assets/images/amr.png";
 import scannerImage from "@/assets/images/scanner.png";
 import palletImage from "@/assets/images/pallet.png";
+import conveyorImage from "@/assets/images/rail.webp";
+import rackImage from "@/assets/images/rack.webp";
+import doorImage from "@/assets/images/door.webp";
+import transferImage from "@/assets/images/transfer_forklift.webp";
 import { EQUIPMENT_NAMES, useSceneStore } from "@/stores/useSceneStore";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
-import { objectThumbnailKey } from "@/constants/assetPresets";
+import { STATIC_THUMBNAILS, objectThumbnailKey } from "@/constants/assetPresets";
 import type { EquipmentKind, SceneEquipment } from "@/types/layout";
 import DetailRows from "@/ui/Hud/equipment/details/_components/DetailRows";
 
@@ -21,13 +25,13 @@ const EQUIPMENT_VISUALS: Record<EquipmentKind, EquipmentVisual> = {
   amr: { image: amrImage, icon: "Truck" },
   scanner: { image: scannerImage, icon: "ScanLine" },
   pallet: { image: palletImage, icon: "Package" },
-  conveyor: { icon: "Boxes" },
+  conveyor: { image: conveyorImage, icon: "Boxes" },
   dock: { icon: "MapPin" },
   floor: { icon: "BrickWall" },
-  rack: { icon: "Warehouse" },
-  door: { icon: "DoorOpen" },
-  rail: { icon: "Boxes" },
-  transfer: { icon: "Package" },
+  rack: { image: rackImage, icon: "Warehouse" },
+  door: { image: doorImage, icon: "DoorOpen" },
+  rail: { image: conveyorImage, icon: "Boxes" },
+  transfer: { image: transferImage, icon: "Package" },
 };
 
 export default function EquipmentIdentity({ object, status }: Props) {
@@ -37,7 +41,7 @@ export default function EquipmentIdentity({ object, status }: Props) {
   // Rendered model thumbnail (same as the asset card); the static images/icons are the fallback.
   const key = useSceneStore((state) => objectThumbnailKey(object.kind, state.settings[object.id]));
   const thumbnail = useThumbnailStore((state) => (key ? state.thumbnails[key] : undefined));
-  const image = thumbnail ?? visual.image;
+  const image = (key ? STATIC_THUMBNAILS[key] : undefined) ?? thumbnail ?? visual.image;
 
   return (
     <header className="min-w-0">

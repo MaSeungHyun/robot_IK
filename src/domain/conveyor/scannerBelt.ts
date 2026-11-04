@@ -8,7 +8,7 @@
  */
 import { SCAN_TUNNEL_MODEL as T } from "@/constants/modelPoints.generated";
 import { CONVEYOR_LAYOUT as C, SCANNER_FLOW_YAW } from "@/constants/conveyorLayoutConfig";
-import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
+import { beltConnections, beltLength, beltPoint, connectedBeltIds, extendFrom } from "@/domain/conveyor/conveyorLayout";
 import { isDepalletizer } from "@/domain/robot/robotRole";
 import type { ConveyorTurn, EquipmentPose, EquipmentSettings, SceneEquipment } from "@/types/layout";
 
@@ -17,6 +17,36 @@ export const SCANNER_JOIN_REACH = 1.0;
 const ON_RAIL = 1.0;
 export const scannerBeltId = (scannerId: string) => `scanbelt:${scannerId}`;
 export const isScannerBelt = (id: string) => id.startsWith("scanbelt:");
+
+/** Conveyor ids of the whole line through `id`; free-standing scanner tunnels bridge the rails on both sides (tunnel belts themselves dropped). */
+export function lineBeltIds(objects: SceneEquipment[], id: string) {
+  const all = withScannerBelts(objects, () => ({})).objects;
+  return new Set([...connectedBeltIds(all, id)].filter((belt) => !isScannerBelt(belt)));
+}
+/** Scanners whose tunnel belt is part of the line through `id` (a conveyor, or a scanner's own id). */
+export function lineScannerIds(objects: SceneEquipment[], id: string) {
+  const all = withScannerBelts(objects, () => ({})).objects;
+  const start = objects.some((o) => o.id === id && o.kind === "scanner") ? scannerBeltId(id) : id;
+  if (!all.some((o) => o.id === start)) return new Set<string>();
+  return new Set([...connectedBeltIds(all, start)].filter(isScannerBelt).map((belt) => belt.slice("scanbelt:".length)));
+}
+/** Real conveyors of the line through a conveyor or a free-standing scanner. */
+export function lineConveyorIds(objects: SceneEquipment[], id: string) {
+  const start = objects.some((o) => o.id === id && o.kind === "scanner") ? scannerBeltId(id) : id;
+  return lineBeltIds(objects, start);
+}
+/** First real conveyor of the line through `id` (walks upstream across scanner tunnels): where line settings are read. */
+export function lineHeadId(objects: SceneEquipment[], id: string) {
+  const { next } = beltConnections(withScannerBelts(objects, () => ({})).objects);
+  const previousOf = new Map(Array.from(next, ([source, target]) => [target.id, source]));
+  const seen = new Set([id]);
+  let head = id;
+  for (let prev = previousOf.get(id); prev && !seen.has(prev); prev = previousOf.get(prev)) {
+    seen.add(prev);
+    if (!isScannerBelt(prev)) head = prev;
+  }
+  return head;
+}
 
 /** Heading of the tunnel belt flow (world). */
 export const scannerFlowYaw = (scanner: EquipmentPose) => scanner.yaw + SCANNER_FLOW_YAW;
@@ -31,7 +61,8 @@ export function scannerOutletPose(scanner: EquipmentPose): EquipmentPose {
 
 /** Rail.glb (native length) laid from the tunnel exit in a direction, like extending a conveyor. */
 export function scannerExtension(scanner: EquipmentPose, turn: ConveyorTurn) {
-  return { ...scannerOutletPose(scanner), conveyorTurn: turn };
+  // Turn pieces start at their own local start (not the straight centre offset), like extending a conveyor end.
+  return extendFrom(scannerExit(scanner), turn);
 }
 /** True when a rail already starts at the tunnel exit (the line continues; no extension offered). */
 export function scannerOutletTaken(scanner: SceneEquipment, objects: readonly SceneEquipment[]) {

@@ -6,7 +6,7 @@
     {
       "kind": "conveyor",
       "x": 0,
-      "z": -22.8581,
+      "z": -34.949,
       "yaw": 0,
       "settings": {
         "conveyorRole": "fed",
@@ -25,13 +25,13 @@
     {
       "kind": "scanner",
       "x": 0,
-      "z": -3.5864,
-      "yaw": 0
+      "z": -15.8772,
+      "yaw": 3.141592653589793
     },
     {
       "kind": "robot",
       "x": -1.3707,
-      "z": -13.7318,
+      "z": -25.8227,
       "yaw": 0,
       "settings": {
         "robotRole": "depalletize"
@@ -40,7 +40,7 @@
     {
       "kind": "dock",
       "x": -3.0075,
-      "z": -13.7318,
+      "z": -25.8227,
       "yaw": 0,
       "settings": {
         "dockRole": "unload"
@@ -49,7 +49,7 @@
     {
       "kind": "conveyor",
       "x": -9.923,
-      "z": -26.2051,
+      "z": -38.296,
       "yaw": 0,
       "settings": {
         "conveyorRole": "inbound",
@@ -61,7 +61,7 @@
     {
       "kind": "amr",
       "x": -12.923,
-      "z": -12.1288,
+      "z": -24.2197,
       "yaw": 0,
       "settings": {
         "amrRole": "shuttle",
@@ -71,7 +71,7 @@
     {
       "kind": "pallet",
       "x": -12.923,
-      "z": -12.1288,
+      "z": -24.2197,
       "yaw": 0,
       "settings": {
         "capacity": 4,
@@ -81,7 +81,7 @@
     {
       "kind": "dock",
       "x": -7.7096,
-      "z": -6.3546,
+      "z": -18.4455,
       "yaw": 1.5707963267948966,
       "settings": {
         "dockRole": "palletSource"
@@ -90,7 +90,7 @@
     {
       "kind": "amr",
       "x": -7.7096,
-      "z": -1.3546,
+      "z": -13.4455,
       "yaw": 1.5707963267948966,
       "settings": {
         "amrRole": "forklift",
@@ -155,11 +155,11 @@
     {
       "kind": "floor",
       "x": -1.5035,
-      "z": -7.8875,
+      "z": -15.2,
       "yaw": 0,
       "floor": {
         "width": 40,
-        "depth": 60,
+        "depth": 76,
         "wallHeight": 10
       }
     }

@@ -6,8 +6,9 @@ import type { EquipmentKind,EquipmentPose,SceneEquipment,EquipmentSettings,Conve
 import { DEFAULT_LAYOUT,ROBOT_REACH_MAX,SIMULATOR_CONFIG as C,EDITOR_HISTORY_LIMIT,FLOOR_CONFIG } from "../constants/simulatorLayout";
 import { useSimulationStore } from "./useSimulationStore";
 import { validateScene } from "@/domain/amr/navigation/sceneValidation";
-import { beltConnections,connectedBeltIds,extendBelt } from "@/domain/conveyor/conveyorLayout";
-import { scannerExtension,scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
+import { beltConnections,extendBelt } from "@/domain/conveyor/conveyorLayout";
+import { lineConveyorIds,lineScannerIds,scannerExtension,scannerOutletTaken } from "@/domain/conveyor/scannerBelt";
+import { RAIL_IN_OUT_LENGTH } from "@/constants/conveyorLayoutConfig";
 import { SCENE_TEMPLATES } from "@/constants/sceneTemplates";
 import type { SceneTemplate, TemplateCamera, TemplateLighting, TemplateProp } from "@/types/sceneTemplate";
 import { placementDefaults } from "@/constants/equipmentDefaults";
@@ -164,6 +165,8 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
       const config=settingsFor(kind,{...placementDefaults(kind,state.pending===kind?state.pendingPreset:null),...(state.pending===kind?state.pendingPreset:null)});
+      // 입하/출하 conveyors are rail_in_out.glb at its native length (ConveyorBelt renders it only with conveyorLength).
+      if(kind==="conveyor"&&!initial.conveyorLength&&(config.conveyorRole==="inbound"||config.conveyorRole==="outbound"||config.conveyorRole==="ship"))initial.conveyorLength=RAIL_IN_OUT_LENGTH;
       let object=kind==="conveyor"||kind==="scanner"?snapLine(initial,state.objects):kind==="door"?snapDoor(initial,config,state.objects):snapFloor(initial);
       // [pedestal] a robot added over robot_base / robot_arm_place sits on its top face (base: XZ centre).
       if(kind==="robot"&&pose.elevation===undefined){const m=robotMountAt(object.x,object.z,true);object={...object,x:m.x,z:m.z,...(m.elevation?{elevation:m.elevation}:{})};}
@@ -211,7 +214,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(scanner?scannerOutletTaken(source,state.objects):beltConnections(state.objects).next.has(id))return;
     const pose=scanner?scannerExtension(source,turn):extendBelt(source,turn);
     const nextId=`conveyor-${state.nextId}`,object={...pose,id:nextId,kind:"conveyor" as const,name:`컨베이어 ${state.nextId}`};
-    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:scanner?settingsFor("conveyor",placementDefaults("conveyor")):{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
+    set({...history(state),objects:[...state.objects,object],settings:{...state.settings,[nextId]:scanner?settingsFor("conveyor",{...placementDefaults("conveyor"),...(state.settings[id]?.beltSpeed!==undefined?{beltSpeed:state.settings[id]!.beltSpeed}:{})}):{...state.settings[id]}},selected:nextId,pending:null,nextId:state.nextId+1,errors:[]});
   },
   updatePose:(id,pose)=>{
     if(!get().editing)return;
@@ -237,14 +240,23 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if (values.defectRate !== undefined && (!Number.isFinite(values.defectRate) || values.defectRate < 0 || values.defectRate > 1)) return;
     const size = (value: number | undefined, max: number) => value === undefined || (Number.isFinite(value) && value >= DOOR_CONFIG.minSize && value <= max);
     if (!size(values.doorWidth, DOOR_CONFIG.maxWidth) || !size(values.doorHeight, DOOR_CONFIG.maxHeight)) return;
-    const connected = values.beltSpeed !== undefined && state.objects.some(object => object.id === id && object.kind === "conveyor")
-      ? connectedBeltIds(state.objects, id) : new Set([id]);
+    // Conveyor settings apply to the whole connected line (scanners are not belts and keep their own settings);
+    // per-piece zones / stop points stay on the edited piece.
+    // A free-standing scanner is part of its line too: only its belt speed is shared both ways.
+    const editedKind = state.objects.find(object => object.id === id)?.kind;
+    const lineEdit = editedKind === "conveyor" || editedKind === "scanner";
+    const belts = lineEdit ? lineConveyorIds(state.objects, id) : new Set<string>();
+    const scanners = lineEdit ? lineScannerIds(state.objects, id) : new Set<string>();
+    const connected = new Set([id, ...belts, ...scanners]);
+    const { shuttleZones: _zones, stopPoints: _stops, ...beltValues } = values;
+    const speedValues: Partial<EquipmentSettings> = values.beltSpeed !== undefined ? { beltSpeed: values.beltSpeed } : {};
     const nextSettings = { ...state.settings };
     let changed = false;
     for (const target of connected) {
       const config = state.settings[target];
       if (!config) continue;
-      const updates = target === id ? values : { beltSpeed: values.beltSpeed };
+      const updates = target === id ? values : editedKind === "conveyor" && belts.has(target) ? beltValues : speedValues;
+      if (!Object.keys(updates).length) continue;
       if (Object.entries(updates).every(([key, value]) => config[key as keyof EquipmentSettings] === value)) continue;
       nextSettings[target] = { ...config, ...updates };
       changed = true;
