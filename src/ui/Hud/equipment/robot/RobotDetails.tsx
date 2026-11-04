@@ -111,6 +111,7 @@ export default function RobotDetails({ object }: EquipmentDetailProps) {
               fallback="normal"
               info="미지정(기존 레이아웃)은 등급 구분 없이 집습니다."
               options={[
+                { value: "all", label: "전체" },
                 { value: "normal", label: "정상" },
                 { value: "defect", label: "불량" },
               ]}

@@ -1,6 +1,6 @@
 /** Default (i) explanations (\n = one option per line in InfoTip) per setting field: what it does and when to use it. Call-site `info` is appended. */
 export const CHOICE_INFO: Record<string, string> = {
-  pickFilter: "하역 로봇이 팔레트에 쌓을 박스 등급입니다(스캐너 판정).\n정상: 정상품만\n불량: 불량품만",
+  pickFilter: "하역 로봇이 팔레트에 쌓을 박스 등급입니다(스캐너 판정).\n전체: 등급 구분 없이 모두\n정상: 정상품만\n불량: 불량품만",
   grade: "이 팔레트에 쌓을 박스 등급입니다. 정상품/불량품 팔레트를 따로 두어 선별 적재할 때 지정합니다.",
   acceptGrade: "받을 적재 팔레트 종류입니다.\n전체: 모두 받음\n정상품/불량품만: 등급별로 보관·출고 위치를 나눌 때 사용합니다.",
   conveyorRole: "컨베이어 용도입니다.\n박스 투입: 일반 생산 라인\n입하: 외부에서 박스/팔레트가 들어오는 시작점\n로봇 투입: 로봇이 올린 박스만 흐름\n출하: 라인 끝 반출(팔레트 전용/박스).",
