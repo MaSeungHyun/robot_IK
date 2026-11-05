@@ -51,9 +51,11 @@ export type OutboundJob = {
   /** Sim time (s) each state was entered. */
   timestamps: Partial<Record<OutboundJobState, number>>;
   reason?: string;
+  /** Times the waiting AMR moved to another handoff point. */
+  relocations?: number;
 };
 
-export type OutboundJobEvent = { t: number; jobId: string; from: OutboundJobState | null; to: OutboundJobState | "amrAtHandoff"; job: Readonly<OutboundJob> };
+export type OutboundJobEvent = { t: number; jobId: string; from: OutboundJobState | null; to: OutboundJobState | "amrAtHandoff" | "amrRelocated"; job: Readonly<OutboundJob> };
 export type OutboundJobListener = (event: OutboundJobEvent) => void;
 
 const EVENT_LOG_LIMIT = 2000;
@@ -99,6 +101,20 @@ export class OutboundJobRegistry {
     if (!job || job.amrAtHandoffAt !== null || OUTBOUND_JOB_TERMINAL.includes(job.state)) return;
     job.amrAtHandoffAt = t;
     this.emit({ t, jobId: id, from: job.state, to: "amrAtHandoff", job });
+  }
+
+  /**
+   * Waiting AMR moved to a new handoff point (it stood on a forklift's reserved rack stop / approach, or held a loaded
+   * forklift up). Not a state change: logged as an event, the job's handoff and amrAtHandoffAt are updated.
+   */
+  amrRelocated(t: number, id: string, handoff: HandoffPoint, reason: string) {
+    const job = this.jobs.get(id);
+    if (!job || OUTBOUND_JOB_TERMINAL.includes(job.state)) return;
+    job.handoff = handoff;
+    job.amrAtHandoffAt = null;
+    job.reason = reason;
+    job.relocations = (job.relocations ?? 0) + 1;
+    this.emit({ t, jobId: id, from: job.state, to: "amrRelocated", job });
   }
 
   get(id: string): Readonly<OutboundJob> | undefined {
