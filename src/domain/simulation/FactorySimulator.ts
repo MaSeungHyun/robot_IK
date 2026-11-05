@@ -27,7 +27,7 @@ import { PalletDispatchController } from "@/domain/amr/PalletDispatchController"
 import { AMRTrafficController, type TrafficBody, type TrafficPlanner } from "@/domain/amr/AMRTrafficController";
 import { BATTERY_GUARD, RESERVATION_WATCHDOG, WAIT_FOR_GRAPH } from "@/constants/deadlock";
 import type { DispatchRoutes } from "@/domain/amr/PalletDispatchController";
-import { layoutPath, routeFailureReason } from "@/domain/amr/navigation/layoutNavigation";
+import { layoutPath, layoutClear, routeFailureReason } from "@/domain/amr/navigation/layoutNavigation";
 import { robotArmState, vehicleState } from "@/domain/state/equipmentState";
 import { deckFeedIntervalOf, doesGeneralJobs, selfUnloadOf, stackCapacityOf, takesEmptyPallets } from "@/constants/emptyPallet";
 import { CYCLE_CONFIG } from "@/constants/cycle";
@@ -1301,6 +1301,7 @@ export class FactorySimulator {
       handoffTo: (amrId) => this.links.outgoing(amrId, "handoff"),
       autoConnect: this.auto,
       dockGuard: (from, x, z) => this.foreignDockAt(from, x, z),
+      clear: (x, z, loaded) => layoutClear(this.rackLayout, loaded, this.rackObstacles)(x, z),
       plan: (from, to, loaded, extra, span) =>
         this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r })), span ?? null),
       render: (group) => this.render(group),

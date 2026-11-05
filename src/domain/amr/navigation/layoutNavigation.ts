@@ -11,6 +11,9 @@ import { SCAN_TUNNEL } from "@/domain/conveyor/scanTunnel";
 import { MODEL_FOOTPRINT as F } from "@/constants/footprints";
 import { isStraightBelt, straightLength, type BeltShape } from "@/domain/conveyor/conveyorLayout";
 import { pathBounds, pathDistance, pathPoints } from "@/domain/conveyor/conveyorPaths";
+/** Static equipment keep-out beyond the authored footprint (conveyors / scanners / robots / racks). */
+const EQUIP=AMR_TRAFFIC.equipMargin;
+const equipPad=(kind:EquipmentKind)=>kind==="conveyor"||kind==="scanner"||kind==="robot"||kind==="rack"?EQUIP:0;
 /** Belts whose obstacle is not the default straight rail.glb box (turns, spline paths, custom lengths). */
 const customBelt=(kind:EquipmentKind,pose:BeltShape)=>kind==="conveyor"&&(!isStraightBelt(pose)||!!pose.conveyorLength);
 
@@ -21,13 +24,13 @@ export function clearanceAt(x:number,z:number,kind:keyof FactoryLayout,layout:Fa
   return clearancePose(x,z,kind,layout[kind]);
 }
 export function clearancePose(x:number,z:number,kind:EquipmentKind,pose:EquipmentPose&BeltShape){
-  const dx=x-pose.x,dz=z-pose.z,c=Math.cos(pose.yaw),s=Math.sin(pose.yaw);
+  const dx=x-pose.x,dz=z-pose.z,c=Math.cos(pose.yaw),s=Math.sin(pose.yaw),pad=equipPad(kind);
   if(kind==="conveyor"&&pose.conveyorPath){
     const lx=dx*c-dz*s,lz=dx*s+dz*c;
-    return Math.max(0,pathDistance(pose.conveyorPath,lx,lz)-BELT.width/2);
+    return Math.max(0,pathDistance(pose.conveyorPath,lx,lz)-BELT.width/2-pad);
   }
   if(kind==="conveyor"&&pose.conveyorLength&&isStraightBelt(pose)){
-    const px=Math.max(0,Math.abs(dx*c-dz*s)-BELT.width/2),pz=Math.max(0,Math.abs(dx*s+dz*c)-straightLength(pose)/2);
+    const px=Math.max(0,Math.abs(dx*c-dz*s)-BELT.width/2-pad),pz=Math.max(0,Math.abs(dx*s+dz*c)-straightLength(pose)/2-pad);
     return Math.hypot(px,pz);
   }
   if(kind==="conveyor"&&pose.conveyorTurn&&pose.conveyorTurn!=="straight"){
@@ -35,10 +38,10 @@ export function clearancePose(x:number,z:number,kind:EquipmentKind,pose:Equipmen
     const angle=Math.atan2(lz+BELT.radius,BELT.radius-side*lx);
     const endpointDistance=Math.min(Math.hypot(lx,lz+BELT.radius),Math.hypot(lx-side*BELT.radius,lz));
     const distance=angle>=0&&angle<=Math.PI/2?Math.min(endpointDistance,Math.abs(Math.hypot(BELT.radius-side*lx,lz+BELT.radius)-BELT.radius)):endpointDistance;
-    return Math.max(0,distance-BELT.width/2);
+    return Math.max(0,distance-BELT.width/2-pad);
   }
   const [width,depth]=footprint(kind);
-  const px=Math.max(0,Math.abs(dx*c-dz*s)-width/2),pz=Math.max(0,Math.abs(dx*s+dz*c)-depth/2);
+  const px=Math.max(0,Math.abs(dx*c-dz*s)-width/2-pad),pz=Math.max(0,Math.abs(dx*s+dz*c)-depth/2-pad);
   return Math.hypot(px,pz);
 }
 export function validateLayout(layout:FactoryLayout):string[]{
@@ -61,12 +64,12 @@ export function validateLayout(layout:FactoryLayout):string[]{
 }
 export type NavigationObstacle={kind:EquipmentKind;pose:EquipmentPose;radius?:number;path?:readonly Vector3[]};
 function loadedOverlaps(x:number,z:number,yaw:number,kind:EquipmentKind,pose:EquipmentPose&BeltShape){
-  const [width,depth]=footprint(kind),[palletWidth,palletDepth]=footprint("pallet");
+  const [width,depth]=footprint(kind),[palletWidth,palletDepth]=footprint("pallet"),pad=equipPad(kind);
   const ac=Math.cos(yaw),as=Math.sin(yaw),bc=Math.cos(pose.yaw),bs=Math.sin(pose.yaw);
   const axes=[[ac,-as],[as,ac],[bc,-bs],[bs,bc]];
   for(const [nx,nz] of axes){
     const a=palletWidth/2*Math.abs(nx*ac-nz*as)+palletDepth/2*Math.abs(nx*as+nz*ac);
-    const b=width/2*Math.abs(nx*bc-nz*bs)+depth/2*Math.abs(nx*bs+nz*bc);
+    const b=(width/2+pad)*Math.abs(nx*bc-nz*bs)+(depth/2+pad)*Math.abs(nx*bs+nz*bc);
     if(Math.abs((x-pose.x)*nx+(z-pose.z)*nz)>=a+b+.01-1e-8)return false;
   }
   return true;
@@ -121,7 +124,7 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
     if(kind==="conveyor"&&pose.conveyorPath){
       // Spline belt: one entry per centreline segment with its own tight bound (clearancePose is the minimum over
       // segments, so the belt blocks exactly when one segment does) instead of one entry spanning the whole rail.
-      const pts=pathPoints(pose.conveyorPath),c=Math.cos(pose.yaw),s=Math.sin(pose.yaw),w=BELT.width/2;
+      const pts=pathPoints(pose.conveyorPath),c=Math.cos(pose.yaw),s=Math.sin(pose.yaw),w=BELT.width/2+EQUIP;
       for(let i=1;i<pts.length;i++){
         const ax=pts[i-1].x,az=pts[i-1].z,dx=pts[i].x-ax,dz=pts[i].z-az,l2=dx*dx+dz*dz||1;
         const wx=(lx:number,lz:number)=>px+lx*c+lz*s,wz=(lx:number,lz:number)=>pz-lx*s+lz*c;
@@ -139,24 +142,25 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
     else if(loaded){
       // loadedOverlaps with the separating-axis extents precomputed (same expressions, same results).
       const yaw=layout.pallet.yaw,ac=Math.cos(yaw),as=Math.sin(yaw),bc=Math.cos(pose.yaw),bs=Math.sin(pose.yaw);
+      const pad=equipPad(kind);
       const axes=[[ac,-as],[as,ac],[bc,-bs],[bs,bc]].map(([nx,nz])=>{
         const a=pw/2*Math.abs(nx*ac-nz*as)+pd/2*Math.abs(nx*as+nz*ac);
-        const b=width/2*Math.abs(nx*bc-nz*bs)+depth/2*Math.abs(nx*bs+nz*bc);
+        const b=(width/2+pad)*Math.abs(nx*bc-nz*bs)+(depth/2+pad)*Math.abs(nx*bs+nz*bc);
         return [nx,nz,a+b+.01-1e-8];
       });
       // The AMR body (emptyRadius circle) is larger than the pallet it carries, so it must clear too.
       const c=Math.cos(pose.yaw),s=Math.sin(pose.yaw),body=AMR_TRAFFIC.emptyRadius-1e-8;
       blocks=(x,z)=>{
         const dx=x-px,dz=z-pz;
-        if(Math.hypot(Math.max(0,Math.abs(dx*c-dz*s)-width/2),Math.max(0,Math.abs(dx*s+dz*c)-depth/2))<body)return true;
+        if(Math.hypot(Math.max(0,Math.abs(dx*c-dz*s)-width/2-pad),Math.max(0,Math.abs(dx*s+dz*c)-depth/2-pad))<body)return true;
         for(const [nx,nz,gap] of axes)if(Math.abs(dx*nx+dz*nz)>=gap)return false;return true;
       };
     }else{
       // clearancePose for a straight footprint with its trig precomputed.
-      const c=Math.cos(pose.yaw),s=Math.sin(pose.yaw);
+      const c=Math.cos(pose.yaw),s=Math.sin(pose.yaw),pad=equipPad(kind);
       blocks=(x,z)=>{
         const dx=x-px,dz=z-pz;
-        return Math.hypot(Math.max(0,Math.abs(dx*c-dz*s)-width/2),Math.max(0,Math.abs(dx*s+dz*c)-depth/2))<limit;
+        return Math.hypot(Math.max(0,Math.abs(dx*c-dz*s)-width/2-pad),Math.max(0,Math.abs(dx*s+dz*c)-depth/2-pad))<limit;
       };
     }
     add(px,px,pz,pz,(loaded&&!turned?Math.max(palletHalf+.01,AMR_TRAFFIC.emptyRadius):radius)+half,blocks);
@@ -186,6 +190,10 @@ function preparedClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObsta
     if(list)for(const e of list)if(x>=e.minX&&x<=e.maxX&&z>=e.minZ&&z<=e.maxZ&&e.blocks(x,z))return false;
     return true;
   };
+}
+/** Point clearance for the same static equipment the route planner uses (walls / conveyors / racks / …). */
+export function layoutClear(layout:FactoryLayout,loaded:boolean,extra:NavigationObstacle[]=[],bodyRadius?:number){
+  return preparedClear(layout,loaded,extra,bodyRadius);
 }
 export function obstacleClearance(x:number,z:number,obstacle:NavigationObstacle){
   if(obstacle.path?.length){

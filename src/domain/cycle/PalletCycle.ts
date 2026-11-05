@@ -59,6 +59,8 @@ export type PalletCycleHost<C extends CycleCargo> = {
   plan(from: Vector3, to: Vector3, loaded: boolean, extra: readonly CycleCircle[], span?: number): Vector3[] | null;
   /** Foreign dock cell test for back-off moves (see CycleVehicleOptions.dockGuard). */
   dockGuard?: (from: Vector3, x: number, z: number) => boolean;
+  /** Static floor clear (conveyors / racks / walls / robots / scanners) for reverse, divert and approach connectors. */
+  clear?: (x: number, z: number, loaded: boolean) => boolean;
   render(group: Group): void;
   unrender(group: Group): void;
   /** New empty pallet group (pallet model), rendered, not parented. */
@@ -99,6 +101,8 @@ type Shuttle<C> = {
   mode: "scan" | "service";
   dock: SceneEquipment;
   state: ShuttleState;
+  /** Service shuttle swapping at its loading spot (the shared service dock was taken): the forklift comes to it. */
+  inPlace?: boolean;
   home: Vector3;
   homeYaw: number;
   load: Load<C> | null;
@@ -412,7 +416,7 @@ export class PalletCycle<C extends CycleCargo> {
       const config = settings[object.id];
       if (object.kind === "amr" && config?.amrRole === "shuttle") {
         const pallet = pallets.find((p) => settings[p.object.id]?.mountedOn === object.id);
-        const park = () => this.parked.push(new CycleVehicle(object.id, object.name, object, { speed: 0, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, plan: plan(false), bodies }));
+        const park = () => this.parked.push(new CycleVehicle(object.id, object.name, object, { speed: 0, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(false), bodies }));
         if (!pallet) {
           host.log("warning", `${object.name}: 올려진 팔레트가 없어 셔틀 순환에서 제외`);
           park();
@@ -435,7 +439,7 @@ export class PalletCycle<C extends CycleCargo> {
           park();
           continue;
         }
-        const vehicle = new CycleVehicle(object.id, object.name, object, { speed: CYCLE_CONFIG.shuttleSpeed, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, plan: plan(true), bodies });
+        const vehicle = new CycleVehicle(object.id, object.name, object, { speed: CYCLE_CONFIG.shuttleSpeed, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(true), bodies });
         pallet.managed = true;
         const belt = feeds.get(object.id);
         const feed: Feed<C> | null = belt ? { belt, timer: spawnIntervalOf(settings[belt.id] ?? {}), incoming: null, deck: null, fed: 0, emptyReturned: 0 } : null;
@@ -477,7 +481,7 @@ export class PalletCycle<C extends CycleCargo> {
           circles: [{ z: 0, r: AGV_MODEL.radius }],
           loadedCircles: [{ z: 0, r: RACK_M_MODEL.radius }],
           clearance: CYCLE_CONFIG.amrClearance,
-          dockGuard: this.host.dockGuard, plan: plan(true),
+          dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(true),
           divert: true,
           bodies: agvBodies,
           fork: { group: lift, rest: lift.position.y, speed: AGV_MODEL.liftSpeed, node: lift.name || "AGV.Lift", kind: "agv" },
@@ -493,7 +497,7 @@ export class PalletCycle<C extends CycleCargo> {
           speed: CYCLE_CONFIG.forkliftSpeed,
           circles: FORK_CIRCLES,
           span: FORKLIFT_NAV_RADIUS,
-          dockGuard: this.host.dockGuard, plan: plan(false, FORKLIFT_NAV_RADIUS),
+          dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(false, FORKLIFT_NAV_RADIUS),
           bodies,
           reserve: true,
           fork: { group: fork, rest: FORKLIFT_CONFIG.fork.y, speed: CYCLE_CONFIG.forkSpeed, node: "Forklift.Fork", kind: "forklift" },
@@ -548,6 +552,7 @@ export class PalletCycle<C extends CycleCargo> {
         circles: AMR_CIRCLES,
         clearance: CYCLE_CONFIG.amrClearance,
         dockGuard: this.host.dockGuard,
+        floorClear: this.host.clear,
         reserve: true,
         plan,
         bodies,
@@ -678,6 +683,7 @@ export class PalletCycle<C extends CycleCargo> {
   private setShuttle(shuttle: Shuttle<C>, state: ShuttleState, detail = "") {
     if (shuttle.state === state) return;
     shuttle.state = state;
+    if (state === "loading") shuttle.inPlace = false;
     this.host.log("info", `${shuttle.object.name} → ${SHUTTLE_STATES[state]}`, detail || undefined);
   }
   private setRack(rack: RackM<C>, state: RackMState) {
@@ -783,11 +789,10 @@ export class PalletCycle<C extends CycleCargo> {
         this.setShuttle(shuttle, "waitDock");
         return;
       }
-      if (shuttle.mode === "service" && this.shuttles.some((s) => s !== shuttle && s.dock === shuttle.dock && s.state !== "loading" && s.state !== "waitDock")) {
-        this.setShuttle(shuttle, "waitDock");
-        return;
-      }
-      this.depart(shuttle);
+      // Service dock taken by another shuttle (several AMRs share one service dock, e.g. standby AMRs next to the robots):
+      // swap in place at the loading spot instead of queueing for the dock, so the forklift starts right away.
+      const dockTaken = shuttle.mode === "service" && this.shuttles.some((s) => s !== shuttle && s.dock === shuttle.dock && !s.inPlace && s.state !== "loading" && s.state !== "waitDock");
+      this.depart(shuttle, dockTaken);
     }
   }
   /**
@@ -835,7 +840,7 @@ export class PalletCycle<C extends CycleCargo> {
     this.stats.palletsFed++;
     this.setShuttle(shuttle, "loading", `입하 팔레트 · 박스 ${incoming.boxes.length}`);
   }
-  private depart(shuttle: Shuttle<C>) {
+  private depart(shuttle: Shuttle<C>, inPlace = false) {
     const { pallet, vehicle, dock } = shuttle, t = this.now();
     const record = this.host.cargo.currentPallet(pallet.object.id)?.id;
     this.host.cargo.completePallet({ t, stationId: pallet.object.id });
@@ -870,6 +875,11 @@ export class PalletCycle<C extends CycleCargo> {
       });
     } else {
       this.stats.serviceTrips++;
+      if (inPlace) {
+        shuttle.inPlace = true;
+        this.setShuttle(shuttle, "waitSwap", `제자리 교체 · ${record ?? ""} · 박스 ${boxes.length}`);
+        return;
+      }
       this.setShuttle(shuttle, "toService", `${record ?? ""} · 박스 ${boxes.length}`);
       vehicle.goTo(goal).turn(dock.yaw, true).then(() => this.setShuttle(shuttle, "waitSwap"));
     }
@@ -1183,11 +1193,23 @@ export class PalletCycle<C extends CycleCargo> {
     }
     return best;
   }
+  /**
+   * Service forklifts responsible for a shuttle: its emptyReturn-linked forklifts plus the enabled service forklifts of its cell.
+   * `f` may serve it when it is one of them, or when all of them are busy (job / moving) so a free second forklift takes over.
+   */
+  private mayServe(f: Forklift<C>, s: Shuttle<C>) {
+    if (!isServiceTask(f.task) || !this.enabled(f.object.id)) return false;
+    const linked = this.host.emptyReturnTo?.(s.object.id) ?? [];
+    const cell = this.cellOf(s.dock.id);
+    const owners = this.forklifts.filter((o) => isServiceTask(o.task) && this.enabled(o.object.id) && (linked.includes(o.object.id) || this.cellOf(o.object.id) === cell));
+    if (!owners.length || owners.includes(f)) return true;
+    return owners.every((o) => !!o.job || !o.vehicle.idle);
+  }
   /** Nearest service shuttle waiting to swap its full pallet. */
-  private nearestWaiting(cell: number, at: Vector3) {
+  private nearestWaiting(f: Forklift<C>, at: Vector3) {
     let best: Shuttle<C> | undefined, dist = Infinity;
     for (const shuttle of this.shuttles) {
-      if (shuttle.mode !== "service" || shuttle.state !== "waitSwap" || !shuttle.load || this.cellOf(shuttle.dock.id) !== cell) continue;
+      if (shuttle.mode !== "service" || shuttle.state !== "waitSwap" || !shuttle.load || !this.mayServe(f, shuttle)) continue;
       const d = shuttle.vehicle.position.distanceTo(at);
       if (d < dist) { dist = d; best = shuttle; }
     }
@@ -1294,6 +1316,7 @@ export class PalletCycle<C extends CycleCargo> {
       for (const side of [pref, -pref]) {
         const aside = new Vector3(here.x - uz * side * CYCLE_CONFIG.yieldStep, 0, here.z + ux * side * CYCLE_CONFIG.yieldStep);
         if (this.host.dockGuard?.(here, aside.x, aside.z)) continue;
+        if (this.host.clear && !this.host.clear(aside.x, aside.z, false)) continue;
         this.setForklift(f, "returning");
         f.vehicle.goTo(aside, false).then(() => this.setForklift(f, "idle"));
         return true;
@@ -1310,9 +1333,11 @@ export class PalletCycle<C extends CycleCargo> {
       // Side step away from the blocked forklift's line plus a little back off.
       const side = Math.sign(-dz * (here.x - f.home.x) + dx * (here.z - f.home.z)) || 1;
       const aside = new Vector3(here.x + (dx / len) * 1.5 + (-dz / len) * side * CYCLE_CONFIG.yieldStep, 0, here.z + (dz / len) * 1.5 + (dx / len) * side * CYCLE_CONFIG.yieldStep);
-      this.setForklift(f, "returning");
-      f.vehicle.goTo(aside, false).then(() => this.setForklift(f, "idle"));
-      return;
+      if (!this.host.clear || this.host.clear(aside.x, aside.z, false)) {
+        this.setForklift(f, "returning");
+        f.vehicle.goTo(aside, false).then(() => this.setForklift(f, "idle"));
+        return;
+      }
     }
     if (here.distanceTo(f.home) > 0.3 && others.every((o) => !o.job)) {
       this.returnHome(f);
@@ -1361,20 +1386,22 @@ export class PalletCycle<C extends CycleCargo> {
       this.takeEmptyJob(f, empty, emptySource);
       return;
     }
-    const shuttle = this.nearestWaiting(cell, f.vehicle.position);
-    if (!canUnload || !shuttle || !shuttle.load || !this.sources.some((s) => this.cellOf(s.dock.id) === cell)) return;
+    const shuttle = this.nearestWaiting(f, f.vehicle.position);
+    // Racks / sources of the shuttle's cell (a helping forklift from another cell stores there too).
+    const scell = shuttle ? this.cellOf(shuttle.dock.id) : cell;
+    if (!canUnload || !shuttle || !shuttle.load || !this.sources.some((s) => this.cellOf(s.dock.id) === scell)) return;
     // Another forklift in the cell may supply the empty pallet: hand it over, otherwise chain the supply.
-    const helper = this.forklifts.some((o) => o !== f && isServiceTask(o.task) && this.cellOf(o.object.id) === cell && this.enabled(o.object.id)
+    const helper = this.forklifts.some((o) => o !== f && isServiceTask(o.task) && this.cellOf(o.object.id) === scell && this.enabled(o.object.id)
       && this.roleOf(o) !== "unload");
     // Disabled (작동 비활성) Rack_m are never filled; with none enabled the pallet goes to the fixed rack.
-    const cellRacks = this.racks.filter((r) => this.cellOf(r.object.id) === cell && this.enabled(r.object.id));
+    const cellRacks = this.racks.filter((r) => this.cellOf(r.object.id) === scell && this.enabled(r.object.id));
     const rack = cellRacks.find((r) => r.state === "waiting" && r.at === "home" && r.levels.some((l, i) => !l && !r.booked.has(i)));
     if (rack) {
       this.unloadJob(f, shuttle, rack, !helper);
       return;
     }
     // No Rack_m in this cell: the full pallet goes straight from the AMR into a free slot of the cell's fixed rack.
-    const slot = cellRacks.length ? null : this.freeSlot((r) => this.cellOf(r.id) === cell, { id: f.object.id, from: shuttle.vehicle.position });
+    const slot = cellRacks.length ? null : this.freeSlot((r) => this.cellOf(r.id) === scell, { id: f.object.id, from: shuttle.vehicle.position });
     if (slot) {
       this.directStoreJob(f, shuttle, slot.rack, slot.slot, !helper);
       return;
@@ -1392,8 +1419,9 @@ export class PalletCycle<C extends CycleCargo> {
   private swapFor(f: Forklift<C>, inCell: (s: Shuttle<C>) => boolean) {
     const cell = this.cellOf(f.object.id);
     const eligible = (o: Forklift<C>, s: Shuttle<C>) => {
-      const mine = this.shuttles.filter((x) => this.host.emptyReturnTo?.(x.object.id).includes(o.object.id));
-      return mine.length ? mine.includes(s) : inCell(s);
+      // Linked / same-cell forklifts first; any free service forklift once those are all busy (mayServe).
+      void inCell;
+      return this.mayServe(o, s);
     };
     const free = this.forklifts.filter((o) => (o === f || (!o.job && o.vehicle.idle)) && isServiceTask(o.task) && this.cellOf(o.object.id) === cell
       && this.enabled(o.object.id) && this.roleOf(o) !== "unload");
@@ -1836,6 +1864,7 @@ export class PalletCycle<C extends CycleCargo> {
       const a = side.heading + Math.PI + (k * 2 * Math.PI) / SHIP_HANDOFF_ANGLES;
       const point = new Vector3(from.x + Math.sin(a) * r, 0, from.z + Math.cos(a) * r);
       if (this.host.dockGuard?.(point, point.x, point.z)) continue;
+      if (this.host.clear && !this.host.clear(point.x, point.z, false)) continue;
       const arrive = Math.atan2(point.x - ap.x, point.z - ap.z);
       for (let q = 0; q < 4; q++) {
         const yaw = side.heading + (q * Math.PI) / 2;
@@ -1848,6 +1877,7 @@ export class PalletCycle<C extends CycleCargo> {
         for (const h of [along, along + Math.PI]) {
           const stand = forkliftStop(point, h, half + FORK_BACK).setY(0);
           if (this.host.dockGuard?.(stand, stand.x, stand.z)) continue;
+          if (this.host.clear && !this.host.clear(stand.x, stand.z, true)) continue;
           if (hits([{ x: stand.x, z: stand.z, r: FORKLIFT_NAV_RADIUS }], parked, CYCLE_CONFIG.safetyGap)) continue;
           const score = stand.distanceTo(from) + 0.5 * point.distanceTo(ap) + 1.5 * (angle(yaw - arrive) + angle(arrive - ay));
           out.push({ point, yaw, stand, score });

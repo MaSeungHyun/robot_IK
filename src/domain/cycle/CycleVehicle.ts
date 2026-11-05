@@ -3,7 +3,7 @@ import { CYCLE_CONFIG } from "@/constants/cycle";
 import { AMR_TRAFFIC } from "@/constants/simulatorLayout";
 import { animatedPart, type AnimatedPart } from "@/domain/recording/animatedParts";
 
-/** Floor route planner (null = no route); the vehicle falls back to a straight line. */
+/** Floor route planner (null = no route). Callers must not invent a straight substitute that ignores equipment. */
 export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean, avoid?: readonly { x: number; z: number; r: number }[]) => Vector3[] | null;
 
 /** A body other vehicles keep clear of: floor circles (world xz) with radii. */
@@ -19,7 +19,7 @@ type Action =
   | { type: "until"; test: () => boolean };
 
 const TAU = Math.PI * 2;
-/** Ring (m) and samples tried around a blocked start or goal before falling back to a straight line. */
+/** Ring (m) and samples tried around a blocked start or goal before giving up on the move. */
 const APPROACH_RADII = [1, 1.6, 2.4];
 const APPROACH_STEPS = 8;
 /** Traffic back-off: after `after` s blocked the lower-priority vehicle reverses (longest free distance first), then replans
@@ -30,6 +30,15 @@ const STUCK_PASS = 30, STUCK_RADIUS = 1;
 const STATIC_DETOUR = 1;
 /** Mutual hold this long (s): the lower-priority vehicle parks for YIELD_LOCK.time s (static to the other, which plans around it). */
 const YIELD_LOCK = { after: 2, time: 8, retry: 3 };
+/** AMR (clearance body) collision recovery: reverse this far (m, longest that fits first), then replan with the blocker
+ * and the stuck spot widened by `widen` m / `spot` m as obstacles, so the new route avoids the failed corridor when possible. */
+const AMR_RECOVERY = { distances: [4, 3.2, 2.4, 1.5, 0.8, 0.5], widen: 0.6, spot: 1.2 };
+/** Forklift (no clearance body) collision recovery: same reverse-then-replan, a bit shorter (longer body, tighter aisles), wider failed spot. */
+const FORKLIFT_RECOVERY = { distances: [3, 2.4, 1.8, 1.2, 0.8, 0.5], widen: 0.5, spot: 1.4 };
+/** Approach connectors: this much (m) next to the blocked stand / start is exempt from the equipment check. */
+const CONNECTOR_SKIP = 0.8;
+/** No floor route: wait this long (s) and plan again instead of finishing the move where the vehicle stands. */
+const NO_ROUTE_RETRY = 1;
 const BACKOFF = { after: 2.5, distances: [1.5, 1.2, 0.8, 0.5], speed: 0.5, cooldown: 6, tries: 3, mutual: 0.5, abort: 2, retryAfter: 6 };
 /** Bodies never come closer than this (m), even in a deadlock pass: no rubbing. */
 const CONTACT = 0.03;
@@ -71,6 +80,8 @@ export type CycleVehicleOptions = {
   speed: number;
   /** True when (x,z) lies in a dock cell the vehicle at `from` is not already in: back-off points never enter foreign docks. */
   dockGuard?: (from: Vector3, x: number, z: number) => boolean;
+  /** Static floor clear (conveyors / racks / walls / robots / scanners). Reverse, divert and approach legs use it so vehicles never punch through equipment. */
+  floorClear?: (x: number, z: number, loaded: boolean) => boolean;
   /** Local body circles (z along forward, radius), loaded variant optional. */
   circles: readonly { z: number; r: number }[];
   /** Footprint keep-out radius (centre distance to another clearance body never drops below the sum). */
@@ -107,7 +118,7 @@ export class CycleVehicle {
   /** Traffic detour search in progress (spread over steps by the planning budget). */
   private detour: Generator<void, Vector3[] | null> | null = null;
   private hold = 0;
-  /** Times a held vehicle proceeded anyway / routes that fell back to a straight line. */
+  /** Times a held vehicle proceeded anyway / routes that found no clear path (stayed put). */
   overrides = 0;
   fallbacks = 0;
   /** Seconds spent held by traffic. */
@@ -118,6 +129,8 @@ export class CycleVehicle {
   private backCooldown = 0;
   private backTries = 0;
   private replanAfterBack = false;
+  /** Extra obstacles for the replan after an AMR recovery reverse (blocker widened + the spot it got stuck at). */
+  private recoveryAvoid: { x: number; z: number; r: number }[] | null = null;
   /** Where the last side-route search started, so a later block further along the trip can search again. */
   private divertAt = new Vector3(Infinity, 0, Infinity);
   /** Backing off for another vehicle (?묐낫) until the replan after the reverse move. */
@@ -518,6 +531,7 @@ export class CycleVehicle {
       case "path": {
         if (!this.started) {
           this.started = true;
+          this.noRoute = 0;
           this.velocity = 0;
           this.detour = null;
           // A diverting vehicle waits for the side search instead of driving the straight route again.
@@ -537,6 +551,13 @@ export class CycleVehicle {
               this.detour = this.detourSearch(action);
             }
           }
+        }
+        if (this.noRoute > 0 && !this.detour) {
+          this.noRoute -= dt;
+          if (this.noRoute > 0) return false;
+          this.noRoute = 0;
+          this.plan(action);
+          if (this.noRoute > 0) return false;
         }
         if (action.via) {
           // Fixed route: brake for traffic on it, never search a detour.
@@ -660,9 +681,15 @@ export class CycleVehicle {
     }
     const p = this.carrier.position, h = this.carrier.rotation.y, sin = Math.sin(h), cos = Math.cos(h);
     const now = this.gapAt(p.x, p.z, h, action.ignore);
-    for (const d of BACKOFF.distances) {
+    const recovery = this.options.clearance ? AMR_RECOVERY : FORKLIFT_RECOVERY;
+    for (const d of recovery.distances) {
       let ok = true;
-      for (let s = 0.1; s <= d + 1e-9 && ok; s += 0.1) ok = this.gapAt(p.x - sin * s, p.z - cos * s, h, action.ignore) >= Math.min(CYCLE_CONFIG.safetyGap, now) && !this.options.dockGuard?.(p, p.x - sin * s, p.z - cos * s);
+      for (let s = 0.1; s <= d + 1e-9 && ok; s += 0.1) {
+        const x = p.x - sin * s, z = p.z - cos * s;
+        ok = this.gapAt(x, z, h, action.ignore) >= Math.min(CYCLE_CONFIG.safetyGap, now)
+          && !this.options.dockGuard?.(p, x, z)
+          && this.floorOk(x, z, this.loaded);
+      }
       if (!ok) continue;
       const to = new Vector3(p.x - sin * d, 0, p.z - cos * d);
       // Floor check (walls / equipment): a near-straight route must exist to the back-off point.
@@ -679,10 +706,13 @@ export class CycleVehicle {
       this.backTries++;
       this.backCooldown = BACKOFF.cooldown;
       this.replanAfterBack = true;
+      this.recoveryAvoid = [...other.circles().map((c) => ({ x: c.x, z: c.z, r: c.r + CYCLE_CONFIG.safetyGap + recovery.widen })), { x: p.x, z: p.z, r: recovery.spot }];
       return true;
     }
     return false;
   }
+  /** Seconds until the next plan attempt after a move found no clear route (0 = has a route). */
+  private noRoute = 0;
   private reservedFor: Action | null = null;
   private reservedSeq = 0;
   private plan(action: Extract<Action, { type: "path" }>) {
@@ -697,9 +727,15 @@ export class CycleVehicle {
     }
     let route = this.options.plan(from, action.to, action.loaded) ?? run(this.approach(from, action.to, action.loaded));
     if (!route || route.length < 2) {
-      this.fallbacks += route ? 0 : 1;
-      route = [from, action.to.clone()];
+      // No clear floor route: stay put. A straight [from,to] used to cut through conveyors / racks when A* failed.
+      // Finishing the move here (old [from] path) let a forklift run its pick / place straight from the wrong spot.
+      this.fallbacks += 1;
+      this.path = [];
+      this.noRoute = NO_ROUTE_RETRY;
+      this.version++;
+      return;
     }
+    this.noRoute = 0;
     this.setPath(route);
   }
   private setPath(route: readonly Vector3[]) {
@@ -722,8 +758,36 @@ export class CycleVehicle {
     const now = this.gapAt(from.x, from.z, this.carrier.rotation.y, ignore);
     for (let s = 0.4; s <= length + 1e-9; s += 0.4) {
       const u = Math.min(s, length) / length;
-      const gap = this.gapAt(from.x + dx * u, from.z + dz * u, heading, ignore);
+      const x = from.x + dx * u, z = from.z + dz * u;
+      if (!this.floorOk(x, z, this.loaded)) return false;
+      const gap = this.gapAt(x, z, heading, ignore);
       if (gap < CYCLE_CONFIG.safetyGap && gap < now - 0.02) return false;
+    }
+    return true;
+  }
+  /** Static equipment clear (conveyors etc.); true when no floorClear is wired. */
+  private floorOk(x: number, z: number, loaded: boolean) {
+    return !this.options.floorClear || this.options.floorClear(x, z, loaded);
+  }
+  /**
+   * Approach connector from a blocked endpoint `end` (pick / place stand next to an AMR, rack or robot, which sits inside
+   * the equipment margin by design) to the planned route point `free`: only the part more than CONNECTOR_SKIP m from `end`
+   * must clear equipment, so service stands stay reachable while long connectors still cannot cross a belt.
+   */
+  private connectorClear(end: Vector3, free: Vector3, loaded: boolean) {
+    const length = Math.hypot(free.x - end.x, free.z - end.z);
+    if (length <= CONNECTOR_SKIP) return true;
+    const u = CONNECTOR_SKIP / length;
+    return this.floorSegment(end.x + (free.x - end.x) * u, end.z + (free.z - end.z) * u, free.x, free.z, loaded);
+  }
+  /** Sample floorClear along a short leg (approach head / tail). */
+  private floorSegment(ax: number, az: number, bx: number, bz: number, loaded: boolean) {
+    if (!this.options.floorClear) return true;
+    const dx = bx - ax, dz = bz - az, length = Math.hypot(dx, dz);
+    const steps = Math.max(1, Math.ceil(length / 0.2));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      if (!this.options.floorClear(ax + dx * t, az + dz * t, loaded)) return false;
     }
     return true;
   }
@@ -797,6 +861,18 @@ export class CycleVehicle {
   private *detourSearch(action: Extract<Action, { type: "path" }>): Generator<void, Vector3[] | null> {
     const from = this.carrier.position.clone();
     const circles = this.trafficCircles(from, action.to, action.ignore, true);
+    const avoid = this.recoveryAvoid;
+    this.recoveryAvoid = null;
+    if (avoid) {
+      // After a recovery reverse: first try a route that keeps off the failed corridor (start / goal kept free).
+      const own = this.circlesAt(from.x, from.z, this.carrier.rotation.y);
+      const extra = avoid
+        .map((c) => ({ ...c, r: Math.min(c.r, ...own.map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - 1e-3), Math.hypot(c.x - action.to.x, c.z - action.to.z) - 0.5) }))
+        .filter((c) => c.r > 0.05);
+      const away = this.options.plan(from, action.to, action.loaded, [...circles, ...extra]);
+      if (away) return away;
+      yield;
+    }
     const direct = this.options.plan(from, action.to, action.loaded, circles);
     if (direct) return direct;
     yield;
@@ -816,6 +892,15 @@ export class CycleVehicle {
     let best: Vector3[] | null = null, bestLength = Infinity;
     const consider = (route: Vector3[] | null, head: Vector3[], tail: Vector3[]) => {
       if (!route || route.length < 2) return;
+      // Head / tail are short straight connectors around a blocked start or goal: they must clear equipment too.
+      if (head.length) {
+        const a = head[0], b = route[0];
+        if (!this.connectorClear(a, b, loaded)) return;
+      }
+      if (tail.length) {
+        const a = tail[tail.length - 1], b = route[route.length - 1];
+        if (!this.connectorClear(a, b, loaded)) return;
+      }
       const full = [...head, ...route, ...tail];
       let length = 0;
       for (let i = 1; i < full.length; i++) length += full[i].distanceTo(full[i - 1]);

@@ -26,6 +26,9 @@ export const AMR_TRAFFIC = {
   /** Gap (m) kept between moving bodies in traffic control, replans, move guards and joint plans, on top of the
    *  footprints (was 0.1; the footprint discs are already the body's circumscribed circle). */
   safetyMargin: 0.05,
+  /** Extra keep-out (m) around static equipment (conveyors, scanners, robots, racks) in floor routing, beyond the
+   *  authored footprint, so AMR / forklift discs do not visually clip the mesh. */
+  equipMargin: 0.1,
   /** Spacing gap (m) of authored / auto layouts (unchanged 0.1 so existing layouts keep their positions). */
   layoutGap: 0.1,
 };
