@@ -37,6 +37,8 @@ const AMR_RECOVERY = { distances: [4, 3.2, 2.4, 1.5, 0.8, 0.5], widen: 0.6, spot
 const FORKLIFT_RECOVERY = { distances: [3, 2.4, 1.8, 1.2, 0.8, 0.5], widen: 0.5, spot: 1.4 };
 /** Approach connectors: this much (m) next to the blocked stand / start is exempt from the equipment check. */
 const CONNECTOR_SKIP = 0.8;
+/** Repeated no-route retries widen the start-connector exemption (m) only: leave a stand that sits in an equipment margin. Final stops never use this - that path parked forklifts on conveyors. Capped near the approach ring (2.4 m). */
+const CONNECTOR_SKIP_ESCALATE = [0.8, 1.2, 1.8, 2.5];
 /** No floor route: wait this long (s) and plan again instead of finishing the move where the vehicle stands. */
 const NO_ROUTE_RETRY = 1;
 const BACKOFF = { after: 2.5, distances: [1.5, 1.2, 0.8, 0.5], speed: 0.5, cooldown: 6, tries: 3, mutual: 0.5, abort: 2, retryAfter: 6 };
@@ -80,8 +82,9 @@ export type CycleVehicleOptions = {
   speed: number;
   /** True when (x,z) lies in a dock cell the vehicle at `from` is not already in: back-off points never enter foreign docks. */
   dockGuard?: (from: Vector3, x: number, z: number) => boolean;
-  /** Static floor clear (conveyors / racks / walls / robots / scanners). Reverse, divert and approach legs use it so vehicles never punch through equipment. */
-  floorClear?: (x: number, z: number, loaded: boolean) => boolean;
+  /** Static floor clear (conveyors / fixed racks / walls / robots / scanners / floor Rack_m). Reverse, divert and approach legs use it so vehicles never punch through equipment.
+   *  `ignore`: scene ids (e.g. the Rack_m this forklift/AGV is working) whose mobile-rack footprints stay open for this move. */
+  floorClear?: (x: number, z: number, loaded: boolean, ignore?: readonly string[]) => boolean;
   /** Local body circles (z along forward, radius), loaded variant optional. */
   circles: readonly { z: number; r: number }[];
   /** Footprint keep-out radius (centre distance to another clearance body never drops below the sum). */
@@ -713,11 +716,15 @@ export class CycleVehicle {
   }
   /** Seconds until the next plan attempt after a move found no clear route (0 = has a route). */
   private noRoute = 0;
+  /** Consecutive no-route plans for the current move (widens the connector exemption). */
+  private noRouteTries = 0;
+  private connectorSkip = CONNECTOR_SKIP;
   private reservedFor: Action | null = null;
   private reservedSeq = 0;
   private plan(action: Extract<Action, { type: "path" }>) {
     if (this.reservedFor !== action) {
       this.reservedFor = action;
+      this.noRouteTries = 0;
       this.reservedSeq = ++reserveSeq;
     }
     const from = this.carrier.position.clone();
@@ -725,6 +732,10 @@ export class CycleVehicle {
       this.setPath([from, ...action.via, action.to.clone()]);
       return;
     }
+    this.connectorSkip = CONNECTOR_SKIP_ESCALATE[Math.min(this.noRouteTries, CONNECTOR_SKIP_ESCALATE.length - 1)];
+    // Do not early-reject blocked forklift goals: pick / place stands sit in equipment / prop keep-out by design
+    // (AMR deck, pallet source, walkway edge). Direct layoutPath fails clear(goal); approach() rings a free end
+    // and goalConnectorClear covers the last CONNECTOR_SKIP m. Rejecting here left forklifts holding a swap pallet forever.
     let route = this.options.plan(from, action.to, action.loaded) ?? run(this.approach(from, action.to, action.loaded));
     if (!route || route.length < 2) {
       // No clear floor route: stay put. A straight [from,to] used to cut through conveyors / racks when A* failed.
@@ -732,10 +743,12 @@ export class CycleVehicle {
       this.fallbacks += 1;
       this.path = [];
       this.noRoute = NO_ROUTE_RETRY;
+      this.noRouteTries++;
       this.version++;
       return;
     }
     this.noRoute = 0;
+    this.noRouteTries = 0;
     this.setPath(route);
   }
   private setPath(route: readonly Vector3[]) {
@@ -765,29 +778,42 @@ export class CycleVehicle {
     }
     return true;
   }
-  /** Static equipment clear (conveyors etc.); true when no floorClear is wired. */
+  /** Ids the current path/straight move may pass through (AGV under-dock / forklift fork-in straight only). */
+  private activeIgnore(): readonly string[] | undefined {
+    const a = this.queue[0];
+    return a && (a.type === "path" || a.type === "straight") ? a.ignore : undefined;
+  }
+  /** Static equipment clear (conveyors / floor Rack_m etc.); true when no floorClear is wired. */
   private floorOk(x: number, z: number, loaded: boolean) {
-    return !this.options.floorClear || this.options.floorClear(x, z, loaded);
+    return !this.options.floorClear || this.options.floorClear(x, z, loaded, this.activeIgnore());
   }
   /**
-   * Approach connector from a blocked endpoint `end` (pick / place stand next to an AMR, rack or robot, which sits inside
-   * the equipment margin by design) to the planned route point `free`: only the part more than CONNECTOR_SKIP m from `end`
-   * must clear equipment, so service stands stay reachable while long connectors still cannot cross a belt.
+   * Start connector only: from a blocked `end` (vehicle already inside an equipment margin) to free route point `free`.
+   * The first connectorSkip metres at `end` are exempt so the vehicle can leave; the rest must clear equipment.
+   * Final-stop / goal connectors must use floorSegment for the whole leg (see approach) - never this exemption.
    */
   private connectorClear(end: Vector3, free: Vector3, loaded: boolean) {
     const length = Math.hypot(free.x - end.x, free.z - end.z);
+    if (length <= this.connectorSkip) return true;
+    const u = this.connectorSkip / length;
+    return this.floorSegment(end.x + (free.x - end.x) * u, end.z + (free.z - end.z) * u, free.x, free.z, loaded);
+  }
+  /** AMR goal connector: like connectorClear but always the base CONNECTOR_SKIP exemption at the goal. */
+  private goalConnectorClear(goal: Vector3, free: Vector3, loaded: boolean) {
+    const length = Math.hypot(free.x - goal.x, free.z - goal.z);
     if (length <= CONNECTOR_SKIP) return true;
     const u = CONNECTOR_SKIP / length;
-    return this.floorSegment(end.x + (free.x - end.x) * u, end.z + (free.z - end.z) * u, free.x, free.z, loaded);
+    return this.floorSegment(goal.x + (free.x - goal.x) * u, goal.z + (free.z - goal.z) * u, free.x, free.z, loaded);
   }
   /** Sample floorClear along a short leg (approach head / tail). */
   private floorSegment(ax: number, az: number, bx: number, bz: number, loaded: boolean) {
     if (!this.options.floorClear) return true;
+    const ignore = this.activeIgnore();
     const dx = bx - ax, dz = bz - az, length = Math.hypot(dx, dz);
     const steps = Math.max(1, Math.ceil(length / 0.2));
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      if (!this.options.floorClear(ax + dx * t, az + dz * t, loaded)) return false;
+      if (!this.options.floorClear(ax + dx * t, az + dz * t, loaded, ignore)) return false;
     }
     return true;
   }
@@ -892,14 +918,18 @@ export class CycleVehicle {
     let best: Vector3[] | null = null, bestLength = Infinity;
     const consider = (route: Vector3[] | null, head: Vector3[], tail: Vector3[]) => {
       if (!route || route.length < 2) return;
-      // Head / tail are short straight connectors around a blocked start or goal: they must clear equipment too.
+      // Head: leaving a blocked start (AMR/robot margin / prop edge) may skip equipment for connectorSkip metres.
+      // Tail: fixed CONNECTOR_SKIP at the goal (pick / place / station stands). deckHeading prefers clear stands.
       if (head.length) {
         const a = head[0], b = route[0];
         if (!this.connectorClear(a, b, loaded)) return;
       }
       if (tail.length) {
-        const a = tail[tail.length - 1], b = route[route.length - 1];
-        if (!this.connectorClear(a, b, loaded)) return;
+        const goal = tail[tail.length - 1], free = route[route.length - 1];
+        // Last CONNECTOR_SKIP m at the goal stay exempt (fixed, never the escalated start value): forklift pick /
+        // place stands and AMR station / home / swap poses sit in equipment / prop keep-out by design. A* still
+        // cannot route through the keep-out; only the short final connector may enter it.
+        if (!this.goalConnectorClear(goal, free, loaded)) return;
       }
       const full = [...head, ...route, ...tail];
       let length = 0;
@@ -922,6 +952,17 @@ export class CycleVehicle {
       if (b >= bestLength - 1e-9) break;
       consider(this.options.plan(start, to, loaded, avoid), [from.clone()], []);
       yield;
+    }
+    if (best) return best;
+    // Start and goal both inside an equipment margin (e.g. forklift holding a swap pallet next to a robot stand, heading to an
+    // AMR stand): try ring pairs, nearest first, a bounded number of A* calls.
+    const starts = order(ring(from)).slice(0, 8), goals = order(ring(to)).slice(0, 8);
+    for (const { p: start } of starts) {
+      for (const { p: goal } of goals) {
+        if (from.distanceTo(start) + start.distanceTo(goal) + goal.distanceTo(to) >= bestLength - 1e-9) continue;
+        consider(this.options.plan(start, goal, loaded, avoid), [from.clone()], [to.clone()]);
+        yield;
+      }
     }
     return best;
   }

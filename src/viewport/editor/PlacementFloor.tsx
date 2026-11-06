@@ -18,6 +18,7 @@ import PlacementGhost from "@/viewport/editor/PlacementGhost";
 import ModelErrorBoundary from "@/viewport/models/ModelErrorBoundary";
 import { isSelectionClick } from "@/viewport/selection/isSelectionClick";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
+import { useAgvPathStore } from "@/stores/useAgvPathStore";
 import { DOOR_CONFIG } from "@/constants/door";
 import { snapDoorToWall } from "@/domain/room/roomWalls";
 import { mountCarrierAt } from "@/domain/layout/palletMount";
@@ -330,6 +331,10 @@ export default function PlacementFloor() {
             return;
           }
           if (!isSelectionClick(event)) return;
+          if (useAgvPathStore.getState().drawingFor) {
+            event.stopPropagation();
+            return;
+          }
           if (state.pending && state.editing) {
             event.stopPropagation();
             const carrier = state.pending === "pallet" ? mountCarrierAt(state, event.point.x, event.point.z) : undefined;

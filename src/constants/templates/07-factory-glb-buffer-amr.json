@@ -4,51 +4,113 @@
   "lighting": "factory",
   "camera": {
     "view": {
-      "position": [4.1250128530082115, 23.226254533313902, -17.773290167464637],
-      "target": [1.3799413693906102, 12.021449704642002, 5.936492349450626]
+      "position": [
+        4.1250128530082115,
+        23.226254533313902,
+        -17.773290167464637
+      ],
+      "target": [
+        1.3799413693906102,
+        12.021449704642002,
+        5.936492349450626
+      ]
     },
     "bookmarks": [
       {
         "position": [
-          133.62027824524557, 171.61912881434017, 173.09467313201148
-        ],
-        "target": [20.253306001021844, 20.387287439707265, 26.317169774516774]
-      },
-      {
-        "position": [28.915274568660053, 4.044692662496954, 36.74907009443851],
-        "target": [17.10788835186677, 1.2100884365185716, 61.7069585485842]
-      },
-      {
-        "position": [18.46384915724171, 1.617861445638477, 39.78803624350298],
-        "target": [8.845007336079965, 0.9477425179749512, 37.33292115032938]
-      },
-      {
-        "position": [6.771564221665473, 9.123835509836244, 45.06149725388777],
-        "target": [2.6719320295173734, 2.938854444316368, 37.67008667862099]
-      },
-      {
-        "position": [1.2527465732695529, 5.819465192436242, 36.94872771867107],
-        "target": [1.251742329159095, 3.3181969572589973, 33.07669604387291]
-      },
-      {
-        "position": [
-          1.1997130525394293, 1.8188423426091858, 28.553736765328814
-        ],
-        "target": [1.2665125124286385, 1.7075638608347858, 25.651401275945627]
-      },
-      {
-        "position": [
-          11.734052175504093, 10.168487919892314, -7.2855545419981045
+          133.62027824524557,
+          171.61912881434017,
+          173.09467313201148
         ],
         "target": [
-          0.9161191571798005, -0.18292006595632326, -0.07592821848069065
+          20.253306001021844,
+          20.387287439707265,
+          26.317169774516774
         ]
       },
       {
         "position": [
-          8.165511125841487, 1.5151704914959896, -0.9599633978786688
+          28.915274568660053,
+          4.044692662496954,
+          36.74907009443851
         ],
-        "target": [4.922621696691099, 0.6884147998678394, -6.649615488085437]
+        "target": [
+          17.10788835186677,
+          1.2100884365185716,
+          61.7069585485842
+        ]
+      },
+      {
+        "position": [
+          18.46384915724171,
+          1.617861445638477,
+          39.78803624350298
+        ],
+        "target": [
+          8.845007336079965,
+          0.9477425179749512,
+          37.33292115032938
+        ]
+      },
+      {
+        "position": [
+          6.771564221665473,
+          9.123835509836244,
+          45.06149725388777
+        ],
+        "target": [
+          2.6719320295173734,
+          2.938854444316368,
+          37.67008667862099
+        ]
+      },
+      {
+        "position": [
+          1.2527465732695529,
+          5.819465192436242,
+          36.94872771867107
+        ],
+        "target": [
+          1.251742329159095,
+          3.3181969572589973,
+          33.07669604387291
+        ]
+      },
+      {
+        "position": [
+          1.1997130525394293,
+          1.8188423426091858,
+          28.553736765328814
+        ],
+        "target": [
+          1.2665125124286385,
+          1.7075638608347858,
+          25.651401275945627
+        ]
+      },
+      {
+        "position": [
+          11.734052175504093,
+          10.168487919892314,
+          -7.2855545419981045
+        ],
+        "target": [
+          0.9161191571798005,
+          -0.18292006595632326,
+          -0.07592821848069065
+        ]
+      },
+      {
+        "position": [
+          8.165511125841487,
+          1.5151704914959896,
+          -0.9599633978786688
+        ],
+        "target": [
+          4.922621696691099,
+          0.6884147998678394,
+          -6.649615488085437
+        ]
       }
     ]
   },
@@ -120,9 +182,10 @@
       "kind": "robot",
       "x": -18.6785,
       "z": 37.1353,
-      "yaw": 0,
+      "yaw": -3.141592653589793,
       "settings": {
         "robotPedestal": "place",
+        "robotPedestalYaw": 180,
         "robotRole": "depalletize"
       }
     },
@@ -130,9 +193,10 @@
       "kind": "robot",
       "x": 1.2541,
       "z": 37.1353,
-      "yaw": 0,
+      "yaw": 4.71238898038469,
       "settings": {
         "robotPedestal": "place",
+        "robotPedestalYaw": 90,
         "robotRole": "depalletize"
       }
     },
@@ -213,60 +277,6 @@
       "kind": "rack",
       "x": 4.2188,
       "z": -9.689,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -4.3514,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -9.1509,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -13.9504,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -18.7499,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -23.5494,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -28.3489,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -33.1484,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -37.948,
-      "yaw": 0
-    },
-    {
-      "kind": "rack",
-      "x": 34.9004,
-      "z": -42.7475,
       "yaw": 0
     },
     {
@@ -935,31 +945,21 @@
       }
     },
     {
-      "kind": "amr",
-      "x": -11.75,
-      "z": 0.1,
-      "yaw": 0,
+      "kind": "robot",
+      "x": 16.9,
+      "z": 8.7,
+      "yaw": 1.5707963267948966,
       "settings": {
-        "amrRole": "shuttle",
-        "initialPallet": "mounted"
+        "robotPedestal": "base",
+        "robotPedestalYaw": 180,
+        "pickFilter": "all"
       }
     },
     {
       "kind": "amr",
-      "x": 4.75,
-      "z": 0.25,
-      "yaw": 0,
-      "settings": {
-        "amrCargo": "pallet",
-        "amrRole": "shuttle",
-        "initialPallet": "mounted"
-      }
-    },
-    {
-      "kind": "amr",
-      "x": 13.97,
-      "z": 0.55,
-      "yaw": 0,
+      "x": 14.8,
+      "z": 8.3,
+      "yaw": -4.71238898038469,
       "settings": {
         "amrRole": "shuttle",
         "initialPallet": "mounted"
@@ -967,297 +967,520 @@
     },
     {
       "kind": "pallet",
-      "x": -11.75,
-      "z": 0.1,
+      "x": 14.8,
+      "z": 8.3,
+      "yaw": -4.71238898038469,
+      "settings": {
+        "mountedOn": "amr-96"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 3.3,
+      "z": 9.3,
       "yaw": 0,
       "settings": {
-        "mountedOn": "amr-104"
+        "robotPedestal": "base",
+        "robotPedestalYaw": 180,
+        "pickFilter": "all"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 3.4,
+      "z": 7.1,
+      "yaw": -4.71238898038469,
+      "settings": {
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
       }
     },
     {
       "kind": "pallet",
-      "x": 4.75,
-      "z": 0.25,
-      "yaw": 0,
+      "x": 3.4,
+      "z": 7.1,
+      "yaw": -4.71238898038469,
       "settings": {
-        "mountedOn": "amr-105"
+        "mountedOn": "amr-99"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -14.6,
+      "z": 9,
+      "yaw": 1.5707963267948966,
+      "settings": {
+        "robotPedestal": "base",
+        "pickFilter": "all"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -12.4,
+      "z": 8.6,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
       }
     },
     {
       "kind": "pallet",
-      "x": 13.97,
-      "z": 0.55,
+      "x": -12.4,
+      "z": 8.6,
+      "yaw": -1.5707963267948966,
+      "settings": {
+        "mountedOn": "amr-102"
+      }
+    },
+    {
+      "kind": "dock",
+      "x": 13.4,
+      "z": -19,
       "yaw": 0,
       "settings": {
-        "mountedOn": "amr-106"
+        "dockRole": "palletSource"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 13.3,
+      "z": -24.1,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "palletSwap",
+        "forkliftBackupFor": "amr-87",
+        "stopPoints": [
+          {
+            "role": "service",
+            "x": 19.5,
+            "z": -6.1,
+            "yaw": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -22.6,
+      "z": -1.5,
+      "yaw": 0,
+      "settings": {
+        "amrRole": "forklift",
+        "forkliftTask": "palletSwap",
+        "forkliftBackupFor": "amr-88",
+        "stopPoints": [
+          {
+            "role": "service",
+            "x": -13.5,
+            "z": -5,
+            "yaw": 0
+          }
+        ]
       }
     }
   ],
   "links": [
     {
       "type": "feed",
-      "from": 53,
+      "from": 44,
       "to": 13
     },
     {
       "type": "feed",
-      "from": 52,
+      "from": 43,
       "to": 12
     },
     {
       "type": "feed",
-      "from": 51,
+      "from": 42,
       "to": 11
     },
     {
       "type": "feed",
-      "from": 54,
+      "from": 45,
       "to": 14
     },
     {
       "type": "emptyReturn",
       "from": 14,
-      "to": 64
+      "to": 55
     },
     {
       "type": "emptyReturn",
       "from": 13,
-      "to": 64
+      "to": 55
     },
     {
       "type": "emptyReturn",
       "from": 12,
-      "to": 65
+      "to": 56
     },
     {
       "type": "emptyReturn",
       "from": 11,
-      "to": 65
-    },
-    {
-      "type": "emptyReturn",
-      "from": 65,
-      "to": 62
-    },
-    {
-      "type": "emptyReturn",
-      "from": 64,
-      "to": 63
-    },
-    {
-      "type": "feed",
-      "from": 52,
-      "to": 80
-    },
-    {
-      "type": "feed",
-      "from": 53,
-      "to": 81
-    },
-    {
-      "type": "feed",
-      "from": 54,
-      "to": 81
-    },
-    {
-      "type": "feed",
-      "from": 51,
-      "to": 80
-    },
-    {
-      "type": "collect",
-      "from": 82,
-      "to": 65
-    },
-    {
-      "type": "collect",
-      "from": 83,
-      "to": 65
-    },
-    {
-      "type": "collect",
-      "from": 84,
-      "to": 64
-    },
-    {
-      "type": "collect",
-      "from": 85,
-      "to": 64
-    },
-    {
-      "type": "distribute",
-      "from": 80,
-      "to": 82
-    },
-    {
-      "type": "distribute",
-      "from": 80,
-      "to": 83
-    },
-    {
-      "type": "distribute",
-      "from": 81,
-      "to": 84
-    },
-    {
-      "type": "distribute",
-      "from": 81,
-      "to": 85
-    },
-    {
-      "type": "handoff",
-      "from": 97,
-      "to": 55
-    },
-    {
-      "type": "handoff",
-      "from": 98,
       "to": 56
     },
     {
-      "type": "handoff",
-      "from": 99,
-      "to": 57
+      "type": "emptyReturn",
+      "from": 56,
+      "to": 53
+    },
+    {
+      "type": "emptyReturn",
+      "from": 55,
+      "to": 54
+    },
+    {
+      "type": "feed",
+      "from": 43,
+      "to": 71
+    },
+    {
+      "type": "feed",
+      "from": 44,
+      "to": 72
+    },
+    {
+      "type": "feed",
+      "from": 45,
+      "to": 72
+    },
+    {
+      "type": "feed",
+      "from": 42,
+      "to": 71
+    },
+    {
+      "type": "collect",
+      "from": 73,
+      "to": 56
+    },
+    {
+      "type": "collect",
+      "from": 74,
+      "to": 56
+    },
+    {
+      "type": "collect",
+      "from": 75,
+      "to": 55
+    },
+    {
+      "type": "collect",
+      "from": 76,
+      "to": 55
+    },
+    {
+      "type": "distribute",
+      "from": 71,
+      "to": 73
+    },
+    {
+      "type": "distribute",
+      "from": 71,
+      "to": 74
+    },
+    {
+      "type": "distribute",
+      "from": 72,
+      "to": 75
+    },
+    {
+      "type": "distribute",
+      "from": 72,
+      "to": 76
     },
     {
       "type": "handoff",
-      "from": 100,
-      "to": 58
+      "from": 88,
+      "to": 46
+    },
+    {
+      "type": "handoff",
+      "from": 89,
+      "to": 47
+    },
+    {
+      "type": "handoff",
+      "from": 90,
+      "to": 48
+    },
+    {
+      "type": "handoff",
+      "from": 91,
+      "to": 49
     },
     {
       "type": "store",
-      "from": 95,
+      "from": 86,
       "to": 18
     },
     {
       "type": "store",
-      "from": 95,
-      "to": 28
+      "from": 86,
+      "to": 19
     },
     {
       "type": "store",
-      "from": 95,
-      "to": 29
+      "from": 86,
+      "to": 20
     },
     {
       "type": "store",
-      "from": 95,
-      "to": 30
+      "from": 86,
+      "to": 21
     },
     {
       "type": "store",
-      "from": 95,
-      "to": 31
+      "from": 86,
+      "to": 22
     },
     {
       "type": "store",
-      "from": 95,
+      "from": 86,
+      "to": 23
+    },
+    {
+      "type": "store",
+      "from": 86,
+      "to": 24
+    },
+    {
+      "type": "store",
+      "from": 87,
       "to": 32
     },
     {
       "type": "store",
-      "from": 95,
+      "from": 87,
       "to": 33
     },
     {
       "type": "store",
-      "from": 96,
-      "to": 41
+      "from": 87,
+      "to": 34
     },
     {
       "type": "store",
-      "from": 96,
-      "to": 42
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 43
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 44
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 45
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 46
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 47
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 40
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 39
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 38
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 37
-    },
-    {
-      "type": "store",
-      "from": 96,
-      "to": 36
-    },
-    {
-      "type": "store",
-      "from": 96,
+      "from": 87,
       "to": 35
     },
     {
       "type": "store",
-      "from": 96,
-      "to": 34
+      "from": 87,
+      "to": 36
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 37
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 38
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 31
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 30
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 29
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 28
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 27
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 26
+    },
+    {
+      "type": "store",
+      "from": 87,
+      "to": 25
     },
     {
       "type": "emptyReturn",
       "from": 9,
-      "to": 96
+      "to": 87
     },
     {
       "type": "emptyReturn",
       "from": 2,
-      "to": 96
+      "to": 87
     },
     {
       "type": "emptyReturn",
       "from": 10,
-      "to": 95
+      "to": 86
     },
     {
       "type": "emptyReturn",
-      "from": 103,
-      "to": 96
+      "from": 95,
+      "to": 86
     },
     {
       "type": "emptyReturn",
+      "from": 98,
+      "to": 86
+    },
+    {
+      "type": "emptyReturn",
+      "from": 101,
+      "to": 87
+    },
+    {
+      "type": "emptyReturn",
+      "from": 10,
+      "to": 104
+    },
+    {
+      "type": "emptyReturn",
+      "from": 95,
+      "to": 104
+    },
+    {
+      "type": "emptyReturn",
+      "from": 98,
+      "to": 104
+    },
+    {
+      "type": "store",
       "from": 104,
-      "to": 96
+      "to": 18
+    },
+    {
+      "type": "store",
+      "from": 104,
+      "to": 19
+    },
+    {
+      "type": "store",
+      "from": 104,
+      "to": 20
+    },
+    {
+      "type": "store",
+      "from": 104,
+      "to": 21
+    },
+    {
+      "type": "store",
+      "from": 104,
+      "to": 22
+    },
+    {
+      "type": "store",
+      "from": 104,
+      "to": 23
+    },
+    {
+      "type": "store",
+      "from": 104,
+      "to": 24
     },
     {
       "type": "emptyReturn",
+      "from": 9,
+      "to": 105
+    },
+    {
+      "type": "emptyReturn",
+      "from": 2,
+      "to": 105
+    },
+    {
+      "type": "emptyReturn",
+      "from": 101,
+      "to": 105
+    },
+    {
+      "type": "store",
       "from": 105,
-      "to": 95
+      "to": 32
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 33
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 34
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 35
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 36
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 37
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 38
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 31
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 30
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 29
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 28
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 27
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 26
+    },
+    {
+      "type": "store",
+      "from": 105,
+      "to": 25
     }
   ],
   "props": [

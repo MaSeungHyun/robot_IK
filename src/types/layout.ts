@@ -53,6 +53,9 @@ export type EquipmentSettings={outboundRatio?:number;speed:number;reach:number;c
    * Service forklift: job split when several forklifts share a cell. "auto" (default) = any job; "unload" = only full
    * pallets AMR → Rack_m; "supply" = only empty pallets (source → AMR, and empty pallets off inbound AMRs → source). */
   forkliftRole?:"auto"|"unload"|"supply"|"emptyReturn";
+  /** Pallet-swap forklift: backup of this forklift id (e.g. "amr-96"). Works that forklift's cell / linked AMRs only, and only
+   * while it and the other owners are all busy; never an owner itself. */
+  forkliftBackupFor?:string;
   /** Pallet / shuttle AMR whose deck pallet is emptied at an unload dock: what happens to the emptied pallet. "forklift" (default) =
    * a forklift lifts it off the AMR and stacks it on the empty-pallet source, then the AMR goes empty for the next pallet; "return" = it rolls off to the
    * return line at the AMR's home; "forklift" = the cell's service forklift lifts it off the AMR at the unload dock and stacks it

@@ -8,7 +8,7 @@ import conveyorImage from "@/assets/images/rail.webp";
 import rackImage from "@/assets/images/rack.webp";
 import doorImage from "@/assets/images/door.webp";
 import transferImage from "@/assets/images/transfer_forklift.webp";
-import { EQUIPMENT_NAMES, useSceneStore } from "@/stores/useSceneStore";
+import { equipmentDisplayKind, useSceneStore } from "@/stores/useSceneStore";
 import { useThumbnailStore } from "@/stores/useThumbnailStore";
 import { STATIC_THUMBNAILS, objectThumbnailKey } from "@/constants/assetPresets";
 import type { EquipmentKind, SceneEquipment } from "@/types/layout";
@@ -37,7 +37,8 @@ const EQUIPMENT_VISUALS: Record<EquipmentKind, EquipmentVisual> = {
 export default function EquipmentIdentity({ object, status }: Props) {
   const visual = EQUIPMENT_VISUALS[object.kind];
   const metadata = object.metadata;
-  const kindName = EQUIPMENT_NAMES[object.kind];
+  const settings = useSceneStore((state) => state.settings[object.id]);
+  const kindName = equipmentDisplayKind(object.kind, settings);
   // Rendered model thumbnail (same as the asset card); the static images/icons are the fallback.
   const key = useSceneStore((state) => objectThumbnailKey(object.kind, state.settings[object.id]));
   const thumbnail = useThumbnailStore((state) => (key ? state.thumbnails[key] : undefined));
@@ -47,9 +48,10 @@ export default function EquipmentIdentity({ object, status }: Props) {
     <header className="min-w-0">
       <h2
         className="truncate text-xs font-semibold text-text-primary"
-        title={object.name}
+        title={`${kindName} (${object.id})`}
       >
-        {object.name} <span className="text-text-secondary">· {kindName}</span>
+        {kindName}
+        <span className="ml-1 font-normal text-text-secondary">{object.id}</span>
       </h2>
 
       <div className="pointer-events-none mt-4 flex h-45  items-center overflow-hidden bg-transparent">

@@ -8,6 +8,7 @@ import EquipmentEnabledSetting from "@/ui/Hud/equipment/details/_components/Equi
 import type { EquipmentDetailProps } from "@/ui/Hud/equipment/details/types";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { RACK_CONFIG } from "@/constants/rack";
+import { RACK_M_MODEL } from "@/constants/cycle";
 import RackSlotGrid from "@/ui/Hud/equipment/rack/RackSlotGrid";
 import RackArraySection from "@/ui/Hud/equipment/rack/RackArraySection";
 
@@ -23,7 +24,7 @@ export default function RackDetails({ object }: EquipmentDetailProps) {
     <EquipmentDetailLayout object={object} status={status} summary={
       <DetailRows rows={[
         { label: "용도", value: mobile ? "팔레트 순환 이동식 랙 (Rack_m)" : "AMR 팔레트 보관 랙" },
-        { label: "보관 칸", value: mobile ? "2단" : `${RACK_CONFIG.slots.length}칸` },
+        { label: "보관 칸", value: mobile ? `${RACK_M_MODEL.levels.length}단 (만재 시 AGV 운반)` : `${RACK_CONFIG.slots.length}칸` },
         { label: "수신 상태", value: enabled ? "대기" : "중지" },
       ]} />
     } settings={
@@ -38,7 +39,6 @@ export default function RackDetails({ object }: EquipmentDetailProps) {
             { value: "mobile", label: "이동식 랙 (Rack_m, AGV 운반)" },
           ]}
         />
-        {!mobile && <p className="text-xs text-slate-500">보관: 만재(박스가 다 찬) 팔레트만 지게차가 입고합니다.</p>}
         {!mobile && (
           <EquipmentChoiceSetting
             id={object.id}

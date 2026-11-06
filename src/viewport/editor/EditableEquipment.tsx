@@ -13,6 +13,7 @@ import { editableGroups } from "@/viewport/editor/editableRegistry";
 import { useModalTransformStore } from "@/stores/useModalTransformStore";
 import { useLivePoseStore } from "@/stores/useLivePoseStore";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
+import { useAgvPathStore } from "@/stores/useAgvPathStore";
 import { pickLinkEnd } from "@/viewport/editor/links/pickLinkEnd";
 import { LINKABLE_KINDS } from "@/types/links";
 import DropInGroup from "@/viewport/editor/DropInGroup";
@@ -101,6 +102,11 @@ export default function EditableEquipment({
         rotation={[0, pose.yaw, 0]}
         onClick={(event) => {
           if (!isSelectionClick(event) || !editing || useSceneStore.getState().pending) return;
+          // AGV 경로 그리기 중에는 다른 설비 선택을 막고, 바닥 클릭으로만 점을 찍는다.
+          if (useAgvPathStore.getState().drawingFor) {
+            event.stopPropagation();
+            return;
+          }
           if (useLinkModeStore.getState().active) {
             // Link mode: only linkable equipment takes the click (floors/walls let it through).
             if (!LINKABLE_KINDS.has(entity.kind)) return;

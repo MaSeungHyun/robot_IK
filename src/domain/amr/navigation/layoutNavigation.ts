@@ -59,10 +59,10 @@ export function validateLayout(layout:FactoryLayout):string[]{
   if(clearanceAt(robot.x,robot.z,"pallet",layout)<F.robotRadius)errors.push("로봇 베이스와 팔레트가 겹칩니다.");
   if(clearanceAt(pallet.x,pallet.z,"conveyor",layout)<AMR_TRAFFIC.loadedRadius)errors.push("팔레트와 컨베이어 사이를 벌려 주세요.");
   if(clearanceAt(layout.amr.x,layout.amr.z,"robot",layout)<AMR_TRAFFIC.emptyRadius||clearanceAt(layout.amr.x,layout.amr.z,"conveyor",layout)<AMR_TRAFFIC.emptyRadius)errors.push("AMR 시작 위치가 다른 설비와 겹칩니다.");
-  if(!errors.length&&(!layoutPath(layout,layout.amr,layout.pallet,false)||!layoutPath(layout,layout.pallet,layout.dock,true)))errors.push("AMR이 팔레트와 출고 구역을 연결할 수 없습니다.");
+  if(!errors.length&&(!layoutPath(layout,layout.amr,layout.pallet,false)||!layoutPath(layout,layout.pallet,layout.dock,true)))errors.push("AMR이 팔레트와 팔레트 적치장을 연결할 수 없습니다.");
   return errors;
 }
-export type NavigationObstacle={kind:EquipmentKind;pose:EquipmentPose;radius?:number;path?:readonly Vector3[]};
+export type NavigationObstacle={kind:EquipmentKind;pose:EquipmentPose;radius?:number;path?:readonly Vector3[];/** Never opened by withoutServicedDocks / drive-by dock reopen (palletSource stacks). */permanent?:boolean};
 function loadedOverlaps(x:number,z:number,yaw:number,kind:EquipmentKind,pose:EquipmentPose&BeltShape){
   const [width,depth]=footprint(kind),[palletWidth,palletDepth]=footprint("pallet"),pad=equipPad(kind);
   const ac=Math.cos(yaw),as=Math.sin(yaw),bc=Math.cos(pose.yaw),bs=Math.sin(pose.yaw);
@@ -220,7 +220,8 @@ export const DOCK_SERVICE_REACH=.6;
 /** Dock cells (kind "dock") block through-traffic. The docks a route starts in or is bound for (`points`) stay open. */
 export function withoutServicedDocks(extra:NavigationObstacle[],points:readonly {x:number;z:number}[],radius:number){
   if(!extra.some(o=>o.kind==="dock"))return extra;
-  return extra.filter(o=>o.kind!=="dock"||points.some(p=>clearancePose(p.x,p.z,"dock",o.pose)<radius+DOCK_SERVICE_REACH));
+  // permanent (palletSource): stacked empty pallets stay blocking — only a forklift job that ends at the stack opens them (see forkliftRoute).
+  return extra.filter(o=>o.kind!=="dock"||o.permanent||points.some(p=>clearancePose(p.x,p.z,"dock",o.pose)<radius+DOCK_SERVICE_REACH));
 }
 /** `options.allow`: route ends whose docks stay open besides the start (default: the goal). Detours / side steps pass
  * the vehicle's real destination so a parking point inside a foreign dock is rejected. */

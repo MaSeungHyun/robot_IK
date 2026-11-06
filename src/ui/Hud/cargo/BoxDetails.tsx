@@ -13,7 +13,7 @@ const BOX_STATE_LABEL: Record<BoxState, string> = {
   pallet: "팔레트 적재",
   amr: "AMR 운반",
   rack: "랙 보관",
-  dock: "출고 구역",
+  dock: "팔레트 적치장",
   shipped: "출하 완료",
   passed: "라인 통과 (미처리)",
 };
@@ -27,7 +27,7 @@ const EVENT_LABEL: Record<BoxEventType, string> = {
   pass: "라인 통과",
   dispatch: "AMR 배차",
   store: "랙 보관",
-  drop: "출고 구역 하차",
+  drop: "팔레트 적치장 하차",
   ship: "출하",
   unload: "하역 (컨베이어 투입)",
 };
@@ -36,7 +36,7 @@ const PALLET_STATE_LABEL: Record<PalletRecord["state"], string> = {
   loading: "적재 중",
   amr: "AMR 운반",
   rack: "랙 보관",
-  dock: "출고 구역",
+  dock: "팔레트 적치장",
   shipped: "출하 완료",
 };
 

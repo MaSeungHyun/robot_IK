@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useSimulationStore } from "@/stores/useSimulationStore";
 import SimulatorScene from "@/viewport/SimulatorScene";
 import { useSceneStore } from "@/stores/useSceneStore";
+import { useAgvPathStore } from "@/stores/useAgvPathStore";
 import ModelWarmup from "@/viewport/ModelWarmup";
 import ProgramPin from "@/viewport/ProgramPin";
 import ModelLoader from "@/viewport/models/ModelLoader";
@@ -85,7 +86,8 @@ export default function Viewport() {
             if (
               event.button === 0 &&
               event.detail <= 1 &&
-              !useSceneStore.getState().pending
+              !useSceneStore.getState().pending &&
+              !useAgvPathStore.getState().drawingFor
             )
               useSceneStore.getState().select(null);
           }}

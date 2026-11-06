@@ -7,6 +7,7 @@ import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { LINKABLE_KINDS, LINK_RULES } from "@/types/links";
 import type { SceneEquipment } from "@/types/layout";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
+import LinkGuide from "@/ui/Hud/equipment/details/_components/LinkGuide";
 import { linkOwner, mountedCarrier, ownedLinkEnds } from "@/viewport/editor/links/linkOwners";
 
 /** '연결' section: links in and out of `object`; removable while editing. */
@@ -32,6 +33,7 @@ export default function LinkSection({ object }: { object: SceneEquipment }) {
 
   return (
     <DetailSection title="연결">
+      {editing && <LinkGuide object={object} links={links} scene={scene} />}
       {own.length === 0 ? (
         <p className="text-[11px] text-text-secondary">
           연결 없음 · 가까운 설비 기준으로 동작합니다.{editing && " 왼쪽 도구의 연결(L)로 추가하세요."}

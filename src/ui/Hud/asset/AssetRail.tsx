@@ -204,9 +204,9 @@ function TemplateFlyout({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** Rail / flyout title: the AMR category also holds the forklift presets. */
+/** Rail / flyout title. amr kind holds AMR / AGV / Forklift presets under Vehicle. */
 const categoryName = (kind: EquipmentKind) =>
-  kind === "amr" ? "AMR · 지게차" : EQUIPMENT_NAMES[kind];
+  kind === "amr" ? "Vehicle" : kind === "dock" ? "팔레트 적치장" : EQUIPMENT_NAMES[kind];
 
 function AssetFlyout({
   kind,

@@ -16,6 +16,7 @@ import { snapLine } from "@/domain/conveyor/conveyorSnap";
 import { DEFAULT_BELT_SPEED, migrateSettings, unrealisticWarning } from "@/domain/simulation/equipmentSpeeds";
 import { log } from "@/stores/useLogStore";
 import { LINK_RULES, linkTypeFor, type SceneLink } from "@/types/links";
+import { isSceneLinkAllowed, pruneInvalidLinks } from "@/domain/layout/linkConstraints";
 import { useLinkModeStore } from "@/stores/useLinkModeStore";
 import { DOOR_CONFIG } from "@/constants/door";
 import { snapDoorToWall } from "@/domain/room/roomWalls";
@@ -31,7 +32,35 @@ export function selectedIds(state:{objects:SceneEquipment[];selected:string|null
   const ids=state.selection.includes(state.selected)?state.selection.filter(id=>id!==state.selected&&state.objects.some(o=>o.id===id)):[];
   return [...ids,state.selected];
 }
-export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"출고 구역",scanner:"스캐너",floor:"바닥/벽",rack:"랙",door:"문",rail:"팔레트 분배 레일",transfer:"트랜스퍼 리프트"};
+export const EQUIPMENT_NAMES:Record<EquipmentKind,string>={robot:"로봇",pallet:"팔레트",conveyor:"컨베이어",amr:"AMR",dock:"팔레트 적치장",scanner:"스캐너",floor:"바닥/벽",rack:"랙",door:"문",rail:"팔레트 분배 레일",transfer:"트랜스퍼 리프트"};
+
+/** Display label for the equipment kind (and amrRole / rackType), without changing JSON schema ids. */
+export function equipmentDisplayKind(kind:EquipmentKind,settings?:{amrRole?:string;rackType?:string}|null):string{
+  if(kind==="amr"){
+    if(settings?.amrRole==="forklift"||settings?.amrRole==="rack")return "Forklift";
+    if(settings?.amrRole==="agv")return "AGV";
+    return "AMR";
+  }
+  if(kind==="rack"&&settings?.rackType==="mobile")return "Moving Rack";
+  if(kind==="dock")return "팔레트 적치장";
+  return EQUIPMENT_NAMES[kind];
+}
+
+/** True when name looks like an auto-generated kind+number (or legacy role label), safe to retitle from settings. */
+export function isAutoEquipmentName(name:string,kind:EquipmentKind):boolean{
+  const escaped=EQUIPMENT_NAMES[kind].replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  if(new RegExp("^"+escaped+"\\s*\\d+$").test(name))return true;
+  if(kind==="amr")return /^(AMR|AGV|Forklift|지게차|포크리프트|출하\s*AMR|셔틀(\s*AMR)?)(\s*\d+)?$/i.test(name.trim());
+  if(kind==="rack")return /^(랙|Moving\s*Rack|Rack_m|Rack\s*m)(\s*\d+)?$/i.test(name.trim());
+  if(kind==="dock")return /^(출고\s*구역|팔레트\s*적치장)(\s*\d+)?$/.test(name.trim());
+  return false;
+}
+
+/** Name written onto SceneEquipment: role type only for Vehicle / Moving Rack / dock (no numeric suffix). */
+export function equipmentAssignedName(kind:EquipmentKind,settings:{amrRole?:string;rackType?:string}|null|undefined,seq:number):string{
+  if(kind==="amr"||kind==="dock"||(kind==="rack"&&settings?.rackType==="mobile"))return equipmentDisplayKind(kind,settings);
+  return EQUIPMENT_NAMES[kind]+" "+seq;
+}
 /** Keeps a floor's edges on the 1-unit grid: odd sizes center on .5, even sizes on whole units. */
 export function snapFloorCenter(value:number,size:number){const cell=FLOOR_CONFIG.cell,offset=(size/cell)%2?cell/2:0;return Math.round((value-offset)/cell)*cell+offset;}
 export function normalizeFloor(size:Partial<FloorSize>|undefined,current:FloorSize={width:1,depth:1,wallHeight:0}):FloorSize|null{
@@ -139,7 +168,16 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       next[id]={...config,...patch};count++;if(patch.capacity!==undefined)capacity=true;
     }
     if(!count)return 0;
-    set({...history(state),...pruneMounts(state,next,ids),errors:[]});
+    const pruned=pruneMounts(state,next,ids);
+    const roleTouched=ids.some((id)=>{
+      const patch=typeof values==="function"?values(state.settings[id]!,id):values;
+      return patch.amrRole!==undefined||patch.rackType!==undefined;
+    });
+    const baseLinks=pruned.links??state.links;
+    const links=roleTouched
+      ?pruneInvalidLinks(baseLinks,{objects:pruned.objects??state.objects,settings:pruned.settings??next})
+      :baseLinks;
+    set({...history(state),...pruned,links,errors:[]});
     const first=state.objects.find(o=>ids.includes(o.id));
     const warning=typeof values==="function"?null:unrealisticWarning(first?.kind,values);
     if(warning)log("warning",`${count}개 설비: 비현실적인 설정값`,warning);
@@ -162,7 +200,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
   add:(kind,pose)=>{
     if(!get().editing)return;
     set(state=>{
-      const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:`${EQUIPMENT_NAMES[kind]} ${state.nextId}`};
+      const id=`${kind}-${state.nextId}`,initial:SceneEquipment={...DEFAULT_LAYOUT[kind],...pose,id,kind,name:equipmentAssignedName(kind,{...placementDefaults(kind,state.pending===kind?state.pendingPreset:null),...(state.pending===kind?state.pendingPreset:null)},state.nextId)};
       if(kind==="floor")initial.floor=normalizeFloor(pose.floor)??{width:1,depth:1,wallHeight:0};
       const config=settingsFor(kind,{...placementDefaults(kind,state.pending===kind?state.pendingPreset:null),...(state.pending===kind?state.pendingPreset:null)});
       // 입하/출하 conveyors are rail_in_out.glb at its native length (ConveyorBelt renders it only with conveyorLength).
@@ -185,7 +223,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     const state=get();
     if(!state.editing)return null;
     const id=`${source.kind}-${state.nextId}`;
-    const object:SceneEquipment={...source,...(source.floor?{floor:{...source.floor}}:{}),id,name:`${EQUIPMENT_NAMES[source.kind]} ${state.nextId}`};
+    const object:SceneEquipment={...source,...(source.floor?{floor:{...source.floor}}:{}),id,name:equipmentAssignedName(source.kind,state.settings[source.id],state.nextId)};
     // A shuttle's mounted pallet is copied with it (on the copy's deck).
     const riders=source.kind==="amr"?copyMounts(state.objects,state.settings,source.id,object,state.nextId+1):[];
     const settings={...state.settings,[id]:migrateSettings(source.kind,{...config})};for(const r of riders)settings[r.object.id]=r.config;
@@ -197,7 +235,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(!state.editing||!source)return [];
     const poses=arrayPoses(source,footprint,options);
     if(!poses.length)return [];
-    const copies=poses.map((pose,i)=>({...source,...pose,id:`${source.kind}-${state.nextId+i}`,name:`${EQUIPMENT_NAMES[source.kind]} ${state.nextId+i}`}));
+    const copies=poses.map((pose,i)=>({...source,...pose,id:`${source.kind}-${state.nextId+i}`,name:equipmentAssignedName(source.kind,state.settings[source.id],state.nextId+i)}));
     const settings={...state.settings};
     for(const copy of copies)settings[copy.id]=migrateSettings(source.kind,{...state.settings[id]});
     const ids=copies.map(c=>c.id);
@@ -262,8 +300,22 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       changed = true;
     }
     if (!changed) return;
-    set({ ...history(state), ...pruneMounts(state, nextSettings, [id]), errors: [] });
-    const object = state.objects.find(entry => entry.id === id);
+    const pruned = pruneMounts(state, nextSettings, [id]);
+    let objects = pruned.objects ?? state.objects;
+    if (values.amrRole !== undefined || values.rackType !== undefined || values.dockRole !== undefined) {
+      objects = objects.map((o) => {
+        if (o.id !== id || !isAutoEquipmentName(o.name, o.kind)) return o;
+        const nextName = equipmentAssignedName(o.kind, nextSettings[id], 0);
+        return nextName === o.name ? o : { ...o, name: nextName };
+      });
+    }
+    const settings = pruned.settings ?? nextSettings;
+    const baseLinks = pruned.links ?? state.links;
+    const links = (values.amrRole !== undefined || values.rackType !== undefined)
+      ? pruneInvalidLinks(baseLinks, { objects, settings })
+      : baseLinks;
+    set({ ...history(state), ...pruned, objects, links, errors: [] });
+    const object = objects.find(entry => entry.id === id) ?? state.objects.find(entry => entry.id === id);
     const warning = unrealisticWarning(object?.kind, values);
     if (warning) log("warning", `${object?.name ?? id}: 비현실적인 설정값`, warning);
     if(!get().editing&&values.capacity!==undefined)useSimulationStore.getState().reset();
@@ -297,20 +349,23 @@ export const useSceneStore=create<SceneState>((set,get)=>({
       kind: entry.kind, x: entry.x, z: entry.z, yaw: entry.yaw, conveyorTurn: entry.conveyorTurn,
       ...(entry.conveyorPath ? { conveyorPath: entry.conveyorPath } : {}), ...(entry.conveyorLength ? { conveyorLength: entry.conveyorLength } : {}), ...(entry.elevation ? { elevation: entry.elevation } : {}),
       ...(entry.floor ? { floor: { ...entry.floor } } : {}),
-      id: `${entry.kind}-${index + 1}`, name: `${EQUIPMENT_NAMES[entry.kind]} ${index + 1}`,
+      id: `${entry.kind}-${index + 1}`, name: equipmentAssignedName(entry.kind, entry.settings, index + 1),
     }));
     const configs = Object.fromEntries(objects.map((object, index) => [
       object.id, settingsFor(object.kind, template.equipment[index].settings),
     ]));
     const errors = validateScene(objects, configs);
     if (errors.length) { set({ errors }); return false; }
-    // Template links reference equipment by index; invalid or out-of-range entries are dropped.
+    // Template links reference equipment by index; invalid or out-of-range / role-mismatched entries are dropped.
     const links: SceneLink[] = [];
+    const scene = { objects, settings: configs };
     for (const entry of template.links ?? []) {
       const from = objects[entry.from], to = objects[entry.to];
       if (!from || !to || linkTypeFor(from.kind, to.kind) !== entry.type) continue;
+      const candidate = { type: entry.type, from: from.id, to: to.id };
+      if (!isSceneLinkAllowed(candidate, scene)) continue;
       if (links.some((link) => link.type === entry.type && link.from === from.id && link.to === to.id)) continue;
-      links.push({ id: `L-${String(links.length + 1).padStart(3, "0")}`, type: entry.type, from: from.id, to: to.id });
+      links.push({ id: `L-${String(links.length + 1).padStart(3, "0")}`, ...candidate });
     }
     useLinkModeStore.getState().setSource(null);
     set({ ...history(state), props: template.props ?? [], lighting: template.lighting ?? null, camera: template.camera ?? null, objects, settings: configs, links, nextLinkId: links.length + 1, autoConnect: template.autoConnect ?? true, selected: null, inspected: null,
@@ -322,6 +377,7 @@ export const useSceneStore=create<SceneState>((set,get)=>({
     if(!state.editing)return false;
     const from=state.objects.find(o=>o.id===link.from),to=state.objects.find(o=>o.id===link.to);
     if(!from||!to||!LINK_RULES[link.type]||linkTypeFor(from.kind,to.kind)!==link.type)return false;
+    if(!isSceneLinkAllowed(link,{objects:state.objects,settings:state.settings}))return false;
     if(state.links.some(l=>l.type===link.type&&l.from===link.from&&l.to===link.to))return false;
     set({...history(state),links:[...state.links,{...link,id:`L-${String(state.nextLinkId).padStart(3,"0")}`}],nextLinkId:state.nextLinkId+1});
     return true;

@@ -3,6 +3,9 @@ import type { SceneTemplate, TemplateEquipment, TemplateProp } from "@/types/sce
 /** factory.glb Rack_m family (same mesh as Rack_m.glb): every copy is drawn, including nodes added to the glb later. */
 export const FACTORY_RACK_M_NODES = ["Rack_m", "Rack_m.001", "Rack_m.002", "Rack_m.003", "Prop_Rack_m", "Prop_Rack_m.001", "Prop_Rack_m.002"] as const;
 
+/** factory.glb static decor nodes drawn as props (not equipment). Authored names lack a Prop_ prefix today; Prop_* aliases are accepted by prop-colliders when renamed. Station and walkway also become route footprints; AMR_Charge is render-only. */
+export const FACTORY_STATIC_PROP_NODES = ["Station.001", "Station.002", "AMR_Charge", "walkway"] as const;
+
 /**
  * factory.glb Rack_m nodes that are real mobile racks (Rack_m.glb equipment, pallet cycle); floor x/z and yaw read from
  * factory.glb (Rack_m relocated). Only Rack_m is enabled; .001-.003 are placed with 작동 활성화 off. Template 06 stores these in its JSON; the migration only fills in 04 / 05. Prop_Rack_m* stay static decoration.
@@ -45,7 +48,7 @@ function migrateFactoryCycle(template: SceneTemplate, props: TemplateProp[]): { 
 /**
  * factory.glb templates: the glb "Enviroment" node is drawn whole (walls, BG_Floor, metal, ceiling lights), replacing the
  * room kit walls and floor (the floor object stays for navigation walls, doors and floor-click raycasts; see FloorRoom glbShell).
- * Missing Rack_m nodes are added at their authored transforms. Templates without a factory "Enviroment" prop are unchanged.
+ * Missing Rack_m / Station / AMR_Charge / walkway nodes are added at their authored transforms. Templates without a factory "Enviroment" prop are unchanged.
  */
 export function migrateFactoryShell(template: SceneTemplate): SceneTemplate {
   const props = template.props ?? [];
@@ -54,6 +57,8 @@ export function migrateFactoryShell(template: SceneTemplate): SceneTemplate {
   const listed = new Set(props.filter((p) => p.source === "factory").map((p) => p.node));
   // Mobile Rack_m nodes are equipment (06 JSON / migrateFactoryCycle), never re-added as static props.
   for (const node of FACTORY_RACK_M_NODES) if (!listed.has(node) && !MOBILE_RACK_NODES.has(node)) next.push({ source: "factory", node });
+  // Static Station / charge pad / walkway: props list (GlbProps), not pallet-station equipment.
+  for (const node of FACTORY_STATIC_PROP_NODES) if (!listed.has(node)) next.push({ source: "factory", node });
   const cycle = migrateFactoryCycle(template, next);
   // Simulator forklifts without a task that collect AMR empty pallets (emptyReturn link targets) are pallet-swap forklifts
   // for those linked AMRs (06 stores this in its JSON).

@@ -16,6 +16,7 @@ import { palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
 import { OutboundJobRegistry, type HandoffPoint } from "@/domain/cycle/outboundJobs";
 import { RackReservationRegistry } from "@/domain/cycle/rackReservations";
 import { ROBOT_STOP_PREFIX } from "@/domain/layout/robotStops";
+import { STOP_POINT_PREFIX } from "@/domain/layout/stopPoints";
 import { beltLength, beltPoint } from "@/domain/conveyor/conveyorLayout";
 import { autoSpawns, beltSpeedOf, spawnIntervalOf } from "@/domain/simulation/equipmentSpeeds";
 import { FORKLIFT_TASK_SHORT, isServiceTask, normalizeForkliftTask, type ForkliftTask } from "@/constants/forkliftTask";
@@ -59,8 +60,10 @@ export type PalletCycleHost<C extends CycleCargo> = {
   plan(from: Vector3, to: Vector3, loaded: boolean, extra: readonly CycleCircle[], span?: number): Vector3[] | null;
   /** Foreign dock cell test for back-off moves (see CycleVehicleOptions.dockGuard). */
   dockGuard?: (from: Vector3, x: number, z: number) => boolean;
-  /** Static floor clear (conveyors / racks / walls / robots / scanners) for reverse, divert and approach connectors. */
-  clear?: (x: number, z: number, loaded: boolean) => boolean;
+  /** Static floor clear (conveyors / fixed racks / walls / robots / scanners / floor Rack_m) for reverse, divert and approach. */
+  /** `radius`: optional body radius (forklift nav span); omitted uses the AMR empty/loaded radius. */
+  /** `ignore`: Rack_m (or other) ids whose floor discs stay open for this vehicle's current work move. */
+  clear?: (x: number, z: number, loaded: boolean, radius?: number, ignore?: readonly string[]) => boolean;
   render(group: Group): void;
   unrender(group: Group): void;
   /** New empty pallet group (pallet model), rendered, not parented. */
@@ -85,8 +88,12 @@ export type PalletCycleHost<C extends CycleCargo> = {
   rackOldest(claimed: ReadonlySet<string>, accept?: (rack: SceneEquipment) => boolean, forkliftId?: string): { rack: SceneEquipment; slot: number } | null;
   rackTake(rack: SceneEquipment, slot: number): Group | null;
   log(level: "info" | "warning", message: string, detail?: string): void;
-  /** 🔗 빈 팔레트 회수 (emptyReturn) targets of an AMR: forklift / stack ids. */
+  /** 🔗 교체·회수 (emptyReturn) targets of an AMR: forklift / stack ids. */
   emptyReturnTo?(amrId: string): readonly string[];
+  /** 🔗 교체·회수 (emptyReturn) sources of a forklift: AMR ids linked to it (AMR → forklift). */
+  emptyReturnFrom?(forkliftId: string): readonly string[];
+  /** 🔗 담당 랙 (store) targets of a forklift / AGV: fixed racks and/or Rack_m ids. */
+  storeTo?(id: string): readonly string[];
   /** 🔗 출하 (handoff) conveyors a ship AMR pushes onto. */
   handoffTo?(amrId: string): readonly string[];
   /** Auto-connect: without a link the nearest forklift (by route) takes the empty pallet; off = only linked. */
@@ -100,6 +107,10 @@ type Shuttle<C> = {
   pallet: PalletController;
   mode: "scan" | "service";
   dock: SceneEquipment;
+  /** Service shuttles: the linked primary forklift's swap dock (dock goes back to it every trip). */
+  baseDock?: SceneEquipment;
+  /** Service shuttles: swap docks of its backup forklifts, used when the base dock is taken (never a swap in place). */
+  altDocks?: SceneEquipment[];
   state: ShuttleState;
   /** Service shuttle swapping at its loading spot (the shared service dock was taken): the forklift comes to it. */
   inPlace?: boolean;
@@ -159,6 +170,8 @@ const AGV_FETCH_TIMEOUT = 45;
 const AGV_DROP_CLEAR = 6;
 /** How far (m) an outbound AMR waits upstream of the belt hand-off, then drives forward to push the pallet on. */
 const SHIP_PUSH = 1.2;
+/** Pallet stacks closer than this (m, dock centres) share a forklift standoff / fork lane: one forklift at a time. */
+const SOURCE_NEAR = 2.5;
 /** Free fixed-rack slots kept per cell: below this, every full pallet also ships one stored pallet (storage balance). */
 const RACK_RESERVE_SLOTS = 6;
 const RACK_FORKLIFT_SHIPS = false;
@@ -387,9 +400,37 @@ export class PalletCycle<C extends CycleCargo> {
     const settings = host.settings();
     const docks = objects.filter((o) => o.kind === "dock");
     const role = (o: SceneEquipment) => settings[o.id]?.dockRole;
-    const services = docks.filter((d) => role(d) === "service");
+    // Stop-point dock owner ("stop:<ownerId>:<i>") and backup forklifts (forkliftBackupFor): a backup's own swap dock
+    // belongs to the cell of the forklift it backs up, it never opens a cell of its own.
+    const stopOwner = (d: SceneEquipment) => (d.id.startsWith(STOP_POINT_PREFIX) ? d.id.slice(STOP_POINT_PREFIX.length, d.id.lastIndexOf(":")) : null);
+    const backupTarget = (id: string | null) => { const target = id ? settings[id]?.forkliftBackupFor : undefined; return target && target !== id ? target : null; };
+    const isBackupDock = (d: SceneEquipment) => !!backupTarget(stopOwner(d));
+    const allServices = docks.filter((d) => role(d) === "service");
+    // A rack/unload forklift may still carry a leftover service stop from an earlier role. That stop must not open a
+    // cycle cell of its own: it would split shuttles / palletSource / Rack_m away from the real mobileRack forklift
+    // (hasSource false forever ? no unload onto Rack_m). Only mobileRack / palletSwap (and non-forklift) stops partition cells.
+    const serviceStopOpensCell = (d: SceneEquipment) => {
+      const owner = stopOwner(d);
+      if (!owner) return true;
+      if (settings[owner]?.amrRole !== "forklift") return true;
+      const task = normalizeForkliftTask(settings[owner]);
+      return !task || isServiceTask(task);
+    };
+    const primaryServices = allServices.filter((d) => !isBackupDock(d) && serviceStopOpensCell(d));
+    const services = primaryServices.length ? primaryServices : allServices;
     const gap = (a: SceneEquipment, b: SceneEquipment) => Math.hypot(a.x - b.x, a.z - b.z);
     for (const o of objects) this.cells.set(o.id, services.reduce((best, d, i) => (gap(o, d) < gap(o, services[best]) ? i : best), 0));
+    for (const d of allServices) {
+      const target = backupTarget(stopOwner(d));
+      const own = target ? services.find((s) => stopOwner(s) === target) : undefined;
+      if (target && services !== allServices) this.cells.set(d.id, own ? this.cells.get(own.id) ?? 0 : this.cells.get(target) ?? 0);
+    }
+    // Own service stop wins over home pose: a forklift parked far from its swap dock still works in that dock's cell
+    // (Rack_m / shuttles / sources clustered around the stop, not the spawn pose).
+    for (const d of primaryServices) {
+      const owner = stopOwner(d);
+      if (owner) this.cells.set(owner, this.cells.get(d.id) ?? this.cellOf(owner));
+    }
     this.drops = docks.filter((d) => role(d) === "rackDrop");
     this.stages = docks.filter((d) => role(d) === "stage");
     for (const sourceDock of docks.filter((d) => role(d) === "palletSource")) {
@@ -401,8 +442,8 @@ export class PalletCycle<C extends CycleCargo> {
     // start/goal/obstacles rounded to 1 cm, so a moved rack or another body is a different key.
     const memo = new Map<string, Vector3[] | null>();
     const r = (v: number) => Math.round(v * 100);
-    const plan = (loaded: boolean, span?: number) => (from: Vector3, to: Vector3, _loaded?: boolean, avoid: readonly CycleCircle[] = []) => {
-      const obstacles = [...this.rackObstacles(from, to), ...avoid];
+    const plan = (loaded: boolean, span?: number, allowUnder = false) => (from: Vector3, to: Vector3, _loaded?: boolean, avoid: readonly CycleCircle[] = []) => {
+      const obstacles = [...this.rackObstacles(from, to, allowUnder), ...avoid];
       const key = `${span ?? ""}|${+loaded}|${r(from.x)},${r(from.z)}|${r(to.x)},${r(to.z)}|${obstacles.map((o) => `${r(o.x)},${r(o.z)},${r(o.r)}`).join(";")}`;
       if (memo.has(key)) return memo.get(key)?.slice() ?? null;
       const route = this.host.plan(from, to, loaded, obstacles, span);
@@ -416,7 +457,7 @@ export class PalletCycle<C extends CycleCargo> {
       const config = settings[object.id];
       if (object.kind === "amr" && config?.amrRole === "shuttle") {
         const pallet = pallets.find((p) => settings[p.object.id]?.mountedOn === object.id);
-        const park = () => this.parked.push(new CycleVehicle(object.id, object.name, object, { speed: 0, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(false), bodies }));
+        const park = () => this.parked.push(new CycleVehicle(object.id, object.name, object, { speed: 0, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, floorClear: (x, z, loaded, ignore) => this.host.clear?.(x, z, loaded, undefined, ignore) ?? true, plan: plan(false), bodies }));
         if (!pallet) {
           host.log("warning", `${object.name}: 올려진 팔레트가 없어 셔틀 순환에서 제외`);
           park();
@@ -431,15 +472,42 @@ export class PalletCycle<C extends CycleCargo> {
           const filter: string = (robotId && settings[robotId]?.pickFilter) || "all", accepts = settings[d.id]?.acceptGrade ?? "any";
           return (filter === "all" || filter === grade) && (accepts === "any" || accepts === grade);
         };
-        const serviceDocks = docks.filter((d) => role(d) === "service");
-        const candidates = targets.length ? targets : serviceDocks.length ? serviceDocks : docks.filter((d) => role(d) === "unload" && takes(d));
+        // Service dock: emptyReturn-linked forklift first. Unlinked shuttles skip docks of forklifts that already
+        // have exclusive AMR links (those forklifts only serve their linked AMRs).
+        // Linked AMR with no usable service stop must NOT fall back to unload (scanner) — that looked like a full
+        // shuttle driving back to the scan line. Unload fallback only when the scene has no service docks at all.
+        const linked = host.emptyReturnTo?.(object.id) ?? [];
+        // Include backup forklifts' service stops when the AMR is linked to them. primaryServices omits backup docks
+        // (they must not open a cell), which used to leave backup forklifts idle — shuttles never drove to their 교체 위치.
+        const linkedPrimary = allServices.filter((d) => {
+          const owner = stopOwner(d);
+          return !!owner && linked.includes(owner) && serviceStopOpensCell(d);
+        });
+        const exclusive = (owner: string | null) => !!owner && (host.emptyReturnFrom?.(owner)?.length ?? 0) > 0;
+        const openServices = primaryServices.filter((d) => !exclusive(stopOwner(d)));
+        const serviceDocks = linked.length ? linkedPrimary : openServices;
+        const candidates = targets.length ? targets
+          : serviceDocks.length ? serviceDocks
+          : (!linked.length && !primaryServices.length ? docks.filter((d) => role(d) === "unload" && takes(d)) : []);
         const dock = candidates.sort((a, b) => Math.hypot(a.x - object.x, a.z - object.z) - Math.hypot(b.x - object.x, b.z - object.z))[0];
+        const baseOwner = dock ? stopOwner(dock) : null;
+        const altDocks = dock && role(dock) === "service" ? allServices.filter((d) => {
+          const owner = stopOwner(d);
+          if (!owner || d === dock || !serviceStopOpensCell(d)) return false;
+          // Other linked forklift stops (peers / backups), or a backup of the base dock's owner.
+          return linked.includes(owner) || (!!baseOwner && backupTarget(owner) === baseOwner);
+        }) : [];
         if (!dock) {
-          host.log("warning", `${object.name}: 하역/교체 위치(dock)가 없어 셔틀 순환에서 제외`);
+          const why = linked.length
+            ? "연결된 지게차에 교체(정차) 위치가 없거나 사용 불가"
+            : primaryServices.length
+              ? "사용 가능한 교체 위치 없음(다른 AMR 전용 지게차만 있음)"
+              : "하역/교체 위치(dock)가 없음";
+          host.log("warning", `${object.name}: ${why} — 셔틀 순환에서 제외`);
           park();
           continue;
         }
-        const vehicle = new CycleVehicle(object.id, object.name, object, { speed: CYCLE_CONFIG.shuttleSpeed, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(true), bodies });
+        const vehicle = new CycleVehicle(object.id, object.name, object, { speed: CYCLE_CONFIG.shuttleSpeed, circles: AMR_CIRCLES, clearance: CYCLE_CONFIG.amrClearance, dockGuard: this.host.dockGuard, floorClear: (x, z, loaded, ignore) => this.host.clear?.(x, z, loaded, undefined, ignore) ?? true, plan: plan(true), bodies });
         pallet.managed = true;
         const belt = feeds.get(object.id);
         const feed: Feed<C> | null = belt ? { belt, timer: spawnIntervalOf(settings[belt.id] ?? {}), incoming: null, deck: null, fed: 0, emptyReturned: 0 } : null;
@@ -463,7 +531,7 @@ export class PalletCycle<C extends CycleCargo> {
         const atReceive = !receive || Math.hypot(object.x - receive.x, object.z - receive.z) <= CYCLE_CONFIG.feedReach;
         const home = receive && !atReceive ? new Vector3(receive.x, 0, receive.z) : new Vector3(object.x, 0, object.z);
         const homeYaw = receive && !atReceive ? receive.yaw : object.yaw;
-        const shuttle: Shuttle<C> = { object, vehicle, pallet, mode: role(dock) === "service" ? "service" : "scan", dock, state: feed ? (atReceive ? "waitPallet" : "toReceive") : startEmpty ? "waitEmpty" : "loading", home, homeYaw, load: null, trips: 0, feed, emptyByForklift: !!feed && emptyByForkliftOf(settings[object.id]) };
+        const shuttle: Shuttle<C> = { object, vehicle, pallet, mode: role(dock) === "service" ? "service" : "scan", dock, baseDock: dock, altDocks, state: feed ? (atReceive ? "waitPallet" : "toReceive") : startEmpty ? "waitEmpty" : "loading", home, homeYaw, load: null, trips: 0, feed, emptyByForklift: !!feed && emptyByForkliftOf(settings[object.id]) };
         this.shuttles.push(shuttle);
         if (startEmpty && !docks.some((d) => role(d) === "palletSource"))
           host.log("warning", `${object.name}: 시작 팔레트를 올릴 빈 팔레트 적치장(palletSource)이 없어 대기합니다`);
@@ -481,7 +549,7 @@ export class PalletCycle<C extends CycleCargo> {
           circles: [{ z: 0, r: AGV_MODEL.radius }],
           loadedCircles: [{ z: 0, r: RACK_M_MODEL.radius }],
           clearance: CYCLE_CONFIG.amrClearance,
-          dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(true),
+          dockGuard: this.host.dockGuard, floorClear: (x, z, loaded, ignore) => this.host.clear?.(x, z, loaded, undefined, ignore) ?? true, plan: plan(true, undefined, true),
           divert: true,
           bodies: agvBodies,
           fork: { group: lift, rest: lift.position.y, speed: AGV_MODEL.liftSpeed, node: lift.name || "AGV.Lift", kind: "agv" },
@@ -497,7 +565,9 @@ export class PalletCycle<C extends CycleCargo> {
           speed: CYCLE_CONFIG.forkliftSpeed,
           circles: FORK_CIRCLES,
           span: FORKLIFT_NAV_RADIUS,
-          dockGuard: this.host.dockGuard, floorClear: this.host.clear, plan: plan(false, FORKLIFT_NAV_RADIUS),
+          dockGuard: this.host.dockGuard,
+          floorClear: (x, z, loaded, ignore) => this.host.clear?.(x, z, loaded, FORKLIFT_CONFIG.footprint.radius, ignore) ?? true,
+          plan: plan(false, FORKLIFT_NAV_RADIUS),
           bodies,
           reserve: true,
           fork: { group: fork, rest: FORKLIFT_CONFIG.fork.y, speed: CYCLE_CONFIG.forkSpeed, node: "Forklift.Fork", kind: "forklift" },
@@ -517,6 +587,11 @@ export class PalletCycle<C extends CycleCargo> {
       }
     }
     this.spawnShipAmrs(objects, plan(true), bodies);
+    // Backup forklifts (forkliftBackupFor) work in the cell of the forklift they back up (its sources / racks / shuttles).
+    for (const f of this.forklifts) {
+      const target = this.backupOf(f);
+      if (target) this.cells.set(f.object.id, this.cellOf(target));
+    }
     this.trafficBodies.push(...this.bodies, ...this.racks.map((rack) => this.rackBody(rack)));
     // AMRs never lift a pallet off the floor: every empty pallet onto a shuttle deck is placed by a service forklift.
     for (const shuttle of this.shuttles)
@@ -552,7 +627,7 @@ export class PalletCycle<C extends CycleCargo> {
         circles: AMR_CIRCLES,
         clearance: CYCLE_CONFIG.amrClearance,
         dockGuard: this.host.dockGuard,
-        floorClear: this.host.clear,
+        floorClear: (x, z, loaded, ignore) => this.host.clear?.(x, z, loaded, undefined, ignore) ?? true,
         reserve: true,
         plan,
         bodies,
@@ -662,14 +737,32 @@ export class PalletCycle<C extends CycleCargo> {
       center: () => rack.group.position,
     };
   }
-  /** Stationary Rack_m frames as planner obstacles (except racks at the trip ends). */
-  private rackObstacles(from: Vector3, to: Vector3): CycleCircle[] {
+  /**
+   * Stationary Rack_m frames as planner obstacles. Carried frames are omitted (AGV loadedCircles cover them).
+   * A rack whose centre is within its own footprint of from/to is omitted for that query only: AGV under-dock and
+   * forklift fork-in goals sit inside / on the rim; through-traffic with both ends clear still hits the disc.
+   */
+  private rackObstacles(from: Vector3, to: Vector3, allowUnder = false): CycleCircle[] {
     const out: CycleCircle[] = [];
+    // AGV under-dock only: open a Rack_m when the route ends at/under it. Forklift / shuttle / AMR never path through the frame.
+    const open = allowUnder ? RACK_M_MODEL.radius + 0.35 : -1;
     for (const rack of this.racks) {
       if (rack.group.parent !== this.host.root) continue;
       const p = rack.group.position;
-      if (Math.hypot(p.x - from.x, p.z - from.z) < 1.4 || Math.hypot(p.x - to.x, p.z - to.z) < 1.4) continue;
+      if (open >= 0 && (Math.hypot(p.x - from.x, p.z - from.z) < open || Math.hypot(p.x - to.x, p.z - to.z) < open)) continue;
       out.push({ x: p.x, z: p.z, r: RACK_M_MODEL.radius });
+    }
+    return out;
+  }
+  /** Floor Rack_m discs for floorClear / divert (not carried). `ignore` opens racks only for AGV under-dock (forklift travel never passes Rack_m ids here). */
+  floorRackCircles(ignore?: readonly string[]): { id: string; x: number; z: number; r: number }[] {
+    const skip = ignore && ignore.length ? new Set(ignore) : null;
+    const out: { id: string; x: number; z: number; r: number }[] = [];
+    for (const rack of this.racks) {
+      if (rack.group.parent !== this.host.root) continue;
+      if (skip?.has(rack.object.id)) continue;
+      const p = rack.group.position;
+      out.push({ id: rack.object.id, x: p.x, z: p.z, r: RACK_M_MODEL.radius });
     }
     return out;
   }
@@ -791,8 +884,20 @@ export class PalletCycle<C extends CycleCargo> {
       }
       // Service dock taken by another shuttle (several AMRs share one service dock, e.g. standby AMRs next to the robots):
       // swap in place at the loading spot instead of queueing for the dock, so the forklift starts right away.
-      const dockTaken = shuttle.mode === "service" && this.shuttles.some((s) => s !== shuttle && s.dock === shuttle.dock && !s.inPlace && s.state !== "loading" && s.state !== "waitDock");
-      this.depart(shuttle, dockTaken);
+      // Only a shuttle actually heading to / standing at the dock occupies it (returning / loading / start-empty ones do not).
+      const atDock = (s: Shuttle<C>) => !s.inPlace && (s.state === "toService" || s.state === "waitSwap" || s.state === "swapping" || (s.state === "waitEmpty" && s.trips > 0));
+      // Its own (primary) dock first, then a backup forklift's dock; with every one taken it waits at the loading spot
+      // (no swap in place: a forklift never drives into the robot cell for the swap).
+      if (shuttle.mode === "service") {
+        const taken = (d: SceneEquipment) => this.host.settings()[d.id]?.enabled === false || this.shuttles.some((s) => s !== shuttle && s.dock === d && atDock(s));
+        const free = [shuttle.baseDock ?? shuttle.dock, ...(shuttle.altDocks ?? [])].find((d) => !taken(d));
+        if (!free) {
+          if (shuttle.state !== "waitDock") this.setShuttle(shuttle, "waitDock", "교체 위치 대기");
+          return;
+        }
+        shuttle.dock = free;
+      }
+      this.depart(shuttle);
     }
   }
   /**
@@ -999,15 +1104,26 @@ export class PalletCycle<C extends CycleCargo> {
   private advanceAgv(agv: Agv) {
     if (agv.state !== "idle" || !agv.vehicle.idle || !this.enabled(agv.object.id)) return;
     const cell = this.cellOf(agv.object.id);
-    const mine = (r: RackM<C>) => !r.agv && this.enabled(r.object.id) && this.cellOf(r.object.id) === cell;
+    const linked = this.linkedMobileRacks(agv.object.id);
+    const mine = (r: RackM<C>) => !r.agv && this.enabled(r.object.id)
+      && (linked ? linked.includes(r) : this.cellOf(r.object.id) === cell);
     const back = this.racks.find((r) => r.state === "done" && mine(r));
-    const drop = back ? null : this.drops.find((d) => this.cellOf(d.id) === cell && !this.busyDocks.has(d.id));
+    // Prefer this AGV's own rackDrop stop (may sit in another cell than the nearest service dock), then same-cell drops.
+    const free = (d: SceneEquipment) => !this.busyDocks.has(d.id);
+    const ownDrop = this.drops.find((d) => free(d) && d.id.startsWith(`${STOP_POINT_PREFIX}${agv.object.id}:`));
+    const drop = back ? null : (ownDrop ?? this.drops.find((d) => free(d) && this.cellOf(d.id) === cell));
     const rack = back ?? (drop ? this.racks.find((r) => r.state === "full" && r.at === "home" && mine(r)) : undefined);
     if (!rack) return;
     // The idle AGV nearest the rack takes it (parked AGVs in a row would otherwise block the first one's way out).
     const p = rack.group.position;
     const gap = (a: Agv) => Math.hypot(a.vehicle.position.x - p.x, a.vehicle.position.z - p.z);
-    if (this.agvs.some((o) => o !== agv && o.state === "idle" && o.vehicle.idle && this.enabled(o.object.id) && this.cellOf(o.object.id) === cell && gap(o) < gap(agv))) return;
+    const peers = (o: Agv) => {
+      if (o === agv || o.state !== "idle" || !o.vehicle.idle || !this.enabled(o.object.id)) return false;
+      const other = this.linkedMobileRacks(o.object.id);
+      if (linked) return !!other?.includes(rack);
+      return !other && this.cellOf(o.object.id) === cell;
+    };
+    if (this.agvs.some((o) => peers(o) && gap(o) < gap(agv))) return;
     rack.agv = agv;
     if (back) this.fetchRack(agv, back);
     else this.deliverRack(agv, rack, drop!);
@@ -1046,7 +1162,8 @@ export class PalletCycle<C extends CycleCargo> {
     // The rack keeps its pose relative to the AGV deck, whichever end the AGV entered.
     const rackOnDeck = rack.group.rotation.y - bayYaw;
     this.setAgv(agv, "toRack");
-    v.goTo(bayIn, false).turn(bayYaw).straight(bay, { speed: 0.6 })
+    const rackIgnore = [rack.object.id];
+    v.goTo(bayIn, false, rackIgnore).turn(bayYaw).straight(bay, { speed: 0.6, ignore: rackIgnore })
       .then(() => {
         this.setAgv(agv, "lifting");
         this.attachTo(agv.lift, rack.group);
@@ -1057,7 +1174,7 @@ export class PalletCycle<C extends CycleCargo> {
         this.setAgv(agv, "toDrop");
         this.setRack(rack, "moving");
       })
-      .goTo(dropIn, true, undefined, via).turn(dropYaw).straight(at, { speed: 0.6 })
+      .goTo(dropIn, true, rackIgnore, via).turn(dropYaw).straight(at, { speed: 0.6, ignore: rackIgnore })
       .then(() => this.setAgv(agv, "lowering"))
       .forkTo(0)
       .then(() => {
@@ -1072,7 +1189,7 @@ export class PalletCycle<C extends CycleCargo> {
         agv.trips++;
         this.stats.agvTrips++;
       })
-      .straight(dropIn, { backward: true, speed: 0.6 })
+      .straight(dropIn, { backward: true, speed: 0.6, ignore: rackIgnore })
       .goTo(agv.home, false).turn(agv.homeYaw)
       .then(() => this.setAgv(agv, "idle"));
   }
@@ -1086,7 +1203,8 @@ export class PalletCycle<C extends CycleCargo> {
     const bayIn = bay.clone().addScaledVector(forward(bayYaw), -VEHICLE_APPROACH);
     const rackOnDeck = rack.group.rotation.y - dropYaw;
     this.setAgv(agv, "toRack");
-    v.goTo(dropIn, false).turn(dropYaw).straight(at, { speed: 0.6 })
+    const rackIgnore = [rack.object.id];
+    v.goTo(dropIn, false, rackIgnore).turn(dropYaw).straight(at, { speed: 0.6, ignore: rackIgnore })
       .then(() => {
         this.setAgv(agv, "lifting");
         this.attachTo(agv.lift, rack.group);
@@ -1097,12 +1215,12 @@ export class PalletCycle<C extends CycleCargo> {
         this.setAgv(agv, "toBay");
         this.setRack(rack, "moving");
       })
-      .straight(dropIn, { backward: true, speed: 0.6 })
+      .straight(dropIn, { backward: true, speed: 0.6, ignore: rackIgnore })
       .then(() => {
         this.busyDocks.delete(drop.id);
         rack.drop = null;
       })
-      .goTo(bayIn, true, undefined, via).turn(bayYaw).straight(bay, { speed: 0.6 })
+      .goTo(bayIn, true, rackIgnore, via).turn(bayYaw).straight(bay, { speed: 0.6, ignore: rackIgnore })
       .then(() => this.setAgv(agv, "lowering"))
       .forkTo(0)
       .then(() => {
@@ -1115,18 +1233,38 @@ export class PalletCycle<C extends CycleCargo> {
         this.setRack(rack, "waiting");
         this.setAgv(agv, "returning");
       })
-      .straight(bayIn, { backward: true, speed: 0.6 })
+      .straight(bayIn, { backward: true, speed: 0.6, ignore: rackIgnore })
       .goTo(agv.home, false).turn(agv.homeYaw)
       .then(() => this.setAgv(agv, "idle"));
   }
 
   // ---------------------------------------------------------------- forklifts
+  /**
+   * Either end of a pallet / AMR deck axis. Prefers a forklift stand that clears static equipment (conveyor, robot,
+   * rack - same test as ship hand-off), then the shorter trip from `from`. Distance-only choice used to park on belts.
+   */
+  private deckHeading(deck: Vector3, along: number, back: number, from: Vector3, loaded: boolean) {
+    const candidates = [along, along + Math.PI].map((h) => {
+      const stand = forkliftStop(deck, h, back + FORK_BACK);
+      const blocked = !!this.host.clear && !this.host.clear(stand.x, stand.z, loaded, FORKLIFT_CONFIG.footprint.radius);
+      const route = blocked ? null : this.host.plan(from, stand, loaded, [], FORKLIFT_NAV_RADIUS);
+      const travel = route
+        ? route.reduce((sum, p, i) => sum + (i ? p.distanceTo(route[i - 1]) : Math.hypot(p.x - from.x, p.z - from.z)), 0)
+        : stand.distanceTo(from) + (blocked ? 1e6 : 1e5);
+      return { h, blocked, travel };
+    });
+    candidates.sort((a, b) => Number(a.blocked) - Number(b.blocked) || a.travel - b.travel);
+    return candidates[0].h;
+  }
   /** Drives to the standoff of a support (pallet bottom centre `point`, heading `heading`) and lifts the pallet. */
   private pick(f: Forklift<C>, point: Vector3, heading: number, back: number, take: () => Load<C> | null, ignore: string[], clearance: number = CYCLE_CONFIG.forkClearance, gate = false) {
     const v = f.vehicle;
     const stand = forkliftStop(point, heading, back + FORK_BACK), inPose = forkliftStop(point, heading, 0);
+    // Travel must not open Rack_m (body never drives through the frame). Only the short fork-in/out straight may ignore it.
+    const rackIds = new Set(this.racks.map((r) => r.object.id));
+    const travelIgnore = ignore.filter((id) => !rackIds.has(id));
     if (gate) this.rackGate(f, stand);
-    v.goTo(stand, !!f.carrying, ignore).turn(heading)
+    v.goTo(stand, !!f.carrying, travelIgnore).turn(heading)
       .then(() => this.setForklift(f, "pickUp"))
       .forkTo(forkLiftFor(point.y))
       .straight(inPose, { ignore })
@@ -1147,8 +1285,10 @@ export class PalletCycle<C extends CycleCargo> {
   private place(f: Forklift<C>, point: Vector3, heading: number, back: number, release: (load: Load<C>) => void, ignore: string[], after?: () => void, clearance: number = CYCLE_CONFIG.forkClearance, gate = false) {
     const v = f.vehicle;
     const stand = forkliftStop(point, heading, back + FORK_BACK), inPose = forkliftStop(point, heading, 0);
+    const rackIds = new Set(this.racks.map((r) => r.object.id));
+    const travelIgnore = ignore.filter((id) => !rackIds.has(id));
     if (gate) this.rackGate(f, stand);
-    v.goTo(stand, true, ignore).turn(heading)
+    v.goTo(stand, true, travelIgnore).turn(heading)
       .then(() => this.setForklift(f, "putDown"))
       .forkTo(forkLiftFor(point.y) + clearance)
       .straight(inPose, { ignore })
@@ -1182,35 +1322,92 @@ export class PalletCycle<C extends CycleCargo> {
    * Pallet source for a forklift trip at -> source -> to (`to` default: back to `at`): shortest total trip. freeOnly false:
    * a stack another forklift is using is still allowed but costs SOURCE_BUSY_PENALTY m, so a free one nearby wins.
    */
-  private nearestSource(cell: number, at: Vector3, freeOnly = true, to?: Vector3) {
+  /**
+   * A pallet stack is free for `f` when neither it nor a stack right next to it (shared standoff / fork lane, e.g. two
+   * empty-pallet stacks 1.6 m apart) is claimed by another forklift. Two forklifts driving their forks into neighbouring
+   * (or the same) stacks at once held each other forever right at the lift (a straight fork-in never passes a body).
+   */
+  private sourceFree(source: Source, f?: Forklift<C>) {
+    const p = source.dock;
+    return this.sources.every((o) => !o.busy || o.busy === f || (o !== source && Math.hypot(o.dock.x - p.x, o.dock.z - p.z) > SOURCE_NEAR));
+  }
+  private nearestSource(cell: number | readonly number[], at: Vector3, freeOnly = true, to?: Vector3) {
     const SOURCE_BUSY_PENALTY = 25;
+    const cells = typeof cell === "number" ? [cell] : cell;
     let best: Source | undefined, dist = Infinity;
     for (const source of this.sources) {
-      if (this.cellOf(source.dock.id) !== cell || (freeOnly && source.busy)) continue;
+      if (!cells.includes(this.cellOf(source.dock.id)) || (freeOnly && !this.sourceFree(source))) continue;
       const p = source.top.position;
-      const d = Math.hypot(p.x - at.x, p.z - at.z) + (to ? Math.hypot(p.x - to.x, p.z - to.z) : 0) + (source.busy ? SOURCE_BUSY_PENALTY : 0);
+      const d = Math.hypot(p.x - at.x, p.z - at.z) + (to ? Math.hypot(p.x - to.x, p.z - to.z) : 0) + (!this.sourceFree(source) ? SOURCE_BUSY_PENALTY : 0);
       if (d < dist) { dist = d; best = source; }
     }
     return best;
   }
   /**
-   * Service forklifts responsible for a shuttle: its emptyReturn-linked forklifts plus the enabled service forklifts of its cell.
-   * `f` may serve it when it is one of them, or when all of them are busy (job / moving) so a free second forklift takes over.
+   * 🔗 담당 랙 중 사용 가능한 Rack_m. null = 셀 폴백(연결 없음, 또는 고정 랙만 연결).
+   * 빈 배열을 반환하면 안 된다: [] 는 truthy라 고정 랙 직접 적재(directStore)가 영구히 막힌다.
    */
+  private linkedMobileRacks(id: string) {
+    const linked = this.host.storeTo?.(id) ?? [];
+    if (!linked.length) return null;
+    const mobile = this.racks.filter((r) => linked.includes(r.object.id) && this.enabled(r.object.id));
+    return mobile.length ? mobile : null;
+  }
+  /**
+   * Whether forklift `f` may do a full-pallet swap for shuttle `s`.
+   * - Shuttle has emptyReturn → forklift links: only those forklifts (backup only while they are busy).
+   * - Forklift has incoming emptyReturn links: only those AMRs (never an unlinked shuttle).
+   * - Neither: same-cell service forklifts when autoConnect is on.
+   */
+  private backupOf(f: Forklift<C>) {
+    const id = this.host.settings()[f.object.id]?.forkliftBackupFor;
+    return id && id !== f.object.id && this.forklifts.some((o) => o.object.id === id) ? id : null;
+  }
   private mayServe(f: Forklift<C>, s: Shuttle<C>) {
     if (!isServiceTask(f.task) || !this.enabled(f.object.id)) return false;
     const linked = this.host.emptyReturnTo?.(s.object.id) ?? [];
+    const claimed = this.host.emptyReturnFrom?.(f.object.id) ?? [];
+    const target = this.backupOf(f);
+    // A backup always serves the shuttle standing at its own swap dock (sent there because the primary dock was taken).
+    if (target && s.dock.id.startsWith(`${STOP_POINT_PREFIX}${f.object.id}:`)) return true;
+
+    if (linked.length) {
+      const owners = this.forklifts.filter((o) => linked.includes(o.object.id) && isServiceTask(o.task) && this.enabled(o.object.id) && !this.backupOf(o));
+      // Backup: while every owner is busy (e.g. primary hauling the full pallet away), supply the empty one.
+      if (target) return owners.some((o) => o.object.id === target) && owners.every((o) => !!o.job || !o.vehicle.idle);
+      return owners.includes(f);
+    }
+
+    // This forklift is reserved for its linked AMRs — do not pick up an unlinked shuttle.
+    if (claimed.length) return false;
+    if (this.host.autoConnect === false) return false;
+
     const cell = this.cellOf(s.dock.id);
-    const owners = this.forklifts.filter((o) => isServiceTask(o.task) && this.enabled(o.object.id) && (linked.includes(o.object.id) || this.cellOf(o.object.id) === cell));
+    if (this.cellOf(f.object.id) !== cell || this.backupOf(f)) return false;
+    const owners = this.forklifts.filter((o) => isServiceTask(o.task) && this.enabled(o.object.id) && !this.backupOf(o)
+      && this.cellOf(o.object.id) === cell && !(this.host.emptyReturnFrom?.(o.object.id)?.length));
     if (!owners.length || owners.includes(f)) return true;
     return owners.every((o) => !!o.job || !o.vehicle.idle);
   }
-  /** Nearest service shuttle waiting to swap its full pallet. */
+  /** True when the shuttle is waiting at this forklift's authored service (swap) stop. */
+  private atOwnStop(f: Forklift<C>, s: Shuttle<C>) {
+    return s.dock.id.startsWith(`${STOP_POINT_PREFIX}${f.object.id}:`);
+  }
+  /**
+   * Service shuttle waiting to swap its full pallet. Prefers one already at this forklift's 교체 위치, then nearest.
+   * Without that, a forklift often left its own docked shuttle to chase a closer AMR elsewhere.
+   */
   private nearestWaiting(f: Forklift<C>, at: Vector3) {
-    let best: Shuttle<C> | undefined, dist = Infinity;
+    let best: Shuttle<C> | undefined, bestOwn = false, dist = Infinity;
     for (const shuttle of this.shuttles) {
       if (shuttle.mode !== "service" || shuttle.state !== "waitSwap" || !shuttle.load || !this.mayServe(f, shuttle)) continue;
+      const own = this.atOwnStop(f, shuttle);
       const d = shuttle.vehicle.position.distanceTo(at);
+      if (own !== bestOwn) {
+        if (!own && bestOwn) continue;
+        best = shuttle; bestOwn = own; dist = d;
+        continue;
+      }
       if (d < dist) { dist = d; best = shuttle; }
     }
     return best;
@@ -1348,9 +1545,17 @@ export class PalletCycle<C extends CycleCargo> {
    * Service-stop job split from the task: mobileRack = full pallets only and palletSwap = empty pallets only while the other
    * kind works in the cell; a lone one of either does both (the shuttle would stall otherwise).
    */
+  /** True when this forklift authored a service stop (swap dock). Stop-less forklifts (e.g. north empty stacks)
+   * share a geometric cell with south swap docks but are not unload/supply partners for roleOf. */
+  private hasServiceStop(f: Forklift<C>) {
+    return (this.host.settings()[f.object.id]?.stopPoints ?? []).some((p) => p.role === "service");
+  }
   private roleOf(f: Forklift<C>): "auto" | "unload" | "supply" {
     const cell = this.cellOf(f.object.id);
-    const has = (task: ForkliftTask) => this.forklifts.some((o) => o !== f && o.task === task && this.cellOf(o.object.id) === cell && this.enabled(o.object.id));
+    // Only another service-stop forklift in the cell splits the job. A stop-less palletSwap that merely
+    // sits in the same nearest-dock cell must not force mobileRack into unload-only (no local empty supply).
+    const has = (task: ForkliftTask) => this.forklifts.some((o) => o !== f && o.task === task && this.cellOf(o.object.id) === cell
+      && this.enabled(o.object.id) && this.hasServiceStop(o) && !this.backupOf(o));
     if (f.task === "mobileRack") return has("palletSwap") ? "unload" : "auto";
     if (f.task === "palletSwap") return has("mobileRack") ? "supply" : "auto";
     return "auto";
@@ -1367,8 +1572,11 @@ export class PalletCycle<C extends CycleCargo> {
     // From the task (roleOf): palletSwap = empty pallets only, mobileRack = full pallets only, when both work in the cell.
     const canUnload = role !== "supply", canSupply = role !== "unload", canTakeEmpty = role !== "unload";
     const inCell = (s: Shuttle<C>) => this.cellOf(s.dock.id) === cell;
-    // Pallet source: shortest forklift -> source -> AMR trip, per job below.
-    const sourceFor = (s?: Shuttle<C>) => this.nearestSource(cell, f.vehicle.position, true, s?.vehicle.position);
+    // Pallet source: shuttle cell or this forklift's cell (west stacks often sit one cell off the swap dock).
+    const sourceFor = (s?: Shuttle<C>) => {
+      const scell = s ? this.cellOf(s.dock.id) : cell;
+      return this.nearestSource(scell === cell ? cell : [scell, cell], f.vehicle.position, true, s?.vehicle.position);
+    };
     // 1. An AMR whose full pallet is already off waits for its empty pallet: shortest AMR downtime first.
     // Any mode: a scan shuttle set to start empty (initialPallet "forklift") waits here too.
     // A forklift with emptyReturn links (AMR → this forklift) supplies only those AMRs; without links, its cell.
@@ -1389,18 +1597,25 @@ export class PalletCycle<C extends CycleCargo> {
     const shuttle = this.nearestWaiting(f, f.vehicle.position);
     // Racks / sources of the shuttle's cell (a helping forklift from another cell stores there too).
     const scell = shuttle ? this.cellOf(shuttle.dock.id) : cell;
-    if (!canUnload || !shuttle || !shuttle.load || !this.sources.some((s) => this.cellOf(s.dock.id) === scell)) return;
-    // Another forklift in the cell may supply the empty pallet: hand it over, otherwise chain the supply.
-    const helper = this.forklifts.some((o) => o !== f && isServiceTask(o.task) && this.cellOf(o.object.id) === scell && this.enabled(o.object.id)
-      && this.roleOf(o) !== "unload");
-    // Disabled (작동 비활성) Rack_m are never filled; with none enabled the pallet goes to the fixed rack.
-    const cellRacks = this.racks.filter((r) => this.cellOf(r.object.id) === scell && this.enabled(r.object.id));
+    const hasSource = !!this.nearestSource(scell === cell ? cell : [scell, cell], f.vehicle.position, false);
+    if (!canUnload || !shuttle || !shuttle.load || !hasSource) return;
+    // Another forklift may bring the empty pallet while this one hauls the full one away. Count a forkliftBackupFor
+    // of *this* forklift as a helper — excluding all backups made the primary always chain, so the backup stood idle.
+    const helper = this.forklifts.some((o) => {
+      if (o === f || !isServiceTask(o.task) || this.cellOf(o.object.id) !== scell || !this.enabled(o.object.id)) return false;
+      if (this.roleOf(o) === "unload") return false;
+      const backs = this.backupOf(o);
+      return !backs || backs === f.object.id;
+    });
+    // 🔗 담당 Rack_m when linked; else enabled Rack_m of the shuttle cell. Disabled Rack_m are never filled.
+    const linkedRacks = this.linkedMobileRacks(f.object.id);
+    const cellRacks = linkedRacks ?? this.racks.filter((r) => this.cellOf(r.object.id) === scell && this.enabled(r.object.id));
     const rack = cellRacks.find((r) => r.state === "waiting" && r.at === "home" && r.levels.some((l, i) => !l && !r.booked.has(i)));
     if (rack) {
       this.unloadJob(f, shuttle, rack, !helper);
       return;
     }
-    // No Rack_m in this cell: the full pallet goes straight from the AMR into a free slot of the cell's fixed rack.
+    // Rack_m exists but is full / busy: wait. No Rack_m → fixed-rack direct store (same as before).
     const slot = cellRacks.length ? null : this.freeSlot((r) => this.cellOf(r.id) === scell, { id: f.object.id, from: shuttle.vehicle.position });
     if (slot) {
       this.directStoreJob(f, shuttle, slot.rack, slot.slot, !helper);
@@ -1425,12 +1640,19 @@ export class PalletCycle<C extends CycleCargo> {
     };
     const free = this.forklifts.filter((o) => (o === f || (!o.job && o.vehicle.idle)) && isServiceTask(o.task) && this.cellOf(o.object.id) === cell
       && this.enabled(o.object.id) && this.roleOf(o) !== "unload");
-    let best: Shuttle<C> | undefined, bestD = Infinity;
+    let best: Shuttle<C> | undefined, bestOwn = false, bestD = Infinity;
     for (const s of this.shuttles) {
       if (s.feed || s.state !== "waitEmpty" || !eligible(f, s)) continue;
+      const own = this.atOwnStop(f, s);
       const d = f.vehicle.position.distanceTo(s.vehicle.position);
       const closer = free.some((o) => o !== f && eligible(o, s) && o.vehicle.position.distanceTo(s.vehicle.position) + 0.05 < d);
-      if (closer || d >= bestD) continue;
+      if (closer) continue;
+      if (own !== bestOwn) {
+        if (!own && bestOwn) continue;
+        best = s; bestOwn = own; bestD = d;
+        continue;
+      }
+      if (d >= bestD) continue;
       best = s;
       bestD = d;
     }
@@ -1444,9 +1666,10 @@ export class PalletCycle<C extends CycleCargo> {
     this.setShuttle(shuttle, "swapping", "Rack_m 없음 · 랙 직접 적재");
     this.setForklift(f, "toPick");
     shuttle.load!.group.updateWorldMatrix(true, false);
-    const heading = alongPallet(forkYawOf(shuttle.load!.group), shuttle.dock.yaw);
+    const along = alongPallet(forkYawOf(shuttle.load!.group), shuttle.dock.yaw);
     const deck = shuttle.vehicle.position.clone().setY(shuttle.pallet.baseY);
     const half = STREAM_CONFIG.palletDepth / 2;
+    const heading = this.deckHeading(deck, along, half, f.vehicle.position, true);
     this.pick(f, deck, heading, half, () => {
       if (shuttle.load) this.measurePick(shuttle.load.group, deck, heading);
       return shuttle.load;
@@ -1484,9 +1707,10 @@ export class PalletCycle<C extends CycleCargo> {
     this.setForklift(f, "toPick");
     // Approach along the pallet actually on the AMR (its world yaw), not the dock's nominal yaw.
     shuttle.load!.group.updateWorldMatrix(true, false);
-    const heading = alongPallet(forkYawOf(shuttle.load!.group), shuttle.dock.yaw);
+    const along = alongPallet(forkYawOf(shuttle.load!.group), shuttle.dock.yaw);
     const deck = shuttle.vehicle.position.clone().setY(shuttle.pallet.baseY);
     const half = STREAM_CONFIG.palletDepth / 2;
+    const heading = this.deckHeading(deck, along, half, f.vehicle.position, true);
     this.pick(f, deck, heading, half, () => {
       if (shuttle.load) this.measurePick(shuttle.load.group, deck, heading);
       return shuttle.load;
@@ -1529,13 +1753,11 @@ export class PalletCycle<C extends CycleCargo> {
     const half = STREAM_CONFIG.palletDepth / 2;
     f.vehicle.then(() => {
       f.job = "swapEmpty";
-      source.busy = f;
       this.setForklift(f, "toSource");
-    });
-    if (!f.job) {
-      f.job = "swapEmpty";
-      source.busy = f;
-    }
+    }).until(() => this.sourceFree(source, f)).then(() => { source.busy = f; });
+    // No early stack claim: holding the stack while driving elsewhere made a neighbour-stack forklift wait in place (hold-and-wait).
+    // The stack is claimed only at the toSource gate above, right before the forks go in.
+    if (!f.job) f.job = "swapEmpty";
     const top = source.top.position.clone();
     source.top.updateWorldMatrix(true, false);
     const pickHeading = alongPallet(forkYawOf(source.top), source.dock.yaw);
@@ -1555,9 +1777,7 @@ export class PalletCycle<C extends CycleCargo> {
     // not across its body: the carried pallet then already has the deck yaw (no 90deg snap on placing).
     // Either end of that axis: the one whose standoff is nearer the stack the forklift comes from.
     const along = alongPallet(seatYaw + turn, shuttle.dock.yaw), from = forkliftStop(top, pickHeading, half + FORK_BACK);
-    const placeHeading = [along, along + Math.PI]
-      .map((h) => ({ h, d: forkliftStop(back, h, half + FORK_BACK).distanceTo(from) }))
-      .sort((a, b) => a.d - b.d)[0].h;
+    const placeHeading = this.deckHeading(back, along, half, from, true);
     this.place(f, back, placeHeading, half, (load) => {
       this.measure(load.group, () => {
         // Keep the carried yaw: pick the seat yaw or its 180deg twin (pallets are symmetric), whichever matches.
@@ -1584,13 +1804,26 @@ export class PalletCycle<C extends CycleCargo> {
   private emptyPickFor(f: Forklift<C>, shuttle: Shuttle<C>) {
     const linked = this.host.emptyReturnTo?.(shuttle.object.id) ?? [];
     const linkedForklifts = this.forklifts.filter((o) => linked.includes(o.object.id));
-    if (linkedForklifts.length) return linkedForklifts.includes(f);
+    if (linkedForklifts.length) {
+      // Owners exclude backups so sharing emptyReturn links with a forkliftBackupFor forklift does not let it take
+      // the job while the primary is free (linked.includes would otherwise return true immediately).
+      const owners = linkedForklifts.filter((o) => !this.backupOf(o));
+      const target = this.backupOf(f);
+      if (target)
+        return isServiceTask(f.task) && this.enabled(f.object.id) && owners.some((o) => o.object.id === target)
+          && owners.every((o) => !this.enabled(o.object.id) || !!o.job || !o.vehicle.idle);
+      return owners.includes(f);
+    }
     if (!linked.length && this.host.autoConnect === false) return false;
+    // Forklifts already claimed by other AMR emptyReturn links do not take unlinked shuttles.
+    if ((this.host.emptyReturnFrom?.(f.object.id) ?? []).length) return false;
     const cell = this.cellOf(shuttle.dock.id);
     if (this.cellOf(f.object.id) !== cell) return false;
     const settings = this.host.settings();
-    const able = this.forklifts.filter((o) => isServiceTask(o.task) && this.cellOf(o.object.id) === cell && this.enabled(o.object.id)
-      && this.roleOf(o) !== "unload");
+    const able = this.forklifts.filter((o) => isServiceTask(o.task) && !this.backupOf(o) && this.cellOf(o.object.id) === cell && this.enabled(o.object.id)
+      && this.roleOf(o) !== "unload" && !(this.host.emptyReturnFrom?.(o.object.id)?.length));
+    // Backup: only while every forklift it may stand in for is busy.
+    if (this.backupOf(f)) return isServiceTask(f.task) && this.enabled(f.object.id) && able.length > 0 && able.every((o) => !!o.job || !o.vehicle.idle);
     if (able.length < 2) return able.includes(f);
     const deck = shuttle.vehicle.position;
     const reach = (o: Forklift<C>) => {
@@ -1604,7 +1837,7 @@ export class PalletCycle<C extends CycleCargo> {
   /** Service forklift: empty pallet off an inbound (roller-top) AMR at its unload dock → top of the empty-pallet source stack. */
   private takeEmptyJob(f: Forklift<C>, shuttle: Shuttle<C>, source: Source) {
     f.job = "takeEmpty";
-    source.busy = f;
+    // Stack claimed only after the AMR pick (gate below), not for the whole AMR trip.
     this.setShuttle(shuttle, "emptyPicking");
     this.setForklift(f, "toPick");
     const group = shuttle.load!.group;
@@ -1613,9 +1846,7 @@ export class PalletCycle<C extends CycleCargo> {
     const half = STREAM_CONFIG.palletDepth / 2;
     // Either end of the pallet axis: the one whose standoff is nearer the forklift.
     const along = alongPallet(forkYawOf(group), shuttle.dock.yaw), from = f.vehicle.position;
-    const heading = [along, along + Math.PI]
-      .map((h) => ({ h, d: forkliftStop(deck, h, half + FORK_BACK).distanceTo(from) }))
-      .sort((a, b) => a.d - b.d)[0].h;
+    const heading = this.deckHeading(deck, along, half, from, true);
     this.pick(f, deck, heading, half, () => {
       const load = shuttle.load;
       if (load) this.measurePick(load.group, deck, heading);
@@ -1627,6 +1858,7 @@ export class PalletCycle<C extends CycleCargo> {
       this.setShuttle(shuttle, "returning", "지게차가 빈 팔레트 회수");
       this.goHome(shuttle, null);
     });
+    f.vehicle.until(() => this.sourceFree(source, f)).then(() => { source.busy = f; });
     const top = source.top.position.clone().setY(source.top.position.y + STREAM_CONFIG.palletHeight);
     source.top.updateWorldMatrix(true, false);
     this.place(f, top, alongPallet(forkYawOf(source.top), source.dock.yaw), half, (load) => {
@@ -1699,7 +1931,7 @@ export class PalletCycle<C extends CycleCargo> {
       this.stats.storedToRack++;
     }, [], undefined, RACK_CONFIG.liftClearance + 0.02, true);
     // 2. Empty pallet off the source stack (one forklift at the stack).
-    v.then(() => this.setForklift(f, "toSource")).until(() => !source.busy || source.busy === f).then(() => { source.busy = f; });
+    v.then(() => this.setForklift(f, "toSource")).until(() => this.sourceFree(source, f)).then(() => { source.busy = f; });
     const top = source.top.position.clone();
     source.top.updateWorldMatrix(true, false);
     this.pick(f, top, alongPallet(forkYawOf(source.top), source.dock.yaw), half, () => {
@@ -1776,7 +2008,7 @@ export class PalletCycle<C extends CycleCargo> {
       this.host.rackStore(slot.rack, slot.slot, load.group, load.boxes.map((b) => b.node), load.palletId);
       this.stats.storedToRack++;
     }, [], undefined, RACK_CONFIG.liftClearance + 0.02, true);
-    v.then(() => this.setForklift(f, "toSource")).until(() => !source.busy || source.busy === f).then(() => { source.busy = f; });
+    v.then(() => this.setForklift(f, "toSource")).until(() => this.sourceFree(source, f)).then(() => { source.busy = f; });
     const top = source.top.position.clone();
     source.top.updateWorldMatrix(true, false);
     this.pick(f, top, alongPallet(forkYawOf(source.top), source.dock.yaw), half, () => {
@@ -1877,7 +2109,7 @@ export class PalletCycle<C extends CycleCargo> {
         for (const h of [along, along + Math.PI]) {
           const stand = forkliftStop(point, h, half + FORK_BACK).setY(0);
           if (this.host.dockGuard?.(stand, stand.x, stand.z)) continue;
-          if (this.host.clear && !this.host.clear(stand.x, stand.z, true)) continue;
+          if (this.host.clear && !this.host.clear(stand.x, stand.z, true, FORKLIFT_NAV_RADIUS)) continue;
           if (hits([{ x: stand.x, z: stand.z, r: FORKLIFT_NAV_RADIUS }], parked, CYCLE_CONFIG.safetyGap)) continue;
           const score = stand.distanceTo(from) + 0.5 * point.distanceTo(ap) + 1.5 * (angle(yaw - arrive) + angle(arrive - ay));
           out.push({ point, yaw, stand, score });
@@ -2261,6 +2493,17 @@ export class PalletCycle<C extends CycleCargo> {
     const n: Record<PalletState, number> = { empty: 0, loading: 0, full: 0, outbound: 0, stored: this.stats.storedToRack, shipped: this.stats.outboundPallets };
     for (const s of this.shuttles) n[this.palletOf(s)]++;
     return n;
+  }
+  /** HUD rack grid: one slot per Rack_m level (bottom → top = index 0 → n-1). */
+  rackMSlots(): { id: string; slots: { state: "empty" | "reserved" | "stored"; palletId?: string; boxes?: number }[] }[] {
+    return this.racks.map((r) => ({
+      id: r.object.id,
+      slots: r.levels.map((load, i) => {
+        if (load) return { state: "stored" as const, palletId: load.palletId, boxes: load.boxes.length };
+        if (r.booked.has(i)) return { state: "reserved" as const };
+        return { state: "empty" as const };
+      }),
+    }));
   }
   get snapshot(): CycleSnapshotItem[] {
     return [

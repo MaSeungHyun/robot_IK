@@ -510,7 +510,17 @@ export class FactorySimulator {
     this.docks = objects.filter((o) => o.kind === "dock" && (!dockRole(o) || dockRole(o) === "ship"));
     this.unloadDocks = objects.filter((o) => o.kind === "dock" && (dockRole(o) === "unload" || dockRole(o) === "stage"));
     // Every dock cell (ship / unload / stage / pallet source) blocks through-traffic; layoutPath reopens the serviced one.
-    this.dockZones = objects.filter((o) => o.kind === "dock").map((o) => ({ kind: o.kind, pose: o }));
+    // palletSource stacks: permanent floor obstacle (pallet footprint). Other docks still reopen when serviced.
+    this.dockZones = objects.filter((o) => o.kind === "dock").map((o) => {
+      const role = this.settings()[o.id]?.dockRole;
+      return {
+        kind: "dock" as const,
+        pose: o,
+        ...(role === "palletSource"
+          ? { permanent: true, radius: MODEL_FOOTPRINT.palletRadius }
+          : {}),
+      };
+    });
     this.dockCells = this.dockZones;
     this.dockInside.clear();
     this.lastGoal.clear();
@@ -1298,10 +1308,24 @@ export class FactorySimulator {
       elapsed: () => this.elapsed,
       settings: this.settings,
       emptyReturnTo: (amrId) => this.links.outgoing(amrId, "emptyReturn"),
+      emptyReturnFrom: (forkliftId) => this.links.incoming(forkliftId, "emptyReturn"),
+      storeTo: (id) => this.links.outgoing(id, "store"),
       handoffTo: (amrId) => this.links.outgoing(amrId, "handoff"),
       autoConnect: this.auto,
       dockGuard: (from, x, z) => this.foreignDockAt(from, x, z),
-      clear: (x, z, loaded) => layoutClear(this.rackLayout, loaded, this.rackObstacles)(x, z),
+      // Dock cells block cycle divert / approach connectors (AMR + forklift routes already use dockCells via
+      // blockingObstacles / forkliftRoute with the serviced dock reopened). A vehicle already inside a dock still
+      // leaves via CycleVehicle connectorSkip, same pattern as Station / walkway edges.
+      // Floor Rack_m discs (cycle-owned, excluded from rackObstacles) block through-traffic.
+      // `ignore` is for AGV under-dock only; forklift travel must not open the frame (fork-in uses a short straight).
+      clear: (x, z, loaded, radius, ignore?: readonly string[]) => {
+        if (!layoutClear(this.rackLayout, loaded, [...this.rackObstacles, ...this.dockCells], radius)(x, z)) return false;
+        const reach = radius ?? AMR_TRAFFIC.emptyRadius;
+        for (const c of this.cycle?.floorRackCircles(ignore) ?? []) {
+          if (Math.hypot(x - c.x, z - c.z) < c.r + reach) return false;
+        }
+        return true;
+      },
       plan: (from, to, loaded, extra, span) =>
         this.forkliftRoute(from, to, loaded, extra.map((c) => ({ kind: "amr" as const, pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r })), span ?? null),
       render: (group) => this.render(group),
@@ -2567,14 +2591,14 @@ export class FactorySimulator {
     if (robot && belt && accepting.length && !docks.length) {
       agent.waitingReason = accepting.every((dock) => dock.kind === "rack")
         ? "랙이 가득 찼습니다."
-        : "출고 구역에 내려놓은 팔레트를 비우는 중입니다.";
+        : "팔레트 적치장에 내려놓은 팔레트를 비우는 중입니다.";
       return false;
     }
     if (!robot || !belt || !docks.length) {
       agent.waitingReason =
         robot && belt && this.docks.length + this.racks.length
-          ? `${grade === "defect" ? "불량품" : "정상품"} 적재 팔레트를 받을 출고 구역이 없습니다.`
-          : "운반할 로봇·컨베이어·출고 구역을 확인해 주세요.";
+          ? `${grade === "defect" ? "불량품" : "정상품"} 적재 팔레트를 받을 팔레트 적치장이 없습니다.`
+          : "운반할 로봇·컨베이어·팔레트 적치장을 확인해 주세요.";
       return false;
     }
     // AMRs never lift a floor pallet: a forklift brings it onto the AMR's deck where the AMR waits.
@@ -3220,10 +3244,20 @@ export class FactorySimulator {
     // Dock cells block forklift through-traffic. A forklift services a dock from a fork length away, so a dock near
     // either route end (FORKLIFT_DOCK_REACH) is the one it works at and stays open.
     // Only the nearest dock to each end opens: a neighbouring dock (another vehicle's stop) still blocks.
+    // Reopen docks the forklift is working at. palletSource (permanent) only when an endpoint is at the stack
+    // work pose (~2 m) — never on a 3.5 m drive-by, so vehicles cannot path through empty-pallet piles.
+    const PALLET_SOURCE_WORK = 2.2;
     const open = new Set<NavigationObstacle>();
     for (const p of [from, to]) {
       let best: NavigationObstacle | null = null, bestD = FORKLIFT_DOCK_REACH;
-      for (const o of this.dockCells) { const d = Math.hypot(p.x - o.pose.x, p.z - o.pose.z); if (d < bestD) { bestD = d; best = o; } }
+      for (const o of this.dockCells) {
+        const d = Math.hypot(p.x - o.pose.x, p.z - o.pose.z);
+        if (o.permanent) {
+          if (d < PALLET_SOURCE_WORK) open.add(o);
+          continue;
+        }
+        if (d < bestD) { bestD = d; best = o; }
+      }
       if (best) open.add(best);
     }
     const doors = [...this.doorObstacles(), ...this.dockCells.filter((o) => !open.has(o))];
@@ -3864,20 +3898,23 @@ export class FactorySimulator {
         capacity: pallet.slots.length,
         shipping: pallet.shipping,
       })),
-      // Display only: slot occupancy (stored) and bookings by deliveries in progress (reserved).
-      racks: this.racks.map((rack) => ({
-        id: rack.id,
-        slots: (this.rackStored.get(rack.id) ?? []).map((filled, slot) => {
-          const stored = this.rackPallets.get(rack.id)?.[slot];
-          if (filled)
-            return { state: "stored" as const, content: this.rackContent.get(rack.id)?.[slot] ?? ("palletBoxes" as const), palletId: stored?.id, boxes: stored?.boxes, grade: stored?.grade, storedAt: stored?.storedAt };
-          const shipment = this.shipments.find((s) => s.dock.id === rack.id && s.slot === slot);
-          const record = this.cargo.pallet(shipment?.palletId);
-          return shipment
-            ? { state: "reserved" as const, palletId: shipment.palletId, boxes: record?.boxIds.length, grade: record?.grade }
-            : { state: "empty" as const };
-        }),
-      })),
+      // Display only: fixed-rack slots + cycle Rack_m levels (3단, 만재 시 AGV 견인).
+      racks: [
+        ...this.racks.map((rack) => ({
+          id: rack.id,
+          slots: (this.rackStored.get(rack.id) ?? []).map((filled, slot) => {
+            const stored = this.rackPallets.get(rack.id)?.[slot];
+            if (filled)
+              return { state: "stored" as const, content: this.rackContent.get(rack.id)?.[slot] ?? ("palletBoxes" as const), palletId: stored?.id, boxes: stored?.boxes, grade: stored?.grade, storedAt: stored?.storedAt };
+            const shipment = this.shipments.find((s) => s.dock.id === rack.id && s.slot === slot);
+            const record = this.cargo.pallet(shipment?.palletId);
+            return shipment
+              ? { state: "reserved" as const, palletId: shipment.palletId, boxes: record?.boxIds.length, grade: record?.grade }
+              : { state: "empty" as const };
+          }),
+        })),
+        ...(this.cycle?.rackMSlots() ?? []),
+      ],
     };
   }
   private readonly kpiSample = (): KpiSample => {

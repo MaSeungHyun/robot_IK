@@ -1,5 +1,6 @@
 import { resolveLink } from "@/types/links";
 import { isForkliftRole, type EquipmentSettings, type SceneEquipment } from "@/types/layout";
+import { isSceneLinkAllowed } from "@/domain/layout/linkConstraints";
 
 /**
  * A pallet mounted on an AMR (settings.mountedOn) is not linkable on its own: the AMR owns its links. The stored link
@@ -30,7 +31,7 @@ export function resolveOwnedLink(a: SceneEquipment, b: SceneEquipment, scene: Sc
     for (const y of ownedLinkEnds(b.id, scene)) {
       if (x === y || linkOwner(x, scene) === linkOwner(y, scene)) continue;
       const link = orientHandoff(orientEmptyReturn(resolveLink(byId.get(x)!, byId.get(y)!), byId, scene), byId, scene);
-      if (link) return link;
+      if (link && isSceneLinkAllowed(link, scene)) return link;
     }
   return null;
 }
@@ -48,8 +49,20 @@ function orientHandoff<L extends { type: string; from: string; to: string }>(lin
 /** emptyReturn between two AMRs: always plain AMR → forklift (pick order does not matter); two forklifts / two AMRs: no link. */
 function orientEmptyReturn<L extends { type: string; from: string; to: string }>(link: L | null, byId: Map<string, SceneEquipment>, { settings }: Scene): L | null {
   const fork = (id: string) => isForkliftRole(settings[id]?.amrRole);
-  // 담당 랙: forklift → rack only.
-  if (link?.type === "store") return fork(link.from) ? link : null;
+  const agv = (id: string) => settings[id]?.amrRole === "agv";
+  const mobile = (id: string) => settings[id]?.rackType === "mobile";
+  // 담당 랙: forklift → 고정/이동식, AGV → 이동식 Rack_m only.
+  if (link?.type === "store") {
+    const oriented = fork(link.from) || agv(link.from)
+      ? link
+      : fork(link.to) || agv(link.to)
+        ? { ...link, from: link.to, to: link.from }
+        : null;
+    if (!oriented) return null;
+    if (agv(oriented.from) && !mobile(oriented.to)) return null;
+    if (!fork(oriented.from) && !agv(oriented.from)) return null;
+    return oriented;
+  }
   // 빈 팔레트 회수 (lift): only a forklift (or palletSource dock) collects from a Transfer_Forklift.
   if (link?.type === "collect") return byId.get(link.to)?.kind !== "amr" || fork(link.to) ? link : null;
   if (!link || link.type !== "emptyReturn" || byId.get(link.to)?.kind !== "amr") return link;

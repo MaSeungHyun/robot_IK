@@ -25,6 +25,7 @@ export function propChunk(prop: TemplateProp): number {
   if (prop.source === "robotBase" || prop.source === "robotArmPlace") return 3;
   if (prop.source === "railInOut") return 2;
   if (/^Rack/i.test(prop.node)) return 4;
-  if (/^(Enviroment|column|fence|barrier|guardrail|walkway|FloorMarking|wall|floor)/i.test(prop.node)) return 1;
+  if (/^(Enviroment|column|fence|barrier|guardrail|walkway|[Pp]rop_?[Ww]alkway|FloorMarking|wall|floor)/i.test(prop.node)) return 1;
+  if (/^(Station|Prop_Station|AMR_Charge|Prop_AMR_Charge)/i.test(prop.node)) return 5;
   return 5;
 }

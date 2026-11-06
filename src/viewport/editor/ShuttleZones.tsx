@@ -1,10 +1,13 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { Html } from "@react-three/drei";
 import { BoxGeometry, EdgesGeometry, Plane, Raycaster, Vector3, type Group } from "three";
 import { useSceneStore } from "@/stores/useSceneStore";
 import { useShuttleZoneStore } from "@/stores/useShuttleZoneStore";
 import type { ThreeEvent } from "@react-three/fiber";
 import { STOP_ROLE_COLOR } from "@/ui/Hud/equipment/details/_components/StopPointSetting";
+import { STOP_POINT_PREFIX, withStopPoints } from "@/domain/layout/stopPoints";
+import { LINK_ACTIVE_COLOR } from "@/viewport/editor/links/linkPoints";
 
 const ZONE_COLOR = "#02dfef";
 const FLOOR = new Plane(new Vector3(0, 1, 0), 0);
@@ -43,15 +46,27 @@ function PlacingPreview({ color, yaw }: { color: string; yaw: number }) {
   );
 }
 
-/** Edit-mode 셔틀 구역 markers (hidden in play) and the floor click catcher of 셔틀 구역 지정 mode. */
+/** Edit-mode stop/zone markers, plus the active forklift's own swap dock in either mode. */
 export default function ShuttleZones() {
   const editing = useSceneStore((state) => state.editing);
   const objects = useSceneStore((state) => state.objects);
   const settings = useSceneStore((state) => state.settings);
+  const selected = useSceneStore((state) => state.selected);
+  const links = useSceneStore((state) => state.links);
   const placingFor = useShuttleZoneStore((state) => state.placingFor);
   const setPlacingFor = useShuttleZoneStore((state) => state.setPlacingFor);
   const placingRole = useShuttleZoneStore((state) => state.placingRole);
-  if (!editing) return null;
+  const activeForklift = objects.find((o) => o.id === selected && o.kind === "amr" && (settings[o.id]?.amrRole === "forklift" || settings[o.id]?.amrRole === "rack"));
+  // Resolve the same owned service docks as the simulator, including automatic stops.
+  // Never inherit the backup target's dock: a backup has its own stopPoints.
+  const activeStops = useMemo(() => {
+    if (!activeForklift) return [];
+    const resolved = withStopPoints(objects, () => settings, links);
+    const dockSettings = resolved.getSettings();
+    const prefix = `${STOP_POINT_PREFIX}${activeForklift.id}:`;
+    return resolved.objects.filter((o) => o.id.startsWith(prefix) && dockSettings[o.id]?.dockRole === "service");
+  }, [activeForklift, objects, settings, links]);
+  if (!editing && !activeStops.length) return null;
   const stops = objects.flatMap((o) => (settings[o.id]?.stopPoints ?? []).map((p, i) => ({ key: `${o.id}:stop:${i}`, owner: o.id, ...p })));
   const zones = objects.flatMap((o) => (settings[o.id]?.shuttleZones ?? []).map((z, i) => ({ key: `${o.id}:${i}`, owner: o.id, ...z })));
   const place = (event: ThreeEvent<PointerEvent>) => {
@@ -73,7 +88,7 @@ export default function ShuttleZones() {
   const previewColor = placingRole ? STOP_ROLE_COLOR[placingRole] : ZONE_COLOR;
   return (
     <group>
-      {zones.map((z) => (
+      {(editing ? zones : []).map((z) => (
         <group key={z.key} position={[z.x, 0.012, z.z]} rotation={[-Math.PI / 2, 0, 0]}>
           <mesh renderOrder={2}>
             <ringGeometry args={[0.72, 0.8, 48]} />
@@ -85,7 +100,7 @@ export default function ShuttleZones() {
           </mesh>
         </group>
       ))}
-      {stops.map((p) => (
+      {(editing ? stops : []).map((p) => (
         <group key={p.key}>
           <mesh position={[p.x, 0.3, p.z]} rotation={[0, p.yaw, 0]} renderOrder={2}>
             <boxGeometry args={[1.2, 0.6, 1.2]} />
@@ -99,7 +114,24 @@ export default function ShuttleZones() {
           </group>
         </group>
       ))}
-      {placingFor && (
+      {activeStops.map((p) => (
+        <group key={`active:${p.id}`}>
+          <mesh position={[p.x, 0.32, p.z]} rotation={[0, p.yaw, 0]} renderOrder={5} raycast={() => {}}>
+            <boxGeometry args={[1.22, 0.64, 1.22]} />
+            <meshBasicMaterial color={LINK_ACTIVE_COLOR} transparent opacity={0.4} depthWrite={false} depthTest={false} toneMapped={false} />
+          </mesh>
+          <mesh position={[p.x, 0.035, p.z]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={6} raycast={() => {}}>
+            <ringGeometry args={[1.05, 1.2, 48]} />
+            <meshBasicMaterial color={LINK_ACTIVE_COLOR} depthWrite={false} depthTest={false} toneMapped={false} />
+          </mesh>
+          <Html position={[p.x, 1.1, p.z]} center zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
+            <div className="whitespace-nowrap rounded border border-link-active bg-bg-secondary/90 px-2 py-1 text-xs text-link-active">
+              {activeForklift?.name} · 셔틀 교체 위치 ({p.x.toFixed(1)}, {p.z.toFixed(1)})
+            </div>
+          </Html>
+        </group>
+      ))}
+      {editing && placingFor && (
         <>
           <PlacingPreview color={previewColor} yaw={objects.find((o) => o.id === placingFor)?.yaw ?? 0} />
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]} onPointerDown={place}>

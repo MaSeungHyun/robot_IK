@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { RACK_CONFIG } from "@/constants/rack";
+import { RACK_M_MODEL } from "@/constants/cycle";
 import { useSimulationStore } from "@/stores/useSimulationStore";
+import { useSceneStore } from "@/stores/useSceneStore";
 import DetailSection from "@/ui/Hud/equipment/details/_components/DetailSection";
 import { cn } from "@/lib/style";
 import { fmtTime } from "@/ui/Hud/dashboard/full/format";
@@ -16,7 +18,7 @@ type Slot = NonNullable<
  * Real rack layout from the model's slot points: columns = distinct z (left to right as seen
  * from the loading face), rows = distinct shelf heights (top level first).
  */
-function rackLayout() {
+function fixedRackLayout() {
   // Slot point coordinates come from the model and differ by a few mm between bays, so exact
   // Set() matching split one shelf into several rows. Snap to 5 cm before grouping.
   const snap = (value: number) => Math.round(value / 0.05);
@@ -31,12 +33,52 @@ function rackLayout() {
 
 const STATE_LABEL = { empty: "비어 있음", reserved: "예약됨 (운반 중)", stored: "보관 중" } as const;
 
-/** Rack slot grid (levels x bays) like the pallet slot view: occupancy, pallet id and box count. */
+function SlotCell({ index, levelLabel, slot }: { index: number; levelLabel: string; slot: Slot }) {
+  const detail = [
+    `슬롯 ${index + 1} · ${levelLabel}`,
+    STATE_LABEL[slot.state],
+    slot.content && CONTENT_LABEL[slot.content],
+    slot.palletId && `팔레트 ${slot.palletId}`,
+    slot.boxes !== undefined && `박스 ${slot.boxes}개`,
+    slot.grade && GRADE_LABEL[slot.grade],
+    slot.storedAt !== undefined && `보관 ${fmtTime(slot.storedAt)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div
+      title={detail}
+      className={cn(
+        "flex h-12 flex-col justify-center rounded-[3px] border px-1.5 text-[10px] leading-tight tabular-nums",
+        slot.state === "stored" && "border-operating/30 bg-operating/10 text-text-primary",
+        slot.state === "reserved" && "border-dashed border-warning/50 bg-warning/5 text-warning",
+        slot.state === "empty" && "border-white/10 text-text-secondary",
+      )}
+    >
+      <span className="text-text-secondary">#{index + 1} · {levelLabel}</span>
+      <span className="truncate">
+        {slot.state === "empty"
+          ? "—"
+          : slot.palletId ?? (slot.state === "reserved" ? "예약" : "보관")}
+      </span>
+      {slot.state !== "empty" && slot.boxes !== undefined && (
+        <span className={cn("text-text-secondary", slot.grade === "defect" && "text-fault")}>
+          {slot.boxes}개{slot.grade ? ` · ${GRADE_LABEL[slot.grade]}` : ""}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Rack slot grid: fixed racks = model bay×shelf; Rack_m = vertical 3 levels (만재 시 AGV). */
 export default function RackSlotGrid({ rackId }: { rackId: string }) {
+  const mobile = useSceneStore((state) => state.settings[rackId]?.rackType === "mobile");
   const slots = useSimulationStore(
     (state) => state.equipment?.racks?.find((rack) => rack.id === rackId)?.slots,
   );
-  const { columns, levels, cells } = useMemo(() => rackLayout(), []);
+  const fixed = useMemo(() => fixedRackLayout(), []);
+  const mobileLevels = RACK_M_MODEL.levels.length;
+  const total = mobile ? mobileLevels : RACK_CONFIG.slots.length;
   const stored = slots?.filter((slot) => slot.state === "stored").length ?? 0;
   const reserved = slots?.filter((slot) => slot.state === "reserved").length ?? 0;
   const storedList = (slots ?? [])
@@ -46,54 +88,31 @@ export default function RackSlotGrid({ rackId }: { rackId: string }) {
 
   return (
     <DetailSection
-      title={`보관 칸 · ${stored}/${RACK_CONFIG.slots.length}${reserved ? ` · 예약 ${reserved}` : ""}`}
+      title={`보관 칸 · ${stored}/${total}${reserved ? ` · 예약 ${reserved}` : ""}${mobile ? " · 만재 시 AGV" : ""}`}
     >
-      <div
-        className="grid gap-1"
-        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-        aria-label={`랙 보관 칸 ${levels}단 x ${columns}열`}
-      >
-        {cells.map((index, i) => {
-          if (index < 0) return <div key={`gap-${i}`} />;
-          const slot: Slot = slots?.[index] ?? { state: "empty" };
-          const level = levels - Math.floor(i / columns);
-          const detail = [
-            `슬롯 ${index + 1} · ${level}단`,
-            STATE_LABEL[slot.state],
-            slot.content && CONTENT_LABEL[slot.content],
-            slot.palletId && `팔레트 ${slot.palletId}`,
-            slot.boxes !== undefined && `박스 ${slot.boxes}개`,
-            slot.grade && GRADE_LABEL[slot.grade],
-            slot.storedAt !== undefined && `보관 ${fmtTime(slot.storedAt)}`,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          return (
-            <div
-              key={index}
-              title={detail}
-              className={cn(
-                "flex h-12 flex-col justify-center rounded-[3px] border px-1.5 text-[10px] leading-tight tabular-nums",
-                slot.state === "stored" && "border-operating/30 bg-operating/10 text-text-primary",
-                slot.state === "reserved" && "border-dashed border-warning/50 bg-warning/5 text-warning",
-                slot.state === "empty" && "border-white/10 text-text-secondary",
-              )}
-            >
-              <span className="text-text-secondary">#{index + 1}</span>
-              <span className="truncate">
-                {slot.state === "empty"
-                  ? "—"
-                  : slot.palletId ?? (slot.state === "reserved" ? "예약" : "보관")}
-              </span>
-              {slot.state !== "empty" && slot.boxes !== undefined && (
-                <span className={cn("text-text-secondary", slot.grade === "defect" && "text-fault")}>
-                  {slot.boxes}개{slot.grade ? ` · ${GRADE_LABEL[slot.grade]}` : ""}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {mobile ? (
+        <div className="grid grid-cols-1 gap-1" aria-label={`이동식 랙 보관 칸 ${mobileLevels}단`}>
+          {/* Top shelf first (level n → 1). */}
+          {Array.from({ length: mobileLevels }, (_, row) => {
+            const index = mobileLevels - 1 - row;
+            const slot: Slot = slots?.[index] ?? { state: "empty" };
+            return <SlotCell key={index} index={index} levelLabel={`${index + 1}단`} slot={slot} />;
+          })}
+        </div>
+      ) : (
+        <div
+          className="grid gap-1"
+          style={{ gridTemplateColumns: `repeat(${fixed.columns}, minmax(0, 1fr))` }}
+          aria-label={`랙 보관 칸 ${fixed.levels}단 x ${fixed.columns}열`}
+        >
+          {fixed.cells.map((index, i) => {
+            if (index < 0) return <div key={`gap-${i}`} />;
+            const slot: Slot = slots?.[index] ?? { state: "empty" };
+            const level = fixed.levels - Math.floor(i / fixed.columns);
+            return <SlotCell key={index} index={index} levelLabel={`${level}단`} slot={slot} />;
+          })}
+        </div>
+      )}
       {storedList.length > 0 && (
         <table className="mt-3 w-full border-collapse text-left text-[11px] tabular-nums">
           <thead className="text-text-secondary">

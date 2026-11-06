@@ -81,9 +81,17 @@ export default function AgvPaths() {
   const placing = useShuttleZoneStore((state) => !!state.placingFor);
   useEffect(() => {
     if (!drawingFor) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setDrawingFor(null); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (event.key === "Escape" || event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        setDrawingFor(null);
+      }
+    };
+    // Capture so editor shortcuts / Esc chains do not steal the finish gesture.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [drawingFor, setDrawingFor]);
   if (!editing) return null;
   const paths = objects.map((o) => ({ id: o.id, points: settings[o.id]?.agvPath ?? [] })).filter((p) => p.points.length);
@@ -102,9 +110,10 @@ export default function AgvPaths() {
       {drawingFor && !placing && (
         <>
           <PathPreview from={current.length ? current[current.length - 1] : null} />
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]} onPointerDown={add}>
+          {/* Large invisible plane above equipment so clicks add waypoints instead of selecting objects. */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.2, 0]} onPointerDown={add} renderOrder={20}>
             <planeGeometry args={[2000, 2000]} />
-            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} depthTest={false} />
           </mesh>
         </>
       )}

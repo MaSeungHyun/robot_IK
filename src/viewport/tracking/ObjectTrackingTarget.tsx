@@ -5,7 +5,7 @@ import { Box3, Euler, Group, Matrix4, Mesh, Quaternion, Vector3 } from "three";
 
 const UP = new Vector3(0, 1, 0);
 import { useCameraTrackingStore } from "@/stores/useCameraTrackingStore";
-import { useSceneStore } from "@/stores/useSceneStore";
+import { EQUIPMENT_NAMES, equipmentDisplayKind, useSceneStore } from "@/stores/useSceneStore";
 import { useSceneInstances } from "@/viewport/instancing/useInstanceModel";
 import {
   TRACKING_RING as R,
@@ -13,7 +13,6 @@ import {
 } from "@/viewport/tracking/tracking";
 import TrackingGroundRing from "@/viewport/tracking/TrackingGroundRing";
 import TrackingLiveInfo from "@/ui/tracking/TrackingLiveInfo";
-import { EQUIPMENT_NAMES } from "@/stores/useSceneStore";
 import { SceneObjectResolver } from "@/viewport/scene/sceneObjects";
 import { trackingFootprint } from "@/viewport/tracking/trackingFootprint";
 
@@ -34,12 +33,14 @@ const viewportCenter = (
 /** Only the tracked model contributes bounds; no per-frame React state updates. */
 export default function ObjectTrackingTarget() {
   const id = useCameraTrackingStore((state) => state.trackedId);
-  const name = useSceneStore(
-    (state) => state.objects.find((object) => object.id === id)?.name,
-  );
   const kind = useSceneStore(
     (state) => state.objects.find((object) => object.id === id)?.kind,
   );
+  const name = useSceneStore((state) => {
+    const object = state.objects.find((entry) => entry.id === id);
+    if (!object) return undefined;
+    return equipmentDisplayKind(object.kind, state.settings[object.id]);
+  });
   const instances = useSceneInstances();
   const resolver = useMemo(() => new SceneObjectResolver(), []);
   const ring = useRef<Group>(null);

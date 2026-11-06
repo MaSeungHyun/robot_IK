@@ -17,7 +17,7 @@ export default function ShipAmrDetails({ id }: { id: string }) {
   const selectTab = useHudStore((state) => state.selectInspectorTab);
   const tracking = useCameraTrackingStore((state) => state.trackedId === id);
   const toggleTracking = useCameraTrackingStore((state) => state.toggle);
-  const name = agent?.name ?? "출하 AMR";
+  const name = agent?.name ?? "AMR";
 
   return (
     <div className="min-w-0 pb-2">
@@ -49,7 +49,7 @@ export default function ShipAmrDetails({ id }: { id: string }) {
 
       <header className="min-w-0">
         <h2 className="truncate text-xs font-semibold text-text-primary" title={name}>
-          {name} <span className="text-text-secondary">· 출하 AMR</span>
+          {name} <span className="text-text-secondary">· AMR</span>
         </h2>
         <div className="mt-2">
           <DetailRows rows={[

@@ -18,9 +18,9 @@ export const LINK_RULES: Record<LinkType, { from: EquipmentKind; to: readonly Eq
   load: { from: "robot", to: ["pallet"], label: "적재" },
   pickup: { from: "amr", to: ["pallet"], label: "픽업" },
   deliver: { from: "pallet", to: ["dock", "rack", "conveyor", "robot", "amr"], label: "출고" },
-  /** AMR → forklift that lifts its emptied pallet off / palletSource dock it is stacked on (else nearest). */
-  emptyReturn: { from: "amr", to: ["amr", "dock"], label: "빈 팔레트 회수" },
-  /** Forklift → rack(s) it stores into / retrieves from (assigned racks win over the nearest-by-path fallback). */
+  /** AMR → forklift (만재 교체 담당 + 빈 회수) / palletSource dock (else nearest). */
+  emptyReturn: { from: "amr", to: ["amr", "dock"], label: "교체·회수" },
+  /** Forklift / AGV → rack(s): forklift stores into fixed or Rack_m; AGV hauls linked Rack_m only (see linkConstraints). */
   store: { from: "amr", to: ["rack"], label: "담당 랙" },
   /** Transfer_Forklift → forklift that collects its lowered empty pallet / palletSource dock it is stacked on (else nearest). */
   collect: { from: "transfer", to: ["amr", "dock"], label: "빈 팔레트 회수" },

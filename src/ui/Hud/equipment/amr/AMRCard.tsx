@@ -4,6 +4,7 @@ import EquipmentCard from "@/ui/Hud/equipment/_components/EquipmentCard";
 import { batteryTone } from "@/ui/Hud/equipment/equipmentStatus";
 import useEquipmentTelemetry from "@/hooks/useEquipmentTelemetry";
 import type { EquipmentSnapshot } from "@/types/simulation";
+import { equipmentDisplayKind, useSceneStore } from "@/stores/useSceneStore";
 
 type Props = { agent: EquipmentSnapshot["agents"][number] };
 
@@ -13,21 +14,24 @@ import { EQUIPMENT_REPORT_INTERVAL_MS } from "@/constants/telemetry";
 
 
 export default memo(function AMRCard({ agent }: Props) {
+  const settings = useSceneStore((state) => state.settings[agent.id]);
+  const kind = useSceneStore((state) => state.objects.find((o) => o.id === agent.id)?.kind ?? "amr");
+  const label = equipmentDisplayKind(kind, settings);
   const battery =
     useEquipmentTelemetry(agent.id)?.batteryPercent ?? agent.battery;
   const smoothBattery = useSmoothedValue(battery, EQUIPMENT_REPORT_INTERVAL_MS);
   const charging = agent.state === "charging";
 
   return (
-    <EquipmentCard id={agent.id} name={agent.name}>
+    <EquipmentCard id={agent.id} name={label}>
       <div className="flex items-center justify-between text-xs">
-        <span>{agent.name}</span>
+        <span>{label}</span>
         <AMRStatusBadge state={agent.state} battery={battery} />
       </div>
 
       {battery !== undefined && Number.isFinite(battery) ? (
         <ProgressBar
-          label={`${agent.name} 배터리`}
+          label={`${label} 배터리`}
           caption="배터리"
           value={smoothBattery ?? battery}
           tone={charging ? "charging" : batteryTone(battery)}

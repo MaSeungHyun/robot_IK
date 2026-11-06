@@ -33,7 +33,7 @@ function partSegment(p: PropFootprint): PropSegment {
 }
 
 /**
- * Static template props (factory.glb columns, fences, barriers, guardrails, decor pallets and racks) as AMR / forklift
+ * Static template props (factory.glb columns, fences, barriers, guardrails, decor pallets/racks, Station*, walkway) as AMR / forklift
  * route obstacles. Props moved by a template override (position / yaw) are skipped: the footprints are baked at the
  * authored node transform. Parts covering placed equipment are skipped (the equipment is the obstacle there).
  */

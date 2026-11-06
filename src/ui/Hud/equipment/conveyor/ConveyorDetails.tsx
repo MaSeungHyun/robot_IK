@@ -85,7 +85,6 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
       ]} />
     } settings={
       <DetailSection title="컨베이어 설정">
-        <p className="text-xs text-slate-500">연결된 라인 전체에 적용 · 시작 구간 {objects.find((o) => o.id === headId)?.name ?? object.name} 기준</p>
         <EquipmentNumberSetting id={headId} field="beltSpeed" label="연결 컨베이어 속도" unit="m/s" {...SPEED_LIMITS.beltSpeed} />
         <EquipmentChoiceSetting
           id={headId}
@@ -103,9 +102,6 @@ export default function ConveyorDetails({ object }: EquipmentDetailProps) {
         />
         {shipNoRobot && <p style={{ color: "#f59e0b" }}>⚠ 박스 출하 컨베이어에는 로봇이 필요합니다. 로봇이 팔레트에서 박스를 내려 올리도록 컨베이어 옆(도달 거리 안)에 로봇을 배치하세요.</p>}
         {noRobot && <p style={{ color: "#f59e0b" }}>⚠ 입하 흐름에 로봇이 없습니다. 입하 박스·팔레트는 반드시 로봇을 거쳐야 합니다. 로봇을 배치하고 연결하세요.</p>}
-        {inbound && (
-          <p className="text-xs text-slate-500">적재 팔레트가 투입 간격마다 들어와 스토퍼에서 AMR이 롤러로 넘겨받습니다. 받을 AMR이 없으면 스토퍼에서 대기합니다.</p>
-        )}
         {inbound && palletUnit && (
           <p style={{ color: receiver ? undefined : "#f59e0b" }}>
             {receiver ? `받는 AMR: ${receiver.name} (셔틀)` : amrCount ? `받는 AMR: 🔗 연결 AMR 우선, 없으면 가장 가까운 빈 AMR (${amrCount}대 대상)` : "⚠ 받을 AMR이 없습니다. 팔레트는 스토퍼에서 대기합니다. AMR을 🔗 공급으로 연결하거나 배치하세요."}
