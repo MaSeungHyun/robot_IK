@@ -86,6 +86,14 @@ export const CYCLE_CONFIG = {
   yieldStep: 3.5,
   holdTimeout: 3,
   giveUp: 8,
+  /** Early replan: route scanned this far (m) ahead for parked / working vehicles; one found beyond the braking
+   *  distance starts a detour search while still driving, instead of stopping nose-to-nose and then turning away. */
+  earlyLook: 6,
+  /** Seconds between those scans, and the pause after a scan whose search found no way round (it then brakes and waits). */
+  earlyEvery: 0.5,
+  earlyRetry: 3,
+  /** A blocker this close (m) to the move's goal is queued behind instead (dock / stand occupied: no detour helps). */
+  earlyGoalSkip: 2.5,
   /** Deadlock pass window (s) after giveUp. */
   passTime: 4,
   /** Empty pallets visible on a pallet source stack (infinite supply). */

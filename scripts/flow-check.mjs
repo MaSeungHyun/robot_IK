@@ -79,8 +79,12 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       const controller = new SuctionRobotController({ id: robot.object.id, model, pickupRadius: getSettings()[robot.object.id]?.reach ?? SIMULATOR_CONFIG.reach, getKeepOut: () => conveyorKeepOut(useSceneStore.getState().objects),
         getJobs: () => robot.jobs, onProgress: (count, status) => world.robotProgress(robot, count, status) });
       controller.start();
+      // ROBOT_PROF=1: wall ms per robot, split by the controller status prefix (idle waits vs motion / planning).
+      const robotProf = process.env.ROBOT_PROF ? (globalThis.__robotProf ??= new Map()) : null;
       clock.register({ beginFrame: () => controller.start(), step: (dt) => { let r = dt * (getSettings()[robot.object.id]?.speed ?? 1); // mirrors Robot.tsx simulationSpeed
-      while (r > 1e-9) { const s = Math.min(r, 0.05); controller.update(s); r -= s; } }, endFrame: () => {} });
+      const t0 = robotProf ? performance.now() : 0;
+      while (r > 1e-9) { const s = Math.min(r, 0.05); controller.update(s); r -= s; }
+      if (robotProf) { const key = `${robot.object.id}|${String(robot.status ?? "").split(" ")[0]}`, e = performance.now() - t0, p = robotProf.get(key) ?? { total: 0, n: 0, max: 0 }; p.total += e; p.n++; p.max = Math.max(p.max, e); robotProf.set(key, p); } }, endFrame: () => {} });
     }
     // Stall sampling: an AMR in a driving phase that has not moved 5 cm in a 1 s sample counts as a stalled second.
     const last = new Map(), stalled = new Map(), beltHalt = new Map(), phaseTime = new Map(), haltedSec = { n: 0, streak: 0, max: 0 };
@@ -159,7 +163,16 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       if (prof) {
         const sorted = [...prof.steps].sort((a, b) => a - b), q = (x) => sorted[Math.min(sorted.length - 1, Math.floor(x * sorted.length))]?.toFixed(2);
         console.log(`    stepMs: n ${sorted.length} p50 ${q(0.5)} p99 ${q(0.99)} max ${sorted.at(-1)?.toFixed(1)} >16ms ${sorted.filter((x) => x > 16).length}`);
-        console.log("    parts: " + [...prof.parts].sort((a, b) => b[1].max - a[1].max).slice(0, 14).map(([k, v]) => `${k} max ${v.max.toFixed(1)} tot ${v.total.toFixed(0)}`).join(" | "));
+        console.log("    parts: " + [...prof.parts].sort((a, b) => b[1].total - a[1].total).slice(0, 14).map(([k, v]) => `${k} max ${v.max.toFixed(1)} tot ${v.total.toFixed(0)}`).join(" | "));
+        // Per checkpoint window (time spent since the previous checkpoint).
+        prof.steps.length = 0;
+        prof.parts.clear();
+      }
+      if (globalThis.__robotProf) {
+        const byRobot = new Map();
+        for (const [k, v] of globalThis.__robotProf) { const id = k.split("|")[0], r = byRobot.get(id) ?? { total: 0, n: 0 }; r.total += v.total; r.n += v.n; byRobot.set(id, r); }
+        console.log("    robotMs: " + [...byRobot].sort((a, b) => b[1].total - a[1].total).map(([id, v]) => `${id} tot ${v.total.toFixed(0)} avg ${(v.total / v.n).toFixed(3)}`).join(" | "));
+        console.log("    robotByStatus: " + [...globalThis.__robotProf].sort((a, b) => b[1].total - a[1].total).slice(0, 16).map(([k, v]) => `${k} tot ${v.total.toFixed(0)} avg ${(v.total / v.n).toFixed(3)} max ${v.max.toFixed(1)}`).join(" | "));
       }
       if (minGap.pair) console.log(`    amrMinGap: ${minGap.d.toFixed(3)}m limit ${minGap.limit.toFixed(3)}m ${minGap.pair} @${minGap.t.toFixed(0)}s ${minGap.d < minGap.limit - 1e-3 ? "COLLISION" : "ok"}`);
       {
@@ -187,7 +200,7 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
       if (world.cycle) {
         const c = world.cycle.stats;
         if (world.cycle) console.log(`    handoff: n=${world.cycle.handoff.count} xz=${world.cycle.handoff.xz.toFixed(3)}m y=${world.cycle.handoff.y.toFixed(3)}m yaw=${(world.cycle.handoff.yaw * 180 / Math.PI).toFixed(1)}° | pick xz=${world.cycle.handoff.pickXz.toFixed(3)}m y=${world.cycle.handoff.pickY.toFixed(3)}m yaw=${(world.cycle.handoff.pickYaw * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`    cycle: scanTrips ${c.scanTrips} serviceTrips ${c.serviceTrips} swaps ${c.swaps} rackMFull ${c.rackMFull} agvTrips ${c.agvTrips} storedToRack ${c.storedToRack} shippedPallets ${c.shippedPallets} shippedBoxes ${world.shippedBoxes} overrides ${c.overrides} fallbacks ${c.fallbacks} emptyStacked ${c.emptyStacked} carrierTrips ${c.carrierTrips} palletsFed ${c.palletsFed} forkliftBusy ${Math.round(c.forkliftBusy ?? 0)}s forkliftOverlap ${Math.round(c.forkliftOverlap ?? 0)}s backoffs ${c.backoffs ?? 0} replans ${c.replans ?? 0} outbound ${c.outboundPallets ?? 0}`);
+    console.log(`    cycle: scanTrips ${c.scanTrips} serviceTrips ${c.serviceTrips} swaps ${c.swaps} rackMFull ${c.rackMFull} agvTrips ${c.agvTrips} storedToRack ${c.storedToRack} shippedPallets ${c.shippedPallets} shippedBoxes ${world.shippedBoxes} overrides ${c.overrides} fallbacks ${c.fallbacks} emptyStacked ${c.emptyStacked} carrierTrips ${c.carrierTrips} palletsFed ${c.palletsFed} forkliftBusy ${Math.round(c.forkliftBusy ?? 0)}s forkliftOverlap ${Math.round(c.forkliftOverlap ?? 0)}s backoffs ${c.backoffs ?? 0} replans ${c.replans ?? 0} earlyReplans ${c.earlyReplans ?? 0} outbound ${c.outboundPallets ?? 0} heldSec ${Math.round([...world.cycle.views].reduce((s, v) => s + v.vehicle.heldSeconds, 0))}`);
         console.log(`    outboundBelts: ${(world.outboundBelts ?? []).map((b) => b.id ?? b.object?.id ?? "?").join(" ") || "-"}`);
     console.log(`    docks: ${objects.filter((o) => o.kind === "dock").map((o) => `${o.id}:${getSettings()[o.id]?.dockRole ?? "?"}`).join(" ")} pallets: ${JSON.stringify(world.cycle.palletCounts ?? {})}`);
     console.log(`    stages: ${(world.cycle.stages ?? []).map((s) => `${s.id}@${s.x.toFixed(1)},${s.z.toFixed(1)}`).join(" ") || "-"}`);
@@ -195,6 +208,10 @@ const { conveyorKeepOut } = await load("/src/domain/robot/ik/keepOut.ts");
         if (process.env.CYCLE_DEBUG) for (const v of [...world.cycle.forklifts, ...world.cycle.agvs]) {
           const p = v.vehicle.position, path = v.vehicle.path.map((q) => `${q.x.toFixed(1)},${q.z.toFixed(1)}`).join(" ");
           console.log(`    ${v.object.id} ${v.state} @${p.x.toFixed(2)},${p.z.toFixed(2)} h${v.vehicle.heading.toFixed(2)} held${v.vehicle.heldSeconds.toFixed(0)} cur${v.vehicle.pathCursor} path[${path}]`);
+        }
+        if (process.env.CYCLE_DEBUG) for (const s of world.cycle.shuttles) {
+          const p = s.vehicle.position, path = s.vehicle.path.map((q) => `${q.x.toFixed(1)},${q.z.toFixed(1)}`).join(" ");
+          console.log(`    ${s.object.id} ${s.state} dock=${s.dock?.id} alt=[${(s.altDocks ?? []).map((d) => d.id).join(",")}] @${p.x.toFixed(2)},${p.z.toFixed(2)} held${s.vehicle.heldSeconds.toFixed(0)} cur${s.vehicle.pathCursor} path[${path}] wait=${s.vehicle.waitReason ?? s.warning ?? "-"}`);
         }
         console.log(`    robots: ${world.robots.map((r) => r.object.id + ":" + (!r.busy && r.warning ? r.warning : r.status)).join(" | ")}`);
     if (process.env.HEAD_DEBUG) { const h = new Map(); for (const b of world.boxes) if (b.state === "moving" && b.belt) { const c = h.get(b.belt.id); if (!c || b.distance > c.distance) h.set(b.belt.id, b); } console.log(`    heads: ${[...h].map(([id, b]) => `${id}:d=${b.distance.toFixed(1)}/${(b.belt.length ?? 0).toFixed?.(1)} g=${world.inspection.resultOf(b.node)} @${b.node.position.x.toFixed(1)},${b.node.position.z.toFixed(1)}`).join(" | ")}`); }

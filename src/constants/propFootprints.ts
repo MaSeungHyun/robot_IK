@@ -212,7 +212,6 @@ export const PROP_FOOTPRINTS: Readonly<Record<string, readonly PropFootprint[]>>
     { x: -8.869, z: -45.62, yaw: -1.571, w: 1.866, d: 5.334, h: 0.936 },
   ],
   "walkway": [
-    // Narrowed from full AABB w=3.544: east forklift aisle (x~13.5) must clear FORKLIFT_NAV_RADIUS (~2.04).
-    { x: 16.504, z: -21.952, yaw: 0, w: 1.5, d: 42.44, h: 5.634 },
+    { x: 16.504, z: -21.952, yaw: 0, w: 3.544, d: 42.44, h: 5.634 },
   ],
 };

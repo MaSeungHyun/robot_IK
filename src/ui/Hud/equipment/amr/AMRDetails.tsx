@@ -18,6 +18,7 @@ import ForkliftSettings from "@/ui/Hud/equipment/amr/ForkliftSettings";
 import StopPointSetting from "@/ui/Hud/equipment/details/_components/StopPointSetting";
 import AgvPathSetting from "@/ui/Hud/equipment/amr/AgvPathSetting";
 import AgvBehaviorChecklist from "@/ui/Hud/equipment/amr/AgvBehaviorChecklist";
+import ShuttleBehaviorChecklist from "@/ui/Hud/equipment/amr/ShuttleBehaviorChecklist";
 import AMRLivePose from "@/ui/Hud/equipment/amr/AMRLivePose";
 import SmoothValue from "@/ui/Hud/equipment/details/_components/SmoothValue";
 import { MOCK_TELEMETRY_CONFIG } from "@/constants/telemetry";
@@ -81,6 +82,7 @@ export default function AMRDetails({ object }: EquipmentDetailProps) {
         {role !== "ship" && <StopPointSetting id={object.id} roles={model === "agv" ? ["rackDrop"] : ["ship"]} />}
         {model === "agv" && <AgvPathSetting id={object.id} />}
         {model === "agv" && <AgvBehaviorChecklist id={object.id} />}
+        {role === "shuttle" && <ShuttleBehaviorChecklist id={object.id} />}
         <EquipmentEnabledSetting id={object.id} />
       </DetailSection>
     )

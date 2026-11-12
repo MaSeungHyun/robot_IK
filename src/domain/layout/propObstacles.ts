@@ -19,8 +19,18 @@ const inside = (p: PropFootprint, x: number, z: number, margin: number) => {
   return Math.abs(u) <= p.w / 2 + margin && Math.abs(v) <= p.d / 2 + margin;
 };
 
-/** One part = a segment along its long side, radius = half the short side. */
+/**
+ * One part as a route obstacle. Long thin pieces (fences / barriers) stay a capsule along the long side.
+ * Compact pieces (factory columns, stubby posts) use a disc covering the AABB so corners are not open —
+ * a short-side radius capsule left column corners driveable.
+ */
 function partSegment(p: PropFootprint): PropSegment {
+  const aspect = Math.max(p.w, p.d) / Math.max(0.05, Math.min(p.w, p.d));
+  if (aspect < 2.2) {
+    const r = Math.hypot(p.w, p.d) / 2;
+    const c = new Vector3(p.x, 0, p.z);
+    return { a: c, b: c.clone(), radius: r };
+  }
   const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
   // Part-frame axes in world: x' = (c, -s), z' = (s, c).
   const long = p.w >= p.d, half = Math.max(0, (long ? p.w : p.d) - (long ? p.d : p.w)) / 2;

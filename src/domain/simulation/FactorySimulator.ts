@@ -52,6 +52,7 @@ import { DOOR_CONFIG } from "@/constants/door";
 import { doorShape, wallSegments } from "@/domain/room/roomWalls";
 import { PALLET_CONVEYOR } from "@/constants/palletConveyor";
 import { PalletCycle, type PalletCycleHost } from "@/domain/cycle/PalletCycle";
+import type { CycleBody } from "@/domain/cycle/CycleVehicle";
 import { AMR_DECK, ROLLER_DECK } from "@/constants/cycle";
 import { isPalletInbound, palletFeeds, receivePose } from "@/domain/cycle/palletFeed";
 import { createPalletModel } from "@/lib/three/palletModel";
@@ -128,6 +129,8 @@ const ROUTE_FAIL_HOLD_STEPS = 30;
 const FEED_DOCK_BUSY_COST = 1e5;
 /** Margin (m) beyond two AMR footprints the previous AMR must clear a station by before the next one heads there. */
 const FEED_CLEAR_MARGIN = 0.6;
+/** Seconds before a feed hold waiting for a free AMR / dock looks again (not every fixed step). */
+const FEED_WAIT_RETRY = 0.25;
 type HeldPallet = { group: Group; boxes: Cargo[]; distance: number; agent: FactoryAgent | null };
 /** Pallet-inbound belt: loaded pallets spawn on its interval, queue nose-to-tail and stop at the end stopper. */
 type PalletHold = {
@@ -921,10 +924,15 @@ export class FactorySimulator {
       }
       if (!candidates.length) candidates = this.agents.filter(free);
       else candidates = candidates.filter(free);
-      if (!candidates.length) { this.holdWarn(hold, "linkedBusy", "🔗 연결된 AMR이 작업 중 · 빈 상태가 되면 받으러 갑니다"); return; }
+      if (!candidates.length) {
+        hold.routeRetryAt = this.elapsed + FEED_WAIT_RETRY;
+        this.holdWarn(hold, "linkedBusy", "🔗 연결된 AMR이 작업 중 · 빈 상태가 되면 받으러 갑니다");
+        return;
+      }
     } else {
       candidates = this.agents.filter(free);
       if (!candidates.length) {
+        hold.routeRetryAt = this.elapsed + FEED_WAIT_RETRY;
         this.holdWarn(hold, "none", "팔레트를 받을 빈 팔레트 AMR이 없어 컨베이어 끝에서 대기", "팔레트 AMR을 두거나 🔗 공급(컨베이어 → AMR)으로 연결하세요 · AMR이 비면 자동 출동");
         return;
       }
@@ -934,7 +942,7 @@ export class FactorySimulator {
     const owner = this.agents.find((a) => Math.hypot(a.dispatch.home.x - station.x, a.dispatch.home.z - station.z) < 1.5);
     if (owner && !linkedIds.length) {
       candidates = candidates.filter((a) => a === owner);
-      if (!candidates.length) { this.holdWarn(hold, "owner", `받는 위치 전용 AMR(${owner.object.name})이 작업 중 · 비면 받으러 갑니다`); return; }
+      if (!candidates.length) { hold.routeRetryAt = this.elapsed + FEED_WAIT_RETRY; this.holdWarn(hold, "owner", `받는 위치 전용 AMR(${owner.object.name})이 작업 중 · 비면 받으러 갑니다`); return; }
     }
     // Inbound boxes must pass the scanner: only docks a scan-line start robot unloads (🔗-linked robot/dock first).
     const starts = this.depalletizers.filter((r) => settings[r.object.id]?.enabled && this.scanStart(r, settings));
@@ -973,6 +981,7 @@ export class FactorySimulator {
       return;
     }
     if (!docks.length) {
+      hold.routeRetryAt = this.elapsed + FEED_WAIT_RETRY;
       if (this.unloadDocks.length || railDocks.length) this.holdWarn(hold, "dock", "하역 위치가 비기를 대기");
       else this.parkFeed(hold, held, candidates, "하역 위치(dock: 하역) 없음");
       return;
@@ -1313,6 +1322,7 @@ export class FactorySimulator {
       handoffTo: (amrId) => this.links.outgoing(amrId, "handoff"),
       autoConnect: this.auto,
       dockGuard: (from, x, z) => this.foreignDockAt(from, x, z),
+      externalBodies: () => this.externalCycleBodies(),
       // Dock cells block cycle divert / approach connectors (AMR + forklift routes already use dockCells via
       // blockingObstacles / forkliftRoute with the serviced dock reopened). A vehicle already inside a dock still
       // leaves via CycleVehicle connectorSkip, same pattern as Station / walkway edges.
@@ -1896,6 +1906,7 @@ export class FactorySimulator {
         for (let i = 0; i < pickBoxes.length; i++) {
           const box = pickBoxes[i];
           if ((feed && !feed.has(box.belt.id)) || ((config.pickFilter ?? "all") !== "all" && pickGrades[i] !== config.pickFilter && !(config.pickUnscanned && this.unscanned(box)))) continue;
+          if (!this.boxHeldAtEnd(box)) continue;
           near = Math.min(near, distance(robot.object, box.node.position));
         }
         robot.warning = near <= config.reach + 1
@@ -1968,8 +1979,9 @@ export class FactorySimulator {
             : beltPoint(box.belt, contactDistance);
           this.point.set(predicted.x, box.node.position.y, predicted.z);
           if (distance(robot.object, this.point) > reachArm) {
-            // Within the nominal reach but past what the arm can solve: warn instead of freezing on the pick.
-            if (distance(robot.object, this.point) <= config.reach) tooFar = Math.min(tooFar, distance(robot.object, this.point));
+            // Within the nominal reach but past what the arm can solve: warn instead of freezing on the pick. Only a box
+            // held at the chain end never comes closer; one still riding the belt is picked once it is in arm reach.
+            if (this.boxHeldAtEnd(box) && distance(robot.object, this.point) <= config.reach) tooFar = Math.min(tooFar, distance(robot.object, this.point));
             continue;
           }
           this.assign(robot, pallet, slot, box);
@@ -2291,6 +2303,10 @@ export class FactorySimulator {
   /** Scanner result recorded on the box; boxes that passed no scanner count as normal. */
   private grade(box: Cargo): CargoGrade {
     return this.inspection.resultOf(box.node) === "fault" ? "defect" : "normal";
+  }
+  /** Box stopped at the end of its belt chain (stopper): it never comes closer, so a robot out of reach must move. */
+  private boxHeldAtEnd(box: Cargo): boolean {
+    return !this.connections.get(box.belt.id) && box.distance >= beltLength(box.belt) - BOX_SIZES[0].z / 2 - 1e-3;
   }
   /** No scanner result yet (rack stock counts as inspected). */
   private unscanned(box: Cargo): boolean {
@@ -3220,6 +3236,42 @@ export class FactorySimulator {
       out.push({ kind: "amr", pose: { x: c.x, z: c.z, yaw: 0 }, radius: c.r });
     }
     return out;
+  }
+  /** Dispatch AMRs and sim forklifts seen by cycle vehicles (the reverse of syncCycleTraffic); circles are reused, not reallocated. */
+  private externalCycleBodies(): CycleBody[] {
+    const amrs = this.agents.map((agent): CycleBody => {
+      const circle = { x: 0, z: 0, r: 0 }, circles = [circle];
+      return {
+        id: agent.object.id,
+        circles: () => {
+          const p = agent.dispatch.carrier.position;
+          circle.x = p.x;
+          circle.z = p.z;
+          circle.r = agent.dispatch.radius;
+          return circles;
+        },
+        loaded: () => agent.dispatch.loaded,
+        still: () => !agent.dispatch.moving,
+      };
+    });
+    const forklifts = this.forkliftAgents.map((agent): CycleBody => {
+      const circles: { x: number; z: number; r: number }[] = [];
+      return {
+        id: agent.object.id,
+        circles: () => {
+          const bodies = agent.controller.bodies;
+          circles.length = bodies.length;
+          for (let i = 0; i < bodies.length; i++) {
+            circles[i] ??= { x: 0, z: 0, r: 0 };
+            circles[i].x = bodies[i].x;
+            circles[i].z = bodies[i].z;
+            circles[i].r = agent.controller.radius;
+          }
+          return circles;
+        },
+      };
+    });
+    return [...amrs, ...forklifts];
   }
   private syncCycleTraffic() {
     const circles = this.cycle?.collisionCircles() ?? [];

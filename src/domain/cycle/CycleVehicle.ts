@@ -162,6 +162,10 @@ export class CycleVehicle {
   get pathCursor() {
     return this.cursor;
   }
+  /** Consecutive plans of the current move that found no clear route (0 once routed). */
+  get routeFailures() {
+    return this.noRouteTries;
+  }
   /** Seconds this vehicle has been held by another body in its current move. */
   /** Not driving: idle, or a fork / lift / wait / turn-free step (e.g. a forklift lifting at a rack). Others plan around it. */
   get stationary() {
@@ -459,6 +463,7 @@ export class CycleVehicle {
     this.queue = [];
     this.started = false;
     this.detour = null;
+    this.early = false;
     this.hold = 0;
     this.path = [];
     this.version++;
@@ -607,9 +612,29 @@ export class CycleVehicle {
         if (staticBlock) this.staticTry = YIELD_LOCK.retry;
         if (!this.options.divert && (staticBlock || (this.hold >= CYCLE_CONFIG.holdTimeout && this.hold - dt < CYCLE_CONFIG.holdTimeout))) {
           this.replans++;
+          this.early = false;
           this.detour = this.detourSearch(action);
         }
-        if (this.detour) {
+        this.earlyTry -= dt;
+        if (!this.detour && this.hold === 0 && this.earlyTry <= 0) {
+          this.earlyTry = CYCLE_CONFIG.earlyEvery;
+          if (this.stillAhead(action)) {
+            this.earlyReplans++;
+            this.early = true;
+            this.detour = this.detourSearch(action);
+          }
+        }
+        if (this.detour && this.early) {
+          // Early detour: keep driving the current route (braking as usual) while it searches; no route = brake and wait.
+          const done = advanceSearch(this.detour);
+          if (done) {
+            this.detour = null;
+            this.early = false;
+            // Either way, no new scan for a while: a detour that still passes the body would otherwise search every scan.
+            this.earlyTry = CYCLE_CONFIG.earlyRetry;
+            if (done.value && done.value.length >= 2) this.setPath(done.value);
+          }
+        } else if (this.detour) {
           const done = advanceSearch(this.detour);
           if (done) {
             this.detour = null;
@@ -639,6 +664,50 @@ export class CycleVehicle {
   private yieldLock = 0;
   private staticTry = 0;
   yieldLocks = 0;
+  /** Seconds until the next early (look-ahead) scan; the running detour search was started by one. */
+  private earlyTry = 0;
+  private early = false;
+  /** Detours searched ahead of a parked / working vehicle on the route (before being held by it). */
+  earlyReplans = 0;
+  /**
+   * A still body (parked, forking, waiting vehicle) would come inside the safety gap somewhere on the next
+   * CYCLE_CONFIG.earlyLook m of the route, beyond the braking look-ahead and away from the move's goal.
+   */
+  private stillAhead(action: Extract<Action, { type: "path" }>) {
+    const nearGoal = (o: CycleBody) => {
+      const c = o.center?.() ?? o.circles()[0];
+      return !!c && Math.hypot(c.x - action.to.x, c.z - action.to.z) <= CYCLE_CONFIG.earlyGoalSkip;
+    };
+    const still = this.options.bodies().filter((o) => o.id !== this.id && !action.ignore?.includes(o.id) && o.still?.() && !nearGoal(o));
+    if (!still.length || this.path.length < 2) return false;
+    const gapTo = (x: number, z: number, heading: number) => {
+      const own = this.circlesAt(x, z, heading);
+      let gap = Infinity;
+      for (const other of still) {
+        for (const a of other.circles()) for (const b of own) gap = Math.min(gap, Math.hypot(a.x - b.x, a.z - b.z) - a.r - b.r);
+        const c = other.center?.();
+        if (this.options.clearance && other.clearance && c) gap = Math.min(gap, Math.hypot(c.x - x, c.z - z) - this.options.clearance - other.clearance);
+      }
+      return gap;
+    };
+    const p0 = this.carrier.position;
+    // Already alongside it: the step guards / back-off handle that.
+    if (gapTo(p0.x, p0.z, this.carrier.rotation.y) < CYCLE_CONFIG.safetyGap) return false;
+    let x = p0.x, z = p0.z, travelled = 0;
+    for (let i = this.cursor; i < this.path.length && travelled < CYCLE_CONFIG.earlyLook; i++) {
+      const p = this.path[i], length = Math.hypot(p.x - x, p.z - z);
+      if (length < 1e-4) continue;
+      const heading = Math.atan2(p.x - x, p.z - z);
+      for (let s = Math.min(0.3, length); travelled + s <= CYCLE_CONFIG.earlyLook; s = Math.min(length, s + 0.3)) {
+        if (gapTo(x + ((p.x - x) / length) * s, z + ((p.z - z) / length) * s, heading) < CYCLE_CONFIG.safetyGap) return true;
+        if (s >= length) break;
+      }
+      travelled += length;
+      x = p.x;
+      z = p.z;
+    }
+    return false;
+  }
   /** Right of way over `other`: loaded first, then the earlier route reservation, then the lower id. */
   private outranks(other: CycleBody) {
     const mine = this.rank(), theirs = other.rank?.() ?? [Number(other.loaded?.() ?? false), 0];

@@ -871,7 +871,7 @@
         "stopPoints": [
           {
             "role": "service",
-            "x": 13.63,
+            "x": 11.0,
             "z": -6.1,
             "yaw": 0
           }
@@ -945,8 +945,8 @@
     },
     {
       "kind": "robot",
-      "x": 16.9,
-      "z": 8.7,
+      "x": 16.65,
+      "z": 8.65,
       "yaw": 1.5707963267948966,
       "settings": {
         "robotPedestal": "base",
@@ -1005,8 +1005,8 @@
     },
     {
       "kind": "robot",
-      "x": -14.6,
-      "z": 9,
+      "x": -14.25,
+      "z": 8.94,
       "yaw": 1.5707963267948966,
       "settings": {
         "robotPedestal": "base",
@@ -1112,6 +1112,98 @@
             "yaw": 0
           }
         ]
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -0.4,
+      "z": 0,
+      "yaw": 0,
+      "settings": {
+        "robotPedestal": "base",
+        "robotPedestalYaw": 180,
+        "pickFilter": "all"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": 8.2,
+      "z": 0.1,
+      "yaw": 0,
+      "settings": {
+        "robotPedestal": "base",
+        "robotPedestalYaw": 180,
+        "pickFilter": "all"
+      }
+    },
+    {
+      "kind": "robot",
+      "x": -6.3,
+      "z": -0.2,
+      "yaw": -3.141592653589793,
+      "settings": {
+        "robotPedestal": "base",
+        "pickFilter": "all"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": 8.3,
+      "z": -1.6,
+      "yaw": 0,
+      "settings": {
+        "amrCargo": "pallet",
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -0.5,
+      "z": -1.86,
+      "yaw": 0,
+      "settings": {
+        "amrCargo": "pallet",
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
+    },
+    {
+      "kind": "amr",
+      "x": -6.3,
+      "z": -2.1,
+      "yaw": 0,
+      "settings": {
+        "amrCargo": "pallet",
+        "amrRole": "shuttle",
+        "initialPallet": "mounted"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": 8.3,
+      "z": -1.6,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-113"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -0.5,
+      "z": -1.86,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-114"
+      }
+    },
+    {
+      "kind": "pallet",
+      "x": -6.3,
+      "z": -2.1,
+      "yaw": 0,
+      "settings": {
+        "mountedOn": "amr-115"
       }
     }
   ],
@@ -1465,6 +1557,26 @@
       "type": "emptyReturn",
       "from": 9,
       "to": 104
+    },
+    {
+      "type": "emptyReturn",
+      "from": 112,
+      "to": 108
+    },
+    {
+      "type": "emptyReturn",
+      "from": 113,
+      "to": 86
+    },
+    {
+      "type": "emptyReturn",
+      "from": 113,
+      "to": 104
+    },
+    {
+      "type": "emptyReturn",
+      "from": 114,
+      "to": 105
     }
   ],
   "props": [

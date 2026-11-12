@@ -132,10 +132,10 @@ export default function StartupOverlay() {
       </div>
       <div className="absolute bottom-1/5 left-12 max-w-4xl">
         <h1 className="text-5xl leading-none font-semibold tracking-tight md:text-7xl xl:text-8xl">
-          Build your factory.
+          Design your factory
           <br />
           <span className="bg-linear-to-b from-text-primary via-40% via-text-primary to-text-primary/60 bg-clip-text font-semibold text-transparent">
-            Simulate it.
+             simulate the future.
           </span>
         </h1>
         <p className="mt-5 text-base text-text-primary/60 md:text-lg xl:text-xl">
