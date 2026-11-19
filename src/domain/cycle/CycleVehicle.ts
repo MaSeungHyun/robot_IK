@@ -10,8 +10,11 @@ export type CyclePlanner = (from: Vector3, to: Vector3, loaded: boolean, avoid?:
 /** `clearance`: centre-to-centre keep-out radius (AMR footprint); two bodies with clearance stay ??the sum apart. */
 export type CycleBody = { id: string; circles: () => readonly { x: number; z: number; r: number }[]; clearance?: number; center?: () => { x: number; z: number }; held?: () => number; loaded?: () => boolean; still?: () => boolean; ahead?: () => readonly { x: number; z: number; d: number }[]; reach?: () => number; rank?: () => readonly number[] };
 
+/** Partner bodies (`ignore` ids) are only ignored while the vehicle is within `r` m of (x, z): e.g. a forklift
+ *  drives up to a working AMR's side as a normal obstacle and only opens it at its own work stand. */
+export type IgnoreZone = { x: number; z: number; r: number };
 type Action =
-  | { type: "path"; to: Vector3; loaded: boolean; ignore?: readonly string[]; via?: readonly Vector3[] }
+  | { type: "path"; to: Vector3; loaded: boolean; ignore?: readonly string[]; via?: readonly Vector3[]; zone?: IgnoreZone & { ids: readonly string[] }; escape?: { left: number } }
   | { type: "straight"; to: Vector3; backward: boolean; speed: number; ignore?: readonly string[] }
   | { type: "turn"; heading: number; symmetric: boolean }
   | { type: "fork"; y: number }
@@ -42,8 +45,14 @@ const CONNECTOR_SKIP_ESCALATE = [0.8, 1.2, 1.8, 2.5];
 /** No floor route: wait this long (s) and plan again instead of finishing the move where the vehicle stands. */
 const NO_ROUTE_RETRY = 1;
 const BACKOFF = { after: 2.5, distances: [1.5, 1.2, 0.8, 0.5], speed: 0.5, cooldown: 6, tries: 3, mutual: 0.5, abort: 2, retryAfter: 6 };
+/** Wait-for cycle side-step (escape): ring radii (m) / samples, least gain in distance from the blocker (m), route length cap (x radius). */
+const ESCAPE = { radii: [1.5, 2.5, 3.5, 4.5], steps: 16, minAway: 0.5, detour: 2.2, timeout: 6 };
+/** Escape spot: room (m) kept to every other body there (safety gap + look-ahead + restart margin + slack). */
+const ESCAPE_GAP = CYCLE_CONFIG.safetyGap + CYCLE_CONFIG.lookMargin + CYCLE_CONFIG.resumeMargin + 0.3;
 /** Bodies never come closer than this (m), even in a deadlock pass: no rubbing. */
 const CONTACT = 0.03;
+/** Extra overlap (m) a deadlock pass may cause while driving off a body it already touches. */
+const PASS_SLACK = 0.08;
 /**
  * Shared per-step budget of grid searches for traffic detours (all cycle vehicles together). PalletCycle resets it every
  * simulation step; without a reset (other users) it is unlimited, i.e. the search completes at once.
@@ -178,6 +187,11 @@ export class CycleVehicle {
   get idle() {
     return this.queue.length === 0;
   }
+  /** Target of the first path move still queued (current or upcoming; null when none). */
+  get nextPathTarget(): Vector3 | null {
+    for (const a of this.queue) if (a.type === "path") return a.to;
+    return null;
+  }
   /** Last point of the current route (null when not driving a path). */
   get destination(): Vector3 | null {
     return this.path.length ? this.path[this.path.length - 1] : null;
@@ -250,8 +264,11 @@ export class CycleVehicle {
     const next = this.gapAt(x, z, heading, ignore);
     if (this.pass > 0) {
       this.pass -= dt;
-      // A deadlock pass squeezes inside the safety gap but never lets two bodies overlap.
-      if (next >= CONTACT) return true;
+      // A deadlock pass squeezes inside the safety gap but never lets two bodies overlap. Already touching (the other
+      // one backed into this one), it may deepen the contact by at most PASS_SLACK while it drives off: the first metres
+      // of a route along the other body often close the gap a few cm before opening it (template 10: amr-89 behind the
+      // north forklift amr-56 retreating from transfer-77, both waited on each other for good).
+      if (next >= CONTACT || next >= this.passFloor) return true;
     }
     const now = next >= CYCLE_CONFIG.safetyGap ? Infinity : this.gapAt(this.carrier.position.x, this.carrier.position.z, this.carrier.rotation.y, ignore);
     // Moving away from (or along) a body that is already close is always allowed.
@@ -266,10 +283,13 @@ export class CycleVehicle {
       this.overrides++;
       this.hold = 0;
       this.pass = CYCLE_CONFIG.passTime;
+      this.passFloor = (now < CONTACT ? now : CONTACT) - PASS_SLACK;
       return true;
     }
     return false;
   }
+  /** Lowest gap a deadlock pass may reach (set when it starts; see clearToMove). */
+  private passFloor = CONTACT;
 
   /** Route speed (m/s) now; braking for whatever is ahead. Ramped, with a resume margin so it does not stutter. */
   private velocity = 0;
@@ -411,6 +431,7 @@ export class CycleVehicle {
         this.overrides++;
         this.hold = 0;
         this.pass = CYCLE_CONFIG.passTime;
+        this.passFloor = Math.min(now, CONTACT) - PASS_SLACK;
         return (this.velocity = max);
       }
       return 0;
@@ -425,8 +446,9 @@ export class CycleVehicle {
   }
   /** Queues actions (fluent). */
   /** `via`: fixed waypoints (e.g. an AGV 경로) driven in order instead of a planned route; traffic still holds it, no detours. */
-  goTo(to: Vector3, loaded = this.loaded, ignore?: readonly string[], via?: readonly Vector3[]) {
-    this.queue.push({ type: "path", to: to.clone().setY(0), loaded, ignore, via: via?.length ? via.map((p) => p.clone().setY(0)) : undefined });
+  goTo(to: Vector3, loaded = this.loaded, ignore?: readonly string[], via?: readonly Vector3[], zone?: IgnoreZone) {
+    const ids = zone && ignore?.length ? { ...zone, ids: ignore } : undefined;
+    this.queue.push({ type: "path", to: to.clone().setY(0), loaded, ignore: ids ? undefined : ignore, via: via?.length ? via.map((p) => p.clone().setY(0)) : undefined, zone: ids });
     return this;
   }
   straight(to: Vector3, options: { backward?: boolean; speed?: number; ignore?: readonly string[] } = {}) {
@@ -448,6 +470,14 @@ export class CycleVehicle {
   }
   until(test: () => boolean) {
     this.queue.push({ type: "until", test });
+    return this;
+  }
+  /** Called from inside a queued `then`: the actions `build` queues run right after it, ahead of the rest of the queue
+   * (a stand / heading decided only when the move is about to start). */
+  next(build: () => void) {
+    const rest = this.queue.splice(1);
+    build();
+    this.queue.push(...rest);
     return this;
   }
 
@@ -537,6 +567,25 @@ export class CycleVehicle {
         if (action.backward && this.hold >= BACKOFF.abort) return dt;
         return this.drive([action.to], action.speed, dt, action.backward, action.ignore);
       case "path": {
+        // Escape side-step that cannot be driven (blocked on the way / no route): give it up after ESCAPE.timeout s and
+        // replan the original move (the queued call after it sets replanAfterBack). It used to wait for good when the
+        // spot sat next to a still job partner (template 10 amr-82 beside its shuttle amr-11, ~30 min).
+        if (action.escape) {
+          action.escape.left -= dt;
+          if (action.escape.left <= 0 && (this.hold > 0 || this.noRoute > 0 || this.velocity < 0.05)) {
+            this.path = [];
+            this.detour = null;
+            this.noRoute = 0;
+            this.velocity = 0;
+            this.escapeDrops++;
+            return dt;
+          }
+        }
+        // Zone-scoped ignore: the partner is a normal obstacle until this vehicle is at its work spot.
+        if (action.zone) {
+          const p = this.carrier.position, z = action.zone;
+          action.ignore = Math.hypot(p.x - z.x, p.z - z.z) <= z.r ? z.ids : undefined;
+        }
         if (!this.started) {
           this.started = true;
           this.noRoute = 0;
@@ -733,14 +782,61 @@ export class CycleVehicle {
   /** Nearest other body holding this vehicle (wait-for graph edge), or null when it is not held. */
   waitingOn() {
     const action = this.queue[0];
-    if (this.hold <= 0 && this.stuck <= 0) return null;
+    // A vehicle parked by a yield lock is still waiting on its blocker (else a mutual hold never reads as a cycle).
+    if (this.hold <= 0 && this.stuck <= 0 && this.yieldLock <= 0) return null;
     return this.blocker(action?.type === "path" ? action.ignore : undefined)?.id ?? null;
   }
   /** Wait-for cycle breaker: back off now (mutual-hold priority ignored), then replan. False when there is no room. */
   evade() {
     const action = this.queue[0];
-    return action?.type === "path" && this.backOff(action, true);
+    return action?.type === "path" && (this.backOff(action, true) || this.escape(action));
   }
+  /**
+   * Wait-for cycle, no room to reverse straight (two forklifts nose to nose in an aisle): side-step to a free spot
+   * ESCAPE.radii m away that is farther from the blocker, reached by a short floor route (equipment / Moving Racks stay
+   * obstacles, bodies keep the safety gap), then replan the original move around the blocker and the stuck spot.
+   */
+  private escape(action: Extract<Action, { type: "path" }>) {
+    const other = this.blocker(action.ignore);
+    if (!other) return false;
+    const p = this.carrier.position.clone(), oc = other.center?.() ?? other.circles()[0];
+    if (!oc) return false;
+    const base = Math.hypot(p.x - oc.x, p.z - oc.z);
+    let best: { to: Vector3; score: number } | null = null;
+    for (const r of ESCAPE.radii)
+      for (let k = 0; k < ESCAPE.steps; k++) {
+        const a = (k * TAU) / ESCAPE.steps, x = p.x + Math.sin(a) * r, z = p.z + Math.cos(a) * r;
+        const away = Math.hypot(x - oc.x, z - oc.z) - base;
+        if (away < ESCAPE.minAway || !this.floorOk(x, z, this.loaded) || this.options.dockGuard?.(p, x, z)) continue;
+        // Clear of every body there (not only the blocker): a spot beside a still job partner was never reachable.
+        if (this.gapAt(x, z, a, action.ignore) < ESCAPE_GAP && this.gapAt(x, z, a + Math.PI, action.ignore) < ESCAPE_GAP) continue;
+        const to = new Vector3(x, 0, z), route = this.options.plan(p.clone(), to, this.loaded);
+        if (!route || route.length < 2) continue;
+        const length = this.lengthOf(route);
+        if (length > r * ESCAPE.detour + 0.5) continue;
+        const score = away - length * 0.3;
+        if (!best || score > best.score) best = { to, score };
+      }
+    if (!best) return false;
+    const recovery = this.options.clearance ? AMR_RECOVERY : FORKLIFT_RECOVERY;
+    const avoid = [...other.circles().map((c) => ({ x: c.x, z: c.z, r: c.r + CYCLE_CONFIG.safetyGap + recovery.widen })), { x: p.x, z: p.z, r: recovery.spot }];
+    this.queue.unshift(
+      { type: "path", to: best.to, loaded: this.loaded, ignore: action.zone ? undefined : action.ignore, escape: { left: ESCAPE.timeout } },
+      { type: "call", run: () => { this.replanAfterBack = true; this.recoveryAvoid = avoid; } },
+    );
+    this.started = false;
+    this.detour = null;
+    this.hold = 0;
+    this.yieldLock = 0;
+    this.velocity = 0;
+    this.escapes++;
+    this.backCooldown = BACKOFF.cooldown;
+    return true;
+  }
+  /** Side-steps taken to break a wait-for cycle (see escape). */
+  escapes = 0;
+  /** Escape side-steps given up (not drivable within ESCAPE.timeout). */
+  escapeDrops = 0;
   private backOff(action: Extract<Action, { type: "path" }>, force = false) {
     const other = this.blocker(action.ignore);
     if (!other) return false;
@@ -1025,7 +1121,12 @@ export class CycleVehicle {
     if (best) return best;
     // Start and goal both inside an equipment margin (e.g. forklift holding a swap pallet next to a robot stand, heading to an
     // AMR stand): try ring pairs, nearest first, a bounded number of A* calls.
-    const starts = order(ring(from)).slice(0, 8), goals = order(ring(to)).slice(0, 8);
+    // Only ring points that are free floor and whose connector consider() would accept: the nearest 8 by bound used to be
+    // all on the blocked side (template 10 amr-10: home at a belt end is free only to the east, its swap stop lies to the
+    // north-west), so the shuttle never found its way back to its robot station.
+    const free = (p: Vector3) => !this.options.floorClear || this.options.floorClear(p.x, p.z, loaded, this.activeIgnore());
+    const starts = order(ring(from).filter((p) => free(p) && this.connectorClear(from, p, loaded))).slice(0, 8);
+    const goals = order(ring(to).filter((p) => free(p) && this.goalConnectorClear(to, p, loaded))).slice(0, 8);
     for (const { p: start } of starts) {
       for (const { p: goal } of goals) {
         if (from.distanceTo(start) + start.distanceTo(goal) + goal.distanceTo(to) >= bestLength - 1e-9) continue;

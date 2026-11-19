@@ -44,6 +44,7 @@ import { CargoRegistry } from "@/domain/cargo/CargoRegistry";
 import { log } from "@/stores/useLogStore";
 import { ForkliftController, type ForkliftJob, type ForkliftTarget } from "@/domain/amr/ForkliftController";
 import { isForkliftRole } from "@/types/layout";
+import { normalizeForkliftTask } from "@/constants/forkliftTask";
 import { FORKLIFT_CONFIG, FORKLIFT_NAV_RADIUS, FORKLIFT_TRAFFIC, forkliftStop } from "@/constants/forklift";
 import { AMR_COOPERATION } from "@/constants/amr";
 
@@ -580,6 +581,7 @@ export class FactorySimulator {
     }
     this.scanners = objects.filter((o) => o.kind === "scanner");
     this.rackObstacles.push(...this.scanners.map((s) => ({ kind: s.kind, pose: s })));
+    this.staticClears.clear();
     // Scan gate: only boxes without an inspection result are inspected (one result per box, never re-scanned).
     this.inspection.isInspected = (node) => node.userData.inspected === true || (this.cargo.box(node.userData.boxId)?.inspection ?? null) !== null;
     this.inspection.onScan = (node, scannerId, result) => {
@@ -1329,7 +1331,7 @@ export class FactorySimulator {
       // Floor Rack_m discs (cycle-owned, excluded from rackObstacles) block through-traffic.
       // `ignore` is for AGV under-dock only; forklift travel must not open the frame (fork-in uses a short straight).
       clear: (x, z, loaded, radius, ignore?: readonly string[]) => {
-        if (!layoutClear(this.rackLayout, loaded, [...this.rackObstacles, ...this.dockCells], radius)(x, z)) return false;
+        if (!this.staticClear(loaded, radius)(x, z)) return false;
         const reach = radius ?? AMR_TRAFFIC.emptyRadius;
         for (const c of this.cycle?.floorRackCircles(ignore) ?? []) {
           if (Math.hypot(x - c.x, z - c.z) < c.r + reach) return false;
@@ -1392,6 +1394,7 @@ export class FactorySimulator {
       outboundBelts: () => this.outboundBelts,
       outboundPose: (belt) => this.outboundPose(belt),
       outboundBusy: (belt) => this.outboundBusy(belt),
+      outboundTransferring: (belt) => this.rolling.some((r) => r.belt.id === belt.id && r.distance < 0),
       rollOut: (belt, group, boxes, palletId) => {
         this.rolling.push({ belt, group, boxes, distance: -PALLET_CONVEYOR.transferOffset, fromY: group.position.y, palletId });
       },
@@ -1505,7 +1508,26 @@ export class FactorySimulator {
   /** 🔗 담당 랙: a forklift with store links serves only those racks; one without serves racks no forklift is assigned to. */
   private forkliftServes(forkliftId: string, rackId: string) {
     const own = this.links.outgoing(forkliftId, "store");
-    return own.length ? own.includes(rackId) : !this.links.incoming(rackId, "store").length;
+    if (own.length) return own.includes(rackId);
+    // 불량 하역 지게차 (forkliftTask "unload") without 🔗 담당 랙: any fixed rack. With every rack linked to the swap
+    // forklifts (template 06) it found no slot at all and full defect pallets were never taken away.
+    return !this.links.incoming(rackId, "store").length || normalizeForkliftTask(this.settings()[forkliftId]) === "unload";
+  }
+  /**
+   * Static floor clear (walls / equipment / dock cells) per load + body radius. rackLayout, rackObstacles and dockCells
+   * are fixed for the run, so the bucketed predicate is built once and reused: it used to be rebuilt over every static
+   * obstacle on each single-point query (every floorClear sample of a cycle vehicle's connector / back-off / divert
+   * check), which made route planning stutter. Same predicate, same results.
+   */
+  private staticClears = new Map<string, (x: number, z: number) => boolean>();
+  private staticClear(loaded: boolean, radius?: number) {
+    const key = `${loaded ? 1 : 0}|${radius ?? ""}`;
+    let clear = this.staticClears.get(key);
+    if (!clear) {
+      clear = layoutClear(this.rackLayout, loaded, [...this.rackObstacles, ...this.dockCells], radius);
+      this.staticClears.set(key, clear);
+    }
+    return clear;
   }
   /** Forklift route length from `from` to the nearer side of a rack slot (racks have no front / back); Infinity if unreachable. */
   private rackRouteLength(from: Vector3, rack: SceneEquipment, slot: number, loaded: boolean) {
@@ -3378,9 +3400,13 @@ export class FactorySimulator {
       };
       for (const other of this.agents) if (other.object.id !== controller.job?.peerId && !ok(other.dispatch.carrier.position, other.dispatch.radius)) return false;
       for (const other of this.forkliftAgents) if (other !== agent) for (const at of other.controller.bodies) if (!ok(at, other.controller.radius)) return false;
+      // Cycle vehicles too (working / parked shuttles, ship AMRs, cycle forklifts); floor Rack_m stays with the route planner.
+      const racks = (this.cycleRackIds ??= new Set((this.cycle?.rackViews ?? []).map((r) => r.id)));
+      for (const body of this.cycleTraffic) if (!racks.has(body.owner ?? "") && body.owner !== controller.job?.peerId && !ok(body.position, body.radius)) return false;
       return true;
     };
   }
+  private cycleRackIds?: Set<string>;
   /** Forklift footprint circles of the current step (AMR traffic planner and forklift make-way). */
   private trafficBodies: TrafficBody[] = [];
   /** Cycle vehicles and floor Rack_m, reused so the AMR traffic step does not allocate. */
